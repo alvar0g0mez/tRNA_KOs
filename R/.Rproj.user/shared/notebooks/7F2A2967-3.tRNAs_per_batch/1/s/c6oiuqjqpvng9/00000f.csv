@@ -1,0 +1,6 @@
+"0","resp_filtered <- resp_filtered %>%"
+"0","  group_by(anticodon) %>% "
+"0","  mutate(n= n())"
+"0",""
+"0","ggplot(data = resp_filtered, aes(x = anticodon, y = avg_nDEP, fill = n)) +"
+"0","  geom_boxplot()"

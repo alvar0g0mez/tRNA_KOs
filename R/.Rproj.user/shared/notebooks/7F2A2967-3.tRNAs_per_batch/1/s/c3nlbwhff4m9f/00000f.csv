@@ -1,0 +1,7 @@
+"0","# Can I just concatenate them and that's it??? - I think so! If I find any issues with the volcano plots, I know where to look lol"
+"0","# First add a column which identifies the plate/batch tho"
+"0","DE_01$da$Plate <- rep(1, nrow(DE_01$da))"
+"0","DE_02$da$Plate <- rep(1, nrow(DE_02$da))"
+"0","DE_03$da$Plate <- rep(1, nrow(DE_03$da))"
+"0",""
+"0","da_full <- rbind(DE_01$da, DE_02$da, DE_03$da)"

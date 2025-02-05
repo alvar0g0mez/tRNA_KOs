@@ -1,0 +1,6 @@
+"0","# The master tRNA dataset
+master_dataset <- as.data.frame(fread(""C:/MyStuff/tRNAs/Data/GtRNAdb/master_tRNA_dataset.csv""))
+"
+"2","Error en fread(""C:/MyStuff/tRNAs/Data/GtRNAdb/master_tRNA_dataset.csv""): 
+  no se pudo encontrar la función ""fread""
+"

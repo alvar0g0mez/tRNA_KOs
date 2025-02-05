@@ -1,0 +1,4 @@
+"0","ggplot(data = resp_filtered, aes(x = as.factor(Replicate_num), y = avg_nDEP, col = as.factor(Replicate_num))) +"
+"0","  geom_boxplot() +"
+"0","  geom_jitter(position=position_jitter(0.2)) +"
+"0","  xlab(""Number of replicates"")"

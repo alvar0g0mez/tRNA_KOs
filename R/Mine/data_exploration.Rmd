@@ -1,0 +1,690 @@
+---
+title: "Outlier exploration"
+author: "Álvaro Gómez Pérez"
+date: "2025-01-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Packages
+```{r}
+library(dplyr)
+library(data.table)
+library(limma)
+library(ggplot2)
+library(patchwork)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(gprofiler2)
+library(xlsx)
+library(stringr)
+library(gridExtra)
+library(grid)
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(circlize))
+library(factoextra)
+library(glue)
+library(dendextend)
+library(ggrepel)
+library(ggvenn)
+library(tidyr)
+```
+
+
+
+# 1. Load data and initial analysis
+## 1.1. Load data
+```{r}
+# Our proteomics data 
+#proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+
+proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
+
+# The sample layout
+sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread("C:/MyStuff/tRNAs/Data/GtRNAdb/master_tRNA_dataset.csv"))
+
+# Import the functions I have created in another file
+#source("C:/MyStuff/tRNAs/Scripts/R/Mine/0.general_use_functions.R")
+```
+
+## 1.2. Add columns to sample_layout and merge it with master_dataframe
+```{r}
+# Fix the QC rows to say "QC" instead of "NA" in the columsn that don't apply
+sample_layout <- sample_layout %>%
+  mutate(Analysis.Plate.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                        TRUE ~ as.character(Analysis.Plate.384))),
+         Analysis.Row.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                      TRUE ~ as.character(Analysis.Row.384))),
+         Analysis.Column.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                      TRUE ~ as.character(Analysis.Column.384))),
+         Analysis.Plate.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                      TRUE ~ as.character(Analysis.Plate.96))),
+         Analysis.Row.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                      TRUE ~ as.character(Analysis.Row.96))),
+         Analysis.Column.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+                                      TRUE ~ as.character(Analysis.Column.96))))
+
+# Extract the date for when each sample was run, as well as Date_Injection
+sample_layout <- sample_layout %>% 
+  mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)")) %>%
+  mutate(Date_Injection_Order = paste(str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"), str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"),
+                                      sep="_"))
+
+# Create a column that simply has the info of if each sample is a KO strain or a WT replicate
+sample_layout <- sample_layout %>% 
+  mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
+                                 TRUE ~ "KO"))
+
+# Add a column with the following format: Analysis.Plate.96_Replicate
+sample_layout <- sample_layout %>%
+  mutate(Analysis.Plate.96_Replicate = paste(Analysis.Plate.96, Replicate, sep="_"))
+
+# Add a column which identifies samples in Analysis.Plate.96 = 3, Replicate = 2
+sample_layout <- sample_layout %>%
+  mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
+                                 TRUE ~ "No"))
+
+# Merge with master dataframe
+colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
+
+sample_layout <- sample_layout %>% 
+  select(-Anticodon) %>%
+  left_join(master_dataset, by = c("Strain.Name"))
+```
+
+## 1.3. Pre-process proteomics data - this is where I deal with the 2 duplicated strains and remove samples in the wrong subbatch
+```{r}
+# Come up with new colnames
+new_names <- c("sample_group", "genes")
+for (i in 3:ncol(proteomics_raw)) {
+  strain_and_batch <- colnames(proteomics_raw)[i]
+  trna_name <- proteomics_raw[1, i]
+  batch_num <- str_extract(strain_and_batch, "(?<=\\.).*")
+  new_name <- paste(trna_name, "_", batch_num, sep = "")
+  new_names <- c(new_names, new_name)
+}
+colnames(proteomics_raw) <- new_names
+
+
+# Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated samples
+## Come up with the averages
+n_occur <- data.frame(table(colnames(proteomics_raw)))
+repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+
+out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
+for (i in 1:length(repeated_samples)) {
+  strain <- repeated_samples[i]
+  temp <- proteomics_raw[5:nrow(proteomics_raw), colnames(proteomics_raw) == strain]
+  temp[,1] <- as.numeric(temp[,1])
+  temp[,2] <- as.numeric(temp[,2])
+  first_rows <- proteomics_raw[1:4, colnames(proteomics_raw) == strain]
+  out <- c(first_rows[,1], apply(temp, 1, mean))
+  out_temp[,i] <- out
+}
+colnames(out_temp) <- repeated_samples
+
+## Remove original columns from dataframe and add the averaged ones
+proteomics_raw <- proteomics_raw[,!(colnames(proteomics_raw) %in% repeated_samples)]
+proteomics_raw <- cbind(proteomics_raw, out_temp)
+
+
+# Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
+trna_ko <- proteomics_raw %>%                 
+  filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%         # Remove rows for which "genes" column is empty or has "Genes" as value
+  select(-sample_group & !contains('QC')) %>%                       # Remove UNIPROT IDs and QCs columns
+  column_to_rownames(var = 'genes')                                 # Convert gene name column to rownames
+
+# Convert to a numeric dataframe
+trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
+
+# Add sample_names to sample_layout so that we can filter out in the next line
+sample_layout <- sample_layout %>%
+  mutate(sample_names = case_when(Strain.ID == "WT" ~ paste(gsub("-", "_", Sample.ID), ".0", Replicate, sep=""),
+                                  TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) 
+
+# Remove the sub-batch that went wrong
+samples_in_wrong_batch <- sample_layout$sample_names[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
+
+# Remove unnecessary objects
+rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
+   samples_in_wrong_batch)
+```
+
+
+
+
+# 2. Check relationship between date and plate - it was plate 1 that was ran between 2 days, so that is not the cause of the weird outliers in plate 2 :(
+```{r}
+ggplot(data = sample_layout, aes(x = Replicate, y = date)) +
+  geom_point()
+```
+
+
+
+
+# 3. PCA
+First look at the PCA plot colored by all variables possible (both metadata and biological), see if there is any variable that explains the weird outliers in Batch 2. 
+
+Match sample names to metadata
+```{r}
+sample_layout <- sample_layout %>%
+  mutate(sample_names = case_when(Strain.ID == "WT" ~ paste(gsub("-", "_", Sample.ID), ".0", Replicate, sep=""),
+                                  TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) 
+```
+
+Prepare PCA data
+```{r}
+# Get data PCA-ready
+PCA_data <- as.data.frame(t(trna_ko))
+
+# Get PCA tags for different cases - define a function for this, then call it before running the corresponding plot
+get_PCA_tags <- function(PCA_data, sample_layout, type_of_tags) {
+  out <- c()
+  for (i in 1:nrow(PCA_data)) {
+    rowname <- rownames(PCA_data)[i]
+    out <- c(out, sample_layout[sample_layout$sample_names == rowname, type_of_tags][1])
+  }
+  return(out)
+}
+
+# FOR THESE ONES TO WORK AGAIN I WILL PROBABLY HAVE TO MERGE SAMPLE_LAYOUT AND MASTER_DATASET, PROBABLY EASY
+#PCA_tags_aa <- get_PCA_tags(PCA_data, sample_layout, "AA")
+#PCA_tags_chr <- get_PCA_tags(PCA_data, sample_layout, "chromosome")
+#PCA_tags_anticodon <- get_PCA_tags(PCA_data, sample_layout, "anticodon")
+```
+
+Run PCA
+```{r}
+#calculate principal components
+results_PCA <- prcomp(PCA_data, scale = TRUE)
+
+#reverse the signs
+results_PCA$rotation <- -1*results_PCA$rotation
+
+#calculate total variance explained by each principal component
+var_explained =  results_PCA$sdev^2 / sum(results_PCA$sdev^2)
+var_exp_PC1 = format(round(var_explained[1]*100, 3), nsmall = 3)
+var_exp_PC2 = format(round(var_explained[2]*100, 3), nsmall = 3)
+```
+
+Plot PCA - by metadata
+```{r}
+# Label by batch
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Replicate")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by batch - remove wrong sub-batch") +
+  theme_light()
+
+# Label by date
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "date")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by date") +
+  theme_light()
+
+
+# Label by Analysis.Plate.384
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Plate.384")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Plate.384") +
+  theme_light()
+
+
+# Label by Analysis.Column.384
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Column.384")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Column.384") +
+  theme_light()
+
+
+# Label by Analysis.Row.384
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Row.384")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Row.384") +
+  theme_light()
+
+
+# Label by Analysis.Plate.96
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Plate.96")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Plate.96") +
+  theme_light()
+
+
+# Label by Analysis.Row.96
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Row.96")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Row.96") +
+  theme_light()
+
+
+# Label by Analysis.Column.96
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Column.96")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Column.96") +
+  theme_light()
+
+
+# Label by Strain.Type (WT or KO)
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Strain.Type")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Strain.Type") +
+  theme_light()
+
+
+# Label by Analysis.Plate.96_Replicate
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Analysis.Plate.96_Replicate")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Analysis.Plate.96_Analysis.Plate.384 - complete") +
+  theme_light()
+
+
+# Label by Wrong_batch
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Wrong_batch")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by Wrong_batch - full data") +
+  theme_light()
+```
+Found what is causing the outliers, it's batch 3_2 :D
+
+
+Plot PCA - by biological variables - WTs are still included, so there are NAs in the plots due to that
+```{r}
+# Label by chromosome
+
+
+# Label by anticodon
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Anticodon")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by anticodon") +
+  theme_light()
+
+
+# Label by amino acid
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Best_isotype_model")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+#PC <- PC %>% filter(Label != "WT")
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by amino acid") +
+  theme_light()
+
+
+# Label by intron in the tRNA gene
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Intron")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+#PC <- PC %>% filter(Label != "WT")
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - intron in the tRNA gene") +
+  theme_light()
+
+
+# Label by whether they are iMet or not
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "iMet")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+#PC <- PC %>% filter(Label != "WT")
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by whether they are iMet or not") +
+  theme_light()
+
+
+# Label by gene seq length
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "length_DNA_seq")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+#PC <- PC %>% filter(Label != "WT")
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by gene seq length") +
+  theme_light()
+
+
+# Label by mature seq length
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "length_mature_seq")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags)
+#PC <- PC %>% filter(Label != "WT")
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point() +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - by mature seq length") +
+  theme_light()
+```
+None of these seem to separate anything in the PCA
+
+
+Remove unnecessary variables created for PCA
+```{r}
+rm(PCA_tags, var_exp_PC1, var_exp_PC2, var_explained, get_PCA_tags, PC, PCA_data, results_PCA)
+```
+
+
+
+
+# 4. Check stats file to see if that explains the differences in batch 3_2
+## 4.1. Load and pre-process stats_file
+```{r}
+# Load stats file
+stats_file <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz', header = T)
+
+# Add column with subbatches
+stats_file <- left_join(stats_file, sample_layout[,c("File.Name", "Analysis.Plate.96", "Replicate", "Analysis.Plate.96_Replicate", "Strain.Type", 
+                                                     "Wrong_batch", "date", "Date_Injection_Order")], by = "File.Name")
+```
+
+## 4.2. Plots to try to explain what is wrong with the subbatch
+```{r}
+# Plot precursor number vs. protein number coloring by sub-batch
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
+  geom_point() +
+  theme_light()
+ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png")
+
+# Plot precursor number vs. protein number, color by whether they are in the wrong batch or not
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Wrong_batch)) +
+  geom_point() +
+  theme_light()
+ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_wrong_batch.png")
+
+# Plot precursor number vs. date_injection_order, color by sub-batch
+ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = Analysis.Plate.96_Replicate)) +
+  geom_point() +
+  theme_light() +
+  theme(axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        # Remove the vertical grid lines
+        panel.grid.major.x = element_blank())
+ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_identified_vs_injection_by_subbatch.png")
+
+# Plot protein number vs. date_injection_order, color by sub-batch
+ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
+  geom_point() +
+  theme_light() +
+  theme(axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        # Remove the vertical grid lines
+        panel.grid.major.x = element_blank())
+ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png")
+
+# Plot precursor number vs. date_injection_order, color by date
+ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = date)) +
+  geom_point() +
+  theme_light() +
+  theme(axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        # Remove the vertical grid lines
+        panel.grid.major.x = element_blank())
+ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_identified_vs_injection_by_date.png")
+
+# Plot precursor number vs. MS1.Signal coloring by sub-batch
+ggplot(data = stats_file, aes(x = MS1.Signal, y = Precursors.Identified, col = Analysis.Plate.96_Replicate)) +
+  geom_point() +
+  theme_light()
+```
+
+## 4.3. Plots to try to explain what's up with the 2 separate curves in Precursors.Identified vs. Proteins.Identified
+```{r}
+# Precs vs. proteins, color by batch/384-well plate
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = as.factor(Replicate))) +
+  geom_point() +
+  theme_light()
+
+# Precs vs. proteins, color by 96-well plate
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
+  geom_point() +
+  theme_light()
+
+# Precs vs. proteins, color by date
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = date)) +
+  geom_point() +
+  theme_light()
+
+# Precs vs. proteins, color by KO or WT
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Strain.Type)) +
+  geom_point() +
+  theme_light()
+```
+Nothing figured out from this yet :(
+
+
+
+
+
+
+
+
+############################## FROM HERE IT'S OLD CODE - CHECK IT AT SOME POINT ##############################
+
+
+## 2.2. Clustering analysis
+```{r}
+# Elbow method - try to figure out what number of clusters is appropriate 
+clust_df = log2(trna_ko)
+clust_df = as.data.frame(t(clust_df))         
+clust_df = scale(clust_df)
+
+fviz_nbclust(clust_df, kmeans, method = "wss", k.max = 15)
+
+
+# Create a function that can be used to perform clustering with different k values 
+perform_clustering = function(tmp, dist_method, clust_method, num_of_clusters, want_dendrogram = T, want_clust_plot = T) {
+  # Get distance matrix based on Euclidean distance
+  dist.euc = dist(tmp, method = dist_method)
+  
+  # Perform clustering
+  tree.complete = hclust(dist.euc, method = clust_method)
+  
+  # Plot dendrogram
+  if (want_dendrogram) {
+    plot(tree.complete, cex = 0.3, 
+    main = glue("Dendrogram for clustering with {clust_method} link"),
+    xlab = glue("{dist_method} distance"))
+    rect.hclust(tree.complete , k = num_of_clusters)
+  }
+  
+  if (want_dendrogram) {
+    dend_obj = as.dendrogram(tree.complete)
+    col_dend <- color_branches(dend_obj, k = num_of_clusters)
+    labels_cex(col_dend)
+    plot(col_dend)
+  }
+  
+  # Visualize clusters
+  my_clusters = cutree(tree.complete, k = num_of_clusters)
+  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), main = glue("Clustering by {clust_method} link")))}
+  
+  return(my_clusters)
+}
+
+
+# Use this function to do clustering: k = 2
+my_clusters = perform_clustering(clust_df, "euclidean", "complete", 2)
+```
+--> Maybe I should do this with the data after subtracting the WT median from them or something like that??? That might allow to cluster nicely the major and minor tRNA copy KOs.
+
+
+
+
+## 2.3. Heatmaps
+Heatmap on the original log2 proteomics data
+```{r}
+# Get the heatmap
+mat = as.matrix(log2(trna_ko))
+
+col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
+
+Heatmap(mat,
+        name = "Heatmap",
+        col = col_fun,
+        na_col = "black",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+```
+
+Heatmap with z-score based on median per row
+```{r}
+mat_zscore = t(apply(log2(trna_ko), 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
+col_fun = colorRamp2(c(-4, -2, 0, 2, 4), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_zscore,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #column_labels = grepl("QC", colnames(mat_zscore)),
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+```
+
+Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
+```{r}
+temp = t(apply(log2(trna_ko), 1, function(x) x/median(x, na.rm = T)))
+mat_log2FC = log2(temp)
+col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_log2FC,
+        name = "Heatmap",
+        col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                # When I use this, rows are not ordered by abundance anymore :(
+        column_names_gp = gpar(fontsize = 5))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,883 @@
+---
+title: "Analysis of Affymetrix Yeast Genome 2.0 arrays in R"
+output: html_document
+author: "Daniel P Brink, Division of Applied Microbiology, Lund University, Sweden"
+date: "2022-11-30"
+---
+
+
+
+I GOT THIS FROM HERE: https://github.com/MicrobialEngineeringGroupTMB/Analysis-of-Affymetrix-Yeast-Genome-2.0-microarray-data-with-R
+Really nice!
+
+
+
+
+
+### 1. Introduction
+The R notebook stored in this repository contains the code used to process Affymetrix Yeast Genome 2.0 microarray data for the Almeida et al (2023) publication titled *Physiological and molecular characterization of yeast cultures pre-adapted for fermentation of lignocellulosic hydrolysate*. The purpose of this repository is three-fold: to archive the code, to contribute to reproducible science, and for the sake of education. 
+
+In many research fields, RNA sequencing (RNAseq) has become the go-to technology for transcriptome analysis, but microarray chips are at the time of writing still commercially available and are to some extent still used in research. More importantly, the available gene expression databases, such as NCBI's Gene Expression Omnibus ([GEO](https://www.ncbi.nlm.nih.gov/geo/)) store a substantial number of microarray datasets, and to be able to re-use these valuable datasets in future studies, it is crucial to preserve the knowledge about how to process them. This notebook shows one possible way of doing this for data from Affymetrix Yeast Genome 2.0 arrays (.CEL files). Please also consider looking at other guides and tutorials (see reference section below).
+
+The data that is analyzed in this repository has been deposited at GEO accession number [GSE218764](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE218764). However, the general workflow presented in this R notebook is designed to work with any Affymetrix Yeast Genome 2.0 data.
+
+The code relies on several existing R packages, many of which are bioinformatics packages available via Bioconductor. The key packages used in this analysis are Affy and Limma. Rstudio was used to write the code, and Rmarkdown and Knitr to produce the .html version of the notebook. References to packages and publications are listed in section 10 below. If there is anything in this notebook that you found useful, please consider citing the Almeida (2023) paper, but more importantly, please make sure to cite the R packages according to the instructions of the authors of each package. The packages available from Bioconductor typically state their desired way of citation on their Bioconductor page; see for instance examples for [Affy](https://www.bioconductor.org/packages/release/bioc/html/affy.html) and [Limma](https://bioconductor.org/packages/release/bioc/html/limma.html).  
+
+
+
+
+
+
+### 2. Initialize packages and load the data
+
+A major reason to use R for certain types of bioinformatics analyses, such as transcriptome data processing, is the availability of many excellent open source packages that can aid us in our analysis. In this work-flow we will use the following packages, which we need to install in our R distribution (not shown here) and then initialize in the R script, for instance using the *library()* command.
+
+```{r, message = FALSE, warning=FALSE}
+library(affy)                       # Used for parsing Affymetrix data 
+library(limma)                      # Used for the differential expression (DE) analysis
+library(yeast2.db)                  # Contains gene annotations for the Yeast2 Affimetrix array
+library(biomaRt)                    # Programmatical access to Ensembl, used for getting S. cerevisiae gene coordinates
+library(EnhancedVolcano)            #For making nice-looking volcano plots, based on ggplot2
+#library(ggplot2)                   # For making nice-looking plots, but it is already loaded by EnhancedVolcano
+library(patchwork)                  # Useful package to stack plots
+library(tidyverse)                  # Useful syntax package, here used to manipulate dataframes
+library(ggrepel)                    # Used to better separate labels on  scatter plots (in this case PCA plots)
+library(ggVennDiagram)              # A Venn diagram package based on ggplot
+```
+
+
+First we need to download the raw data from the GEO repository (accession number GSE218764). The data we are looking for are the 10 .CEL files. In this example we have downloaded them in a folder on the C: drive called GSE218764/raw_data. If you want to store the files in another directory, just change the path accordingly. There are packages like [GEOquery](https://bioconductor.org/packages/release/bioc/html/GEOquery.html) that can programmatically download GEO data, but it this example we will just work with data from a single GEO repository and can thus download it manually just as easy.
+
+In R, we can then list all the files in directory using *list.files()* and load the data using *ReadAffy()*. (For this particular code to work we will assume that the folder contains nothing else aside from the .CEL files)
+
+```{r,}
+files = list.files("C:/MyStuff/tRNAs/Data/Microarrays/microarrays_raw/", full.names = TRUE)
+affy_data = ReadAffy(filenames = files)
+```
+
+
+
+
+
+
+### 3. Data normalization and QC
+
+Data normalization is a crucial step in any transcriptomics analysis. There are specific normalization methods used with microarrary data, and specific ones for RNAseq data. Knowing which to choose based on a given dataset and the planned downstream analyses is a key decision in the data processing work-flow. 
+
+For microarray data, we need to know if the data we will be working with comes from a single chip or from multiple chips. In short, Mas5 normalization should be used when the data comes from a single chip (e.g. two samples labelled with different fluorescent probes), and Robust Multichip Average (RMA) is useful when the data has been collected from multiple chips. The data we are analysing here comes from multiple chips, so we will be using RMA. 
+
+#### 3.1. RMA normalization
+Perform RMA normalization on the raw data we've loaded and convert the normalized data to a so-called expression set compatible with the intended downstream use:
+```{r, message = FALSE, warning=FALSE}
+norm_rma = rma(affy_data)
+expr_set_rma = exprs(norm_rma)
+```
+
+Check the current column names (= the file names from the folder we read with *list.files*) and rename them to a shorter name of our choice. Note that the samples were taken at approximately 17-17.5 h, and are thus named 17h in the publication; however, the corresponding samples deposited to GEO were named 18h. In order harmonize with the publication, we will name them as 17h in this analysis.
+```{r,}
+# Added by me - come up with colnames
+grab_sample_names <- function(file_names) {
+  out <- c()
+  for (i in 1:length(file_names)) {
+    file_name <- file_names[i]
+    file_name <- sub(".*/(.*)", "\\1", file_name)
+    file_name <- sub("^[^_]*_(.*)_Yeast.*", "\\1", file_name)
+    if (substr(file_name, 1, 2) == "WT") {
+      out <- c(out, file_name)
+    }
+    else {
+      out <- c(out, substr(file_name, 2, nchar(file_name)))
+    }
+  }
+  return(out)
+}
+sample_names <- grab_sample_names(files)
+
+
+# Until here, this part was already here, I just changed the colnames
+colnames(expr_set_rma)
+colnames(expr_set_rma) = sample_names
+```
+
+Later on we will compile the processed data and the raw data in a single final tsv file, but if we want to already now save the normalized data to file, we can use the *write.table* function. Here we save to a .tsv (tab separated variables) file which can be read in most text editors or be loaded in the spread sheet software like Excel. Tab delimited files are often more useful in biology than comma delimited files (.csv) since gene and protein names sometimes contain commas (e.g. Fructose-1,6-bisphosphatase). Thus tabs are a more universal delimiters for this type of data.  
+```{r,}
+write.table(expr_set_rma, file = "C:/MyStuff/tRNAs/Data/Microarrays/expr_set_rma.tsv", quote = FALSE, sep = "\t", col.names=NA)
+```
+
+
+
+#### 3.2. Data QC using Principal Component Analysis
+
+It is generally recommended to do some form of quality control (QC) analysis of the (pre-processed) in-data. In this case we will settle for assessing the reproducibility of the experiments used to generate the data. In the current dataset, samples were taken in different media (hydrolysate or sugar medium), at different time points (9h and 17h) and in biological duplicates (replicate.1 and replicate.2). The dataset also contains two control samples taken at 0h of the analysis; we will not be using them in the differential expression analysis in this work-flow, so for now we will only consider them as controls and just check that they are different from the other samples. A good way to get a feeling for the reproducibility of the different treatments and replicates is to do a cluster analysis. Here we will do this using Principal Component Analysis (PCA).
+
+Something to keep in mind with Affymetrix Yeast Genome 2.0 arrays is that the chip contains probes for two yeast species: *Saccharomyces cerevisiae* (baker's yeast) and *Schizosaccharomyces pombe* (fission yeast).  The samples in the current dataset come from *S. cerevisiae*, meaning that about only one half of the total probes on the array are relevant for our needs. There are also a handful control probes on the chip that don't belong to either of these yeasts, but they are few in comparison to the yeast probes. In this section we will look at all probes on the chip, and later on when we have added the species annotation we will generate a PCA plot just with the *S. cerevisiae* probes (Section 7).
+
+It is possible to do a PCA analysis *per probe* or *per sample*. Here we are interested to see how the samples cluster, and we can get that by using the transposed expression set as the input to R's PCA function *prcomp()*.
+```{r,}
+# PCA for the samples
+PCA_all_s <- prcomp(t(expr_set_rma), scale = TRUE ) #transpose to analyze samples instead of genes
+
+# For reference, we can get the PCA for the probes by the following command: 
+#PCA_all_g <- prcomp(expr_set_rma, scale = TRUE )
+#plot(PCA_all_g$x[, 1:2])
+```
+
+Inspect the top five rows in the PCA we made for the samples. The principal components are sorted by how much of the variance they describe, and we will be using PC1 and PC2 for the cluster plot. In this example in which we include all probes, PC1 and PC2 together describe 52% of the total sample variance.
+```{r,}
+pca_all_summary <- summary(PCA_all_s)
+pca_all_summary$importance[, 1:5]
+```
+
+To plot the PCA results with ggplot, we first convert the results to a dataframe, label the samples and store the labels in a column called group, and then use the dataframe as input for ggplot. Here we set the x- and y-axes to the same intervals (-100,100), since square PCA plots can sometimes be easier to interpret:
+
+```{r,}
+pca_all_df <- data.frame(PCA_all_s$x[, 1:2])
+group_names <- sapply(rownames(pca_all_df), function(x) sub("^(.*)_.*$", "\\1", x), USE.NAMES = F)  # This I changed it myself
+pca_all_df$group <- group_names
+
+p_all_pca <- ggplot(pca_all_df,aes(x = PC1,y = PC2,label=rownames(pca_all_df),color=group)) +
+  ylim(-100,100)+
+  xlim(-100,100)+
+  geom_point() + # Plot individual points to make a scatterplot
+  labs(color = "Sample\nconditions")+ #title of the legend. \n is used to force a newline
+  theme(plot.title = element_text(hjust = 0.5, size=15), panel.background = element_rect(fill = "transparent"),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+      legend.background = element_rect(fill = "transparent"),
+      axis.line = element_line(colour = 'black', linewidth = 0.5),
+      axis.text.x = element_text(size=10),
+      axis.text.y = element_text(size=10),
+      axis.title.x = element_text(size=10),
+      axis.title.y = element_text(size=10, vjust=2)
+)
+```
+
+To avoid having our labels overlapping each other, we can use the syntax of the ggrepel package to nudge the labels out of their way.
+```{r,}
+p_all_pca_final <- p_all_pca+geom_text_repel(size=4,show.legend = FALSE,direction = "x")
+#call the plot variable to display it
+p_all_pca_final
+```
+
+The PCA plot indeed shows that the replicates (.1 and .2) of each samples generally cluster together, and it could possibly be said that the the 9h samples form a larger cluster. Overall, this shows that the experimental setup seem to be reproducible. We will repeat the PCA later with only the *S. cerevisiae* probes and see if that affects the clustering. 
+
+Since we used ggplot to generate the figure, we can easily save it to formats of our choice using ggsave. Here is an example to save as .pdf (vector graphics) and tiff:
+```{r,}
+ggsave("C:/MyStuff/tRNAs/Data/Microarrays/pca_rma_all.pdf", width = 9, height = 6, units = 'in')
+ggsave("C:/MyStuff/tRNAs/Data/Microarrays/pca_rma_all.tiff", width = 9, height = 6, units = 'in',compression = "lzw")
+```
+
+
+### 4. Differential expression (DE) analysis 
+
+#### 4.1. Defining groups, design and contrast matrices and performing fits and contrasts
+
+Now that we have the normalized data, we need to specify which samples belongs to which group by setting up a so called *design matrix*. We can then fit the data to the design matrix, define which groups we want to compare in a *contrast matrix* and finally perform the contrasts and thus the differential expression analysis.
+
+Depending on how well the chips where annotated when they were analysed in the lab, the .CEL files might contain useful annotations, which can be stored in the phenodata object in the array data loaded by ReadAffy.However, for the current data there are no annotations in phenoData:
+```{r,}
+ph = affy_data@phenoData
+ph@data
+```
+
+We therefore need to add the information on which group each sample belongs to ourselves. We can write it to the phenoData dataframe (ph) if want, or just to a new vector. Let's add it to the dataframe in this example. Since the .CEL file names start with a number (01-10), we know which order they were loaded by Affy and we can thus create a column vector containing the groups, in the same order:
+```{r,}
+ph@data[ ,2] = group_names
+colnames(ph@data)[2]="groups"
+ph@data$sample_names <- sample_names
+ph@data
+```
+
+By grouping like this we tell the algorithms that there are replicates that belong to the same group.
+We can then use this information to make a design matrix for the DE analysis according to the standard workflow of Limma.
+
+```{r,}
+f = factor(ph@data$groups,levels = levels(as.factor(ph@data$groups)))
+design = model.matrix(~ 0 + f) 
+colnames(design)=levels(as.factor(ph@data$groups))
+design #display the final design matrix
+```
+
+Fit the expression data to the design matrix using Limma's *lmFit* function:
+```{r,}
+data_fit = lmFit(expr_set_rma,design)
+```
+
+For the first 10 probes of the dataset, the coeffiecients from the fitting looks like this. This data will later on be used to calculate e.g. fold changes.
+```{r,}
+data_fit$coefficients[1:10,]
+```
+
+Make a contrast matrix to decide which conditions to compare. Here we want to contrast the 9h samples by comparing HYD9h to SUG9h. The order of the contrast decides the direction of the fold change: by calling the contrast in the order HYD9h-SUG9h, positive fold changes will mean that a probe had higher expression levels in the Hyd9h samples, and negative if the probe had lower expression levels in the Hyd9h samples. If we instead call the contrast as SUG9h-HYD9h, we will get the opposite direction, which is not what we want for the current analysis. 
+
+```{r,}
+contrast_matrix = makeContrasts(tH_GUG_G1-WT,
+                                tL_GAG_G-WT,
+                                tM_CAU_C-WT,
+                                tR_CCU_J-WT,
+                                tR_UCU_M2-WT,
+                                levels=design)
+```
+
+Perform the contrast to make the comparisons specified by the contrast matrix:
+```{r,}
+data_fit_con = contrasts.fit(data_fit,contrast_matrix)
+```
+
+#### 4.2. Setting a log2 fold change cut-off 
+
+Later on we will be using Limma's *decideTests* function to statistically test for differentially expressed (DE) genes below a specified False Discovery Rate (FDR) p-value threshold.  The standard work-flow in Limma is to calculate p-values using the *eBayes* function and then use *decideTests* to implement FDR correction and test for significant genes. However, it is common in transcriptomics analyses to further narrow down the list of significant genes using a log2 fold change cut-off in addition to the p-value cut-off (we should still keep in mind that the p-value cut-off is the key threshold!). Although *decideTests* can perform the test on both the FC and p-value cut-offs at once, the authors of Limma recommend against this since it is a form of post-hoc filtering. Instead, they authors suggest to use the *treat* function instead of *ebayes*, e.g. in the following note from the Limma manual for *decideTests()*:
+
+>"Although this function enables users to set p-value and lfc cutoffs simultaneously, this combination
+criterion is not generally recommended. Unless the fold changes and p-values are very highly correlated, the addition of a fold change cutoff can increase the family-wise error rate or false discovery
+rate above the nominal level. Users wanting to use fold change thresholding are recommended to
+use treat instead of eBayes and to leave lfc at the default value when using decideTests."
+>
+> https://www.bioconductor.org/packages/release/bioc/manuals/limma/man/limma.pdf
+
+For this dataset we would like to implement a FC and a p-value cut-off, and thus we will first send the contrasts to *treat* and tell it that we would like to work with a FC threshold of log2 2:
+```{r,}
+data_fit_tr = treat(data_fit_con, lfc=log2(1.5))
+```
+
+#### 4.3. FDR correction and statistical testing of DE gene 
+
+To find the statistically supported DE genes, we will used the *decidesTests()* function in Limma. To use the test, we need to decide if we want to use the same t-value cutoff for both our contrasts (HYD9h-SUG9h, and HYD17h-SUG17h) or treat them seperatelly. The Limma manual has the following to say about this:
+
+>The default method="separate" and adjust.method="BH" settings are appropriate for most analyses. 
+method="global" is useful when it is important that the same t-statistic cutoff should correspond to statistical significance for all the contrasts. separate would be useful for each individual comparison, but when do the test acrosss comparisons global might be more useful
+>
+> https://www.bioconductor.org/packages/release/bioc/manuals/limma/man/limma.pdf
+
+For this analysis we decided that we wanted to use the same t-value cut-off for both our contrasts (HYD9h-SUG9h, and HYD17h-SUG17h) and thus we decided to use the "global" method in *decideTests*. For FDR correction we specify that we want to use Benjamini–Hochberg (BH) adjusted p-values:
+
+```{r,}
+dt_glob <- decideTests(data_fit_tr, p = 0.05, adjust.method='BH',method="global")
+df_dt_glob<-as.data.frame(dt_glob) #convert the results to a dataframe that we can later manipulate
+```
+
+To get a summary of the results from *decideTests()*:
+```{r,}
+summary(dt_glob)
+```
+
+Here we see that 7 and 89 genes were significantly upregulated in the 9h and 17h contrasts, respectively. Likewise, 18 and 218 genes were significantly downregulated. This data contains all the probes, and while can do this analysis again later once we have annotated and extracted the *S. cerevisiae* probes, the significant results are unlikely to change since the probes have been designed to be specific for each organism.
+
+We can plot a quick Venn diagram to see if there were any genes that were significantly DE in both contrasts (yes, six of them were!):
+```{r,}
+vennDiagram(dt_glob[,1:2], circle.col=c("turquoise", "salmon"))
+```
+
+To get the log2 fold changes (log2FC) for all probes we can use use *topTreat()* with "number=Inf" (this parameter can be set to any number, but since we want all the results, we specify Inf). This function will also gives us adjusted p-values, however, they will be generated from the "separate" method (!) and not the "global" method. We will work on addressing this below, and will basically drop the p-values from topTreat and replace them the the "global" method ones later.
+
+```{r,}
+tr_df_HYD9h_vs_SUG9h = topTreat(data_fit_tr,coef=1,number=Inf,adjust.method='BH')
+tr_df_HYD17h_vs_SUG17h = topTreat(data_fit_tr,coef=2,number=Inf,adjust.method='BH')
+```
+
+It is a little trickier to get the adjusted p-values from the "global" analysis method compared to the "separate" method since the wrapper functions only give us the latter. Thankfully, one of the authors of Limma describes how to get the "global" adjusted p-values [here](https://support.bioconductor.org/p/23551/). 
+
+```{r,}
+adj_p_glob <- p.adjust(data_fit_tr$p.value, method="BH")
+#note that data_fit_tr is the same fit object that was given to decideTests().
+```
+
+(As an aside, when the "separate" method is used, the below code is basically what happens. The p-values are adjusted per contrast instead of taking the p-values for all contrasts into account:)
+```{r,}
+#adj_p_9h_sep <- p.adjust(data_fit_tr$p.value[,1], method="BH")
+#adj_p_17h_sep <- p.adjust(data_fit_tr$p.value[,2], method="BH")
+```
+
+*adj_p_glob* now contains all the Benjamini–Hochberg adjusted p values for both contrasts in a single column vector, so to split them by contrast(HYD9h - SUG9h, and HYD17h - SUG17h) we can use the fact that there are 10928 unique probes in these .CEL files, and just use the first and second half of the vector to populate columns in our dataframe:
+```{r,}
+df_dt_glob$adj.P.Val_9h <- adj_p_glob[1:10928] 
+df_dt_glob$adj.P.Val_17h <- adj_p_glob[10929:21856] 
+```
+
+If we want to save the results of *decideTests()* to file, we can use the *write.fit()* function from Limma:
+```{r,}
+write.fit(data_fit_tr, dt_glob, file="C:/GSE218764/data_fit_tr_DEresults_global.txt")
+```
+
+### 5. Probe annotation
+
+So far we have the DE data for the probes, but to make any biologically relevant interpretations from the data we also need to annotate them with gene information.
+
+In this example we will combine annotation information from three different sources: the yeast2.db package, Ensembl, and a file provided by Thermo Fisher, the current owners of Affymetrix.
+
+#### 5.1. The yeast2.db package
+
+The yeast2.db R package contains annotations for all *S. cerevisiae* probes. Currently, it seem that it lacks information on which organism each probe belongs to (*S. cerevisiae*, *S. pombe* or control organisms). We could live without this information, especially since all non-*S. cerevisiae* probes will lack ORF names in the annotation dataframe, but we will supplement this from another source in section 5.3.
+
+The package is based on the AnnotationDbi format for Bioconductor annotation packages. The general manual is available [here](https://bioconductor.org/packages/release/bioc/vignettes/AnnotationDbi/inst/doc/IntroToAnnotationPackages.pdf). To list the annotation categories in the package:
+```{r,}
+columns(yeast2.db)
+#keytypes(yeast2.db) #for this AnnotationDbi package, the columns and keys are the same, but we can list the keys using this command if we need to
+```
+
+To call all probes in the package and fetch the ORF name, gene name and *S. cerevisiae database* ID (an unique identifier for each ORF that will remain the same even if the ORF and/or gene name changes over time in different database updates), specify these annotations in the column option and and the probe ids as keytype:
+```{r,}
+k <- keys(yeast2.db, keytype="PROBEID")
+yeast2db_annotation<- AnnotationDbi::select(yeast2.db, keys=k, columns=c("ORF","GENENAME","SGD"), keytype="PROBEID")
+```
+
+It is good to know that *AnnotationDbi::select* will generate a new row for the same probe when one column value differes, e.g. when there are multiple Geno Ontology (GO) terms per gene. Here we try to keep it simple and pull one line of annotation per probe.
+
+Basically. if the command returns the message "'select()' returned 1:1 mapping between keys and columns", a single row has been added per probe
+
+We can quickly inspect the data we fetched, for instance by:
+```{r,}
+head(yeast2db_annotation)
+```
+
+As we can see, some probes lack annotations, and these are  the non-*S.cerevisae* ones.
+
+It is possible to get chromosome coordinates from this package, as described in the [manual](https://bioconductor.org/packages/release/data/annotation/html/yeast2.db.html), but it requires a couple of steps. In this example we will instead use Ensembl to pull all the chromosome coordinate-related data in a single query. 
+
+##### 5.2. Fetching annotations from Ensembl
+
+An alternative to the yeast2.db package is to programmatically access Ensembl and pull all the data for *S.cerevisiae* we need. It seems that yeast2.db is slightly more accurate e.g. for probes that anneal to hypothetical *S.cerevisiae* ORFs that overlap each other, and therefore we will still use use yeast2.db as our main source of annotation. Just keep in mind that we could either of these three options (sections 5.1-5.3) on their own, but here we combine them to benefit from their different strengths. 
+
+To connect to the Ensembl database and fetch the *S. cerevisiae* dataset we can use biomaRt:
+```{r,}
+ensembl <- useMart("ENSEMBL_MART_ENSEMBL", dataset="scerevisiae_gene_ensembl" ,host="https://www.ensembl.org")
+```
+
+This dataset contains more categories than yeast2.db. We can list all available categories with *listAttributes()*, but here we have already specified the data we want. The imporant columns here are the probe names (affy_yeast_2), the chromosome name, the coordinates and the strand that the gene is located on:
+```{r,}
+#listAttributes(mart = ensembl) 
+
+ensemble_annotation <- getBM(attributes=c('affy_yeast_2','ensembl_gene_id','external_gene_name', 'sgd_gene', 'chromosome_name','start_position','end_position','strand'), mart = ensembl)
+```
+
+##### 5.3. Thermo Fisher files
+
+Thermo Fisher still supplies annotation files for Affymetrix microarrays, and in many ways it makes most sense to use their files as the only source for the annotation. However, the files are supplied by a commercial company, and currently a Thermo Fisher account is needed to download the file, so for the sake of reproducible science this notebook opted for using R packages as much as possible to do the annotation (sections 5.1-5.2).  
+
+Note that this GitHub repository does not provide the annotation file (Yeast_2.na36.annot.csv), it only suggests how to use it after you have downloaded it from the company webpage.
+
+The data we are looking for here is the information on organism of each probe was designed to target.
+
+```{r,}
+organism_probes<-read.table(file = "C:/GSE218764/Yeast_2.na36.annot.csv", sep = ',', header = TRUE, skip=1)
+```
+
+
+##### 5.4. Finalizing the annotation
+
+Since we have decided to use yeast2.db data as the main annotation source, we will take that data frame and add the relevant information from the other sources to it.
+
+Add new columns to the *yeast2db_annotation* dataframe
+```{r,}
+yeast2db_annotation <- yeast2db_annotation %>% add_column(Organism = NA)
+yeast2db_annotation <- yeast2db_annotation %>% add_column(chromosome_name = NA)
+yeast2db_annotation <- yeast2db_annotation %>% add_column(start_position = NA)
+yeast2db_annotation <- yeast2db_annotation %>% add_column(end_position = NA)
+yeast2db_annotation <- yeast2db_annotation %>% add_column(strand = NA)
+```
+
+The way we fetched the Ensembl data might result in multiple rows per ORF, but we are only interested in the chromosomal coordinate data, which will always be the same even if an ORF has multiple rows. We can deduplicate the dataframe based on the ensembl_gene_id column:
+```{r,}
+ensemble_annotation<-ensemble_annotation[!duplicated(ensemble_annotation[ , c("ensembl_gene_id")]),]
+```
+
+We then run a loop to add the missing data to *yeast2db_annotation* to finalize the probe annotation:
+```{r,indent=" "}
+for (row in 1:nrow(yeast2db_annotation)) {
+
+  #annotate the probe with organism:
+  yeast2db_annotation[row, "Organism"]=organism_probes[organism_probes$Probe.Set.ID == yeast2db_annotation[row, 1],]["Species.Scientific.Name"]
+  
+  #use the locus name as gene name if the latter is missing:
+  if(is.na(yeast2db_annotation[row, "GENENAME"])==TRUE) {
+    yeast2db_annotation[row, "GENENAME"]=yeast2db_annotation[row, "ORF"]
+  }
+  
+  #fetch the chromosomal position from the deduplicated Ensemble data:
+  if((yeast2db_annotation[row, 1] %in% ensemble_annotation[,1]==TRUE) & (yeast2db_annotation[row, "Organism"]=="Saccharomyces cerevisiae") & is.na(yeast2db_annotation[row, "ORF"])==FALSE ){
+      yeast2db_annotation[row, "chromosome_name"]=ensemble_annotation[ensemble_annotation$ensembl_gene_id ==      yeast2db_annotation[row, "ORF"],]["chromosome_name"]
+      yeast2db_annotation[row, "start_position"]=ensemble_annotation[ensemble_annotation$ensembl_gene_id == yeast2db_annotation[row, "ORF"],]["start_position"]
+      yeast2db_annotation[row, "end_position"]=ensemble_annotation[ensemble_annotation$ensembl_gene_id == yeast2db_annotation[row, "ORF"],]["end_position"]
+      yeast2db_annotation[row, "strand"]=ensemble_annotation[ensemble_annotation$ensembl_gene_id == yeast2db_annotation[row, "ORF"],]["strand"]
+  }
+}
+```
+
+As it turns out the Ensembl data lacked coordinate data for three genes: 1770115_at, 1773015_at, 1780120_at. We can add that manually using information from the [*S. cerevisiae* Genome Database](https://www.yeastgenome.org/) : 
+
+```{r,}
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1770115_at',]["chromosome_name"]="XII"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1770115_at',]["start_position"]="760750"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1770115_at',]["end_position"]="762342"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1770115_at',]["strand"]="-1"
+
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1773015_at',]["chromosome_name"]="V"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1773015_at',]["start_position"]="375215"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1773015_at',]["end_position"]="377614"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1773015_at',]["strand"]="-1"
+
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1780120_at',]["chromosome_name"]="XV"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1780120_at',]["start_position"]="389213"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1780120_at',]["end_position"]="389422"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1780120_at',]["strand"]="1"
+```
+
+Upon closer inspection of the data, it was found that one *S. cerevisiae* probe completely lacked annotation: 1777823_s_at.
+
+Among the files provided by Thermo Fisher files, there is a file called *Yeast_2.consensus* containing the sequences for each probe. A quick blastx tells us that the best hit for 1777823_s_at was Sph1p. The SPH1 gene has already an annotation in the data with probe 1770115_at, but there are other genes that are annotated to more than one probe so this is just part of the variation of the microarray design.
+
+To manually add the missing information:
+```{r,}
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["ORF"]="YLR313C "
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["GENENAME"]="SPH1"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["SGD"]="S000004305"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["chromosome_name"]="XII"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["start_position"]="760750"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["end_position"]="762342"
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]["strand"]="-1"
+```
+
+We can make a quick test to check if the manual curation was entered correctly by looking at e.g. the *1777823_s_at* probe:
+```{r,}
+yeast2db_annotation[yeast2db_annotation$PROBEID == '1777823_s_at',]
+```
+
+
+### 6. Prepare the final processed data frame
+
+Now that we have the final probe annotation and the all the DE data, we just need to merge the dataframes to create a final processed dataset. Here we will use the *merge()* function of R and use the probe names as the key for joining the dataframes. This is just an example on how to do this; there are likely more optimal ways of doing this in R (or just save the results to file and write a short Python loop based on dictionaries), but this code will do the trick.
+
+First we need to convert the *PROBEID* column in *yeast2db_annotation* to rownames:
+```{r,}
+probe_annotation_rownames <- yeast2db_annotation %>% remove_rownames %>% column_to_rownames(var="PROBEID")
+```
+
+And then we can use *merge()* to join the the annotation data with the RMA rmalized data:
+```{r,}
+tr_df_final <- merge(probe_annotation_rownames, 
+                      expr_set_rma,
+                      by = 'row.names', all = TRUE)
+```
+
+Next up we will add the data from the 9h and 17h contrasts. First we need to rename the columns of the results so that they contain information on which time point they come from:
+
+```{r,}
+tr_df_HYD9h_vs_SUG9h_temp <- tr_df_HYD9h_vs_SUG9h
+colnames(tr_df_HYD9h_vs_SUG9h_temp)[colnames(tr_df_HYD9h_vs_SUG9h_temp) == 'logFC'] <- 'hyd9h_vs_sug9h log2FC'
+colnames(tr_df_HYD9h_vs_SUG9h_temp)[colnames(tr_df_HYD9h_vs_SUG9h_temp) == 't'] <- 'hyd9h_vs_sug9h t'
+colnames(tr_df_HYD9h_vs_SUG9h_temp)[colnames(tr_df_HYD9h_vs_SUG9h_temp) == 'P.Value'] <- 'hyd9h_vs_sug9h P.value'
+
+tr_df_HYD17h_vs_SUG17h_temp <- tr_df_HYD17h_vs_SUG17h
+colnames(tr_df_HYD17h_vs_SUG17h_temp)[colnames(tr_df_HYD17h_vs_SUG17h_temp) == 'logFC'] <- 'hyd17h_vs_sug17h log2FC'
+colnames(tr_df_HYD17h_vs_SUG17h_temp)[colnames(tr_df_HYD17h_vs_SUG17h_temp) == 't'] <- 'hyd17h_vs_sug17h t'
+colnames(tr_df_HYD17h_vs_SUG17h_temp)[colnames(tr_df_HYD17h_vs_SUG17h_temp) == 'P.Value'] <- 'hyd17h_vs_sug17h P.value'
+```
+
+Drop the adjusted p-values from the *topTreat()* function, since they are generated by the "separate" method:
+```{r,}
+tr_df_HYD9h_vs_SUG9h_temp <- subset(tr_df_HYD9h_vs_SUG9h_temp, select = -c(adj.P.Val))
+tr_df_HYD17h_vs_SUG17h_temp <- subset(tr_df_HYD17h_vs_SUG17h_temp, select = -c(adj.P.Val))
+```
+
+The column *AveExpr* exists in both of the contrast dataframes and is identical, so we can drop it from the 17h results by:
+```{r,}
+tr_df_HYD17h_vs_SUG17h_temp <- subset(tr_df_HYD17h_vs_SUG17h_temp, select = -c(AveExpr))
+```
+
+To allow for a new round of *merge()* we need to convert the *Row.names* column generated by the last merge, back to row names:
+```{r,}
+tr_df_final <- tr_df_final %>% remove_rownames %>% column_to_rownames(var="Row.names") 
+```
+
+Now we can join it with the 9h results: 
+```{r,}
+tr_df_final <- merge(tr_df_final, 
+                      tr_df_HYD9h_vs_SUG9h_temp,
+                      by = 'row.names', all = TRUE)
+```
+
+Move the *AveExpr* column to after the last RMA raw data column. This way the processed data begins with *AveExpr*, and will be followed by the 9h data.
+```{r,}
+tr_df_final <- tr_df_final %>% relocate(AveExpr, .after = SUG17h.2)
+```
+
+Convert the probe names into row names again to allow one more merge:
+```{r,}
+tr_df_final <- tr_df_final %>% remove_rownames %>% column_to_rownames(var="Row.names") 
+```
+
+Join the data frame with the 17h results, then convert the probe names into row names again :
+```{r,}
+tr_df_final <- merge(tr_df_final, 
+                      tr_df_HYD17h_vs_SUG17h_temp,
+                      by = 'row.names', all = TRUE)
+
+tr_df_final <- tr_df_final %>% remove_rownames %>% column_to_rownames(var="Row.names") 
+```
+
+Finally, we will add the outcome of *decideTests()*: 1 for significantly upregulated probes, -1 for significantly downregulated probes, and 0 for non-significant probes. First we can rename the headers of *df_dt_glob* to make them a little more readable, and then we merge:
+```{r,}
+colnames(df_dt_glob)[colnames(df_dt_glob) == 'HYD9h - SUG9h'] <- 'hyd9h_vs_sug9h decideTests(global) results'
+colnames(df_dt_glob)[colnames(df_dt_glob) == 'HYD17h - SUG17h'] <- 'hyd17h_vs_sug17h decideTests(global) results'
+colnames(df_dt_glob)[colnames(df_dt_glob) == 'adj.P.Val_9h'] <- 'hyd9h_vs_sug9h adj.P.value (global)'
+colnames(df_dt_glob)[colnames(df_dt_glob) == 'adj.P.Val_17h'] <- 'hyd17h_vs_sug17h adj.P.value (global)'
+
+tr_df_final <- merge(tr_df_final, 
+                      df_dt_glob,
+                      by = 'row.names', all = TRUE)
+```
+
+We can rearrange the new columns by:
+```{r,}
+tr_df_final <- tr_df_final %>% relocate('hyd9h_vs_sug9h adj.P.value (global)', .after = 'hyd9h_vs_sug9h P.value')
+tr_df_final <- tr_df_final %>% relocate('hyd9h_vs_sug9h decideTests(global) results', .after = 'hyd9h_vs_sug9h adj.P.value (global)')
+tr_df_final <- tr_df_final %>% relocate('hyd17h_vs_sug17h adj.P.value (global)', .after = 'hyd17h_vs_sug17h P.value')
+```
+
+We should probably also rename the columns with the normalized data to specify that they actually are normalized:
+```{r,}
+colnames(tr_df_final)[colnames(tr_df_final) == 'CONT.1'] <- 'CONT.1 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'CONT.2'] <- 'CONT.2 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'HYD9h.1'] <- 'HYD9h.1 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'HYD9h.2'] <- 'HYD9h.2 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'HYD17h.1'] <- 'HYD17h.1 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'HYD17h.2'] <- 'HYD17h.2 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'SUG9h.1'] <- 'SUG9h.1 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'SUG9h.2'] <- 'SUG9h.2 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'SUG17h.1'] <- 'SUG17h.1 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'SUG17h.2'] <- 'SUG17h.2 (RMA norm.)'
+colnames(tr_df_final)[colnames(tr_df_final) == 'Row.names'] <- 'Probe'
+```
+
+Write the final results to file:
+```{r,}
+write.table(tr_df_final, file = "C:/GSE218764/tr_df_final.tsv", quote = FALSE, sep = "\t", row.names = FALSE)
+```
+
+Next up we will create some plots, and to do this we would like to only work with *S. cerevisiae* probes. To extract the probes labelled *S. cerevisiae*:
+
+```{r,}
+tr_df_final_sc <- subset(tr_df_final, Organism=="Saccharomyces cerevisiae") 
+```
+
+### 7. PCA plots and Venn diagrams with only the *S. cerevisiae* probes
+
+#### 7.1 PCA
+Now that we have the *S. cerevisiae* probes subset, we can plot the final PCA and Venn diagrams. 
+
+Extract a list of all the *S. cerevisiae* probes and the go back to the expression set, extract all the *S. cerevisiae* data and run the PCA analysis again:
+```{r,}
+scer_probes <- tr_df_final_sc[,"Probe"]
+
+expr_set_rma_scer <- subset(expr_set_rma, rownames(expr_set_rma) %in% scer_probes)
+
+# PCA for the samples
+PCA_s <- prcomp(t(expr_set_rma_scer), scale = TRUE ) #transpose to analyze samples instead of genes
+
+pca_summary <- summary(PCA_s)
+pca_summary$importance[, 1:5]
+```
+
+This time PC1 and PC2 describe slightly more of the variation in the dataset. This makes sense, since we have removed all the non-*S. cerevisiae* probes which basically just contain noise in the case of our samples.
+
+Plot the *S. cerevisiae* probe PCA:
+```{r,}
+pca_df <- data.frame(PCA_s$x[, 1:2])
+pca_df$group <- c('Control 0h','Control 0h','Hydrolysate 9h','Hydrolysate 9h',
+                  'Hydrolysate 17h','Hydrolysate 17h','Sugar 9h','Sugar 9h',
+                  'Sugar 17h','Sugar 17h')  
+
+p_pca <- ggplot(pca_df,aes(x = PC1,y = PC2,label=rownames(pca_df),color=group)) +
+  ylim(-80,80)+
+  xlim(-80,80)+  
+  geom_point() + # Plot individual points to make a scatterplot
+  labs(color = "Sample\nconditions")+
+  theme(plot.title = element_text(hjust = 0.5, size=15), panel.background = element_rect(fill = "transparent"),
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.grid.major = element_blank(),panel.grid.minor = element_blank(),
+      legend.background = element_rect(fill = "transparent"),
+      axis.line = element_line(colour = 'black', linewidth = 0.5),
+      axis.text.x = element_text(size=10),
+      axis.text.y = element_text(size=10),
+      axis.title.x = element_text(size=10),
+      axis.title.y = element_text(size=10, vjust=2)
+)
+
+p_pca_final <- p_pca+geom_text_repel(size=4,show.legend = FALSE,direction = "x")
+p_pca_final
+ggsave("C:/GSE218764/pca_rma_scer.pdf", width = 9, height = 6, units = 'in')
+ggsave("C:/GSE218764/pca_rma_scer.tiff", width = 9, height = 6, units = 'in',compression = "lzw")
+```
+
+#### 7.2 Venn diagram
+
+Let's look at how the *decideTests()* results look for only the *S. cerevisiae* probes
+```{r,}
+dt_glob_sc <- dt_glob[row.names(dt_glob) %in% tr_df_final_sc[,1], ]
+summary(dt_glob_sc)
+```
+
+Here is the results for all the probes again, for comparison. As we can see, the only difference is in the total amount of probes taken into account, the significantly DE probes are the same, since the DNA in the samples will not anneal to the *S. pombe* probes.
+```{r,}
+summary(dt_glob)
+```
+
+For the Venn diagram, we could use the same function as before:
+```{r,}
+#vennDiagram(dt_glob_sc[,1:2], circle.col=c("turquoise", "salmon"))
+```
+
+But to be honest, graphically we could do with something prettier than the standard R Venn diagram. So instead, lets use a Venn diagram package that is based on ggplot: ggVennDiagram. The process is a little different this time, since we need to give the subfunction *Venn()* a list of the DE genes from each time point. We can extract them from the final dataset based on the outcome of *decideTests()* by taking all probes that scored a 1 or -1 in the test column: 
+
+```{r,}
+dt_glob_list_9h_orfs <- tr_df_final_sc[tr_df_final_sc$'hyd9h_vs_sug9h decideTests(global) results' != 0,'ORF']
+dt_glob_list_17h_orfs <- tr_df_final_sc[tr_df_final_sc$'hyd17h_vs_sug17h decideTests(global) results' != 0,'ORF']
+```
+
+Then we convert these vectors to a list, than we in turn send to the *Venn()* function:
+```{r,}
+venn_list_sc <-list('HYD9h vs SUG9h'=dt_glob_list_9h_orfs,'HYD17h vs SUG17h'=dt_glob_list_17h_orfs)
+venn <- Venn(venn_list_sc)
+d <- process_data(venn)
+```
+
+To set the colors of the diagram, we can e.g. use the approached described in [this forum thread ](https://stackoverflow.com/questions/68875752/how-to-edit-ggvenndiagram-intersection-fill-region).
+
+```{r,}
+color_groups <- c('HYD9h vs SUG9h' = 'blue', 'HYD17h vs SUG17h' = 'red')        
+colfunc <- colorRampPalette(color_groups)
+col <- colfunc(3) # create a vector with three colors
+```
+
+Finally we plot the Venn diagram using ggplot (again, all credit to [user gregor-fausto](https://stackoverflow.com/questions/68875752/how-to-edit-ggvenndiagram-intersection-fill-region)):
+```{r,}
+p_venn <- ggplot() +
+  geom_sf(aes(fill = name), data = venn_region(d)) +
+  geom_sf_text(aes(label = name), data = venn_setlabel(d)) +
+  geom_sf_text(aes(label = count), data = venn_region(d)) +
+  scale_fill_manual(values = alpha(col, .2))+
+  theme_void()+
+  theme(legend.position="none")
+
+p_venn
+```
+
+Since this diagram was made with ggplot, we can use ggsave to write it to file:
+```{r,}
+ggsave("C:/GSE218764/venn.pdf", width = 6, height = 5, units = 'in')
+ggsave("C:/GSE218764/venn.tiff", width = 6, height = 5, units = 'in')
+
+```
+
+### 8. Volcano plots using the *S. cerevisiae* probe results
+
+As a last step in this microarray analysis work flow, we will plot our data in the form of volcano plots, which is a common way of presenting transcriptome data. In this case we have a small number of significant DE genes, so we can try to add labels to the volcano plots if there is room for them.
+
+Still, we will probably be limited in space in the volcano plots, so we will prioritize the probes with the smallest adjusted p.value. Extract the probes identified by *decideTests()* and sort them by adjusted p-value:
+```{r,}
+volcano_gene_labels_9h_glob <-tr_df_final[tr_df_final$"hyd9h_vs_sug9h decideTests(global) results" !=0, ]
+volcano_gene_labels_9h_glob <- volcano_gene_labels_9h_glob[order(volcano_gene_labels_9h_glob$"hyd9h_vs_sug9h adj.P.value (global)"),] 
+
+volcano_gene_labels_17h_glob <-tr_df_final[tr_df_final$"hyd17h_vs_sug17h decideTests(global) results" !=0, ]
+volcano_gene_labels_17h_glob <-volcano_gene_labels_17h_glob[order(volcano_gene_labels_17h_glob$"hyd17h_vs_sug17h adj.P.value (global)"),]
+```
+
+We will use the EnchancedVolcano package to make the plot. It produces really pretty volcano plots and is based on ggplot. Plots generated with this package are very customizable; for more information see the [Bioconductor page](https://bioconductor.org/packages/release/bioc/html/EnhancedVolcano.html) First, plot the 9h contrast results:
+```{r,message = FALSE, warning=FALSE}
+v1_tr_glob <- EnhancedVolcano(tr_df_final_sc,
+                             #lab=NA,      #if we want to turn off the labels, we need to change the lab option to NA
+                             lab = tr_df_final_sc$GENENAME,
+                             selectLab = volcano_gene_labels_9h_glob$GENENAME[1:20],#select the top 20 genes, sorted on adj.p
+                             title=NULL,
+                             subtitle = NULL,
+                             x = "hyd9h_vs_sug9h log2FC", 
+                             y = "hyd9h_vs_sug9h adj.P.value (global)",
+                             ylim=c(0,8),
+                             ylab = bquote(~-Log[10] ~ italic(P)[adj]),
+                             labSize = 3,
+                             pCutoff = 0.05,
+                             FCcutoff = 2,
+                             legendLabels=c('Not significant','Fulfills only Log2 FC','Fulfills only  p-value',
+                                            'Fulfills p-value & Log2 FC'),
+                             legendLabSize = 10,
+                             legendIconSize = 3,
+                             pointSize = 1.5,
+                             drawConnectors = TRUE,
+                             lengthConnectors = unit(0.001, 'npc'),
+                             widthConnectors = 0.1,
+                             colConnectors = 'black',
+                             caption = NULL
+)
+
+v1_tr_glob_final <- v1_tr_glob +
+  ggplot2::coord_cartesian(xlim=c(-8, 8)) +
+  ggplot2::scale_x_continuous(
+    breaks=seq(-8,8, 2))
+```
+
+Inspect the plot:
+```{r,}
+v1_tr_glob_final
+```
+
+Then plot the 17h contrast results in the same manner:
+```{r, message = FALSE, warning=FALSE}
+v2_tr_glob <- EnhancedVolcano(tr_df_final_sc,
+                             #lab=NA,      
+                             lab = tr_df_final_sc$GENENAME,
+                             selectLab = volcano_gene_labels_17h_glob$GENENAME[1:30], #take the 30 labels with lowest adj. p-value
+                             maxoverlapsConnectors = Inf,
+                             title = NULL,
+                             subtitle = NULL,
+                             x = "hyd17h_vs_sug17h log2FC", 
+                             y = "hyd17h_vs_sug17h adj.P.value (global)",
+                             ylim=c(0,8),
+                             ylab = bquote(~-Log[10] ~ italic(P)[adj]),
+                             labSize = 3,
+                             pCutoff = 0.05,
+                             FCcutoff = 2,
+                             legendLabels=c('Not significant','Fulfills only Log2 FC','Fulfills only  p-value',
+                                            'Fulfills p-value & Log2 FC'),
+                             legendLabSize = 10,
+                             legendIconSize = 3,
+                             pointSize = 1.5,
+                             drawConnectors = TRUE,
+                             lengthConnectors = unit(0.001, 'npc'),
+                             widthConnectors = 0.1,
+                             colConnectors = 'black',
+                             caption = NULL
+)
+
+v2_tr_glob_final <- v2_tr_glob +
+  ggplot2::coord_cartesian(xlim=c(-8, 8)) +
+  ggplot2::scale_x_continuous(
+    breaks=seq(-8,8, 2))
+
+v2_tr_glob_final
+```
+
+Since these plot are generated by ggplot, we can stack them together in one figure with Patchwork, and save to file using ggsave:
+```{r,message = FALSE, warning=FALSE}
+v_tr_glob_combined <- (v1_tr_glob_final + plot_layout(guides = "collect") & theme(legend.position = "top")) / (v2_tr_glob_final + theme(legend.position = "none")) 
+# v_tr_glob_combined  + plot_annotation(tag_levels = list(c("A.","B.")))
+
+v_tr_glob_combined
+
+ggsave("C:/GSE218764/volcano_tr_glob.pdf", width = 9, height = 9, units = 'in')
+ggsave("C:/GSE218764/volcano_tr_glob.tiff", width = 9, height = 9, units = 'in',compression = "lzw")
+```
+
+### 9. Concluding remarks
+
+We have now reached the end of this workflow. This notebook has presented one way of handling Affymetrix Yeast Genome 2.0, but as always in science there might be other solutions and interpretations that are just as good, or even better. There might also be plenty of room for optimizing some of the R code used in this notebook, but for these purposes the important part was that the code gets the job done.
+
+Transcriptome analysis does not necessarily end with the annotated DE analysis. A common next step is to perform some form of gene set analysis to try to identify more patterns among the DE genes, for instance Gene Ontology term enrichments. A useful Bioconductor package for gene set analysis is for instance [Piano](https://bioconductor.org/packages/release/bioc/html/piano.html).
+
+### 10. References
+
+The code in this R notebook is the result of reading several publications, manuals, and threads on the Bioconductor forum related to microarray data analysis in R. If you use any of these packages in your own work, please remember to cite them accordingly. <br>
+
+**Instructions to cite the different Bioconductor packages can be found on the following pages:**
+
+https://www.bioconductor.org/packages/release/bioc/html/affy.html
+
+https://bioconductor.org/packages/release/bioc/html/limma.html
+
+https://bioconductor.org/packages/release/data/annotation/html/yeast2.db.html
+
+https://bioconductor.org/packages/release/bioc/html/biomaRt.html
+
+https://bioconductor.org/packages/release/bioc/html/EnhancedVolcano.html
+
+**Information about the other R packages can be found on CRAN:**
+
+https://cran.r-project.org/web/packages/ggrepel/index.html
+
+https://cran.r-project.org/web/packages/patchwork/index.html
+
+https://cran.r-project.org/web/packages/tidyverse/index.html
+
+https://cran.r-project.org/web/packages/ggplot2/index.html
+
+https://cran.r-project.org/web/packages/ggVennDiagram/index.html
+
+**Publications:** 
+
+Almeida, J.R.M., Wiman, M., Heer, D., Brink, D.P., Sauer, U., Hahn-Hägerdal, B., Lidén, G. and Gorwa-Grauslund, M.F. (2023). Physiological and molecular characterization of yeast cultures pre-adapted for fermentation of lignocellulosic hydrolysate. Fermentation. 2023; 9(1):72. https://doi.org/10.3390/fermentation9010072
+
+Durinck, S., Moreau, Y., Kasprzyk, A., Davis, S., De Moor, B., Brazma, A., & Huber, W. (2005). BioMart and Bioconductor: a powerful link between biological databases and microarray data analysis. *Bioinformatics*, 21(16), 3439-3440.
+
+Edgar, R., Domrachev, M., & Lash, A. E. (2002). Gene Expression Omnibus: NCBI gene expression and hybridization array data repository. *Nucleic acids research*, 30(1), 207-210.
+
+Gautier, L., Cope, L., Bolstad, B. M., & Irizarry, R. A. (2004). affy—analysis of Affymetrix GeneChip data at the probe level. *Bioinformatics*, 20(3), 307-315.
+
+Irizarry, R. A., Hobbs, B., Collin, F., Beazer‐Barclay, Y. D., Antonellis, K. J., Scherf, U., & Speed, T. P. (2003). Exploration, normalization, and summaries of high density oligonucleotide array probe level data. *Biostatistics*, 4(2), 249-264.
+
+McCarthy, D. J., & Smyth, G. K. (2009). Testing significance relative to a fold-change threshold is a TREAT. *Bioinformatics*, 25(6), 765-771.
+
+Ritchie, M. E., Phipson, B., Wu, D. I., Hu, Y., Law, C. W., Shi, W., & Smyth, G. K. (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. *Nucleic acids research*, 43(7), e47-e47.
+
+**The Bioconductor forums can be found here:** 
+
+https://support.bioconductor.org/
+
+**Examples of other useful tutorials on microarrary data processing in R:**
+
+https://wiki.bits.vib.be/index.php/Analyze_your_own_microarray_data_in_R/Bioconductor
+
+https://dputhier.github.io/ASG/practicals/affynorm_td/index.html
+
+https://genomicsclass.github.io/book/pages/using_limma.html
+
+
+### 11. Session info
+The code used to produce this page and the results of the paper was run using the following R setup:
+
+```{r,sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Input string
+input_string <- "example_string_Yeast_more_text"
+
+# Extract substring
+result <- sub("^[^_]*_([^_]*?)_Yeast.*", "\\1", input_string)
+
+# Output the result
+print(result)
+
+
+
+input_string <- files[1]
+
+
+
+
+
+input_string <- "path/to/your/desired/file"
+
+# Extract substring
+result <- sub(".*/(.*)", "\\1", input_string)
+
+# Output the result
+print(result)
+```
+

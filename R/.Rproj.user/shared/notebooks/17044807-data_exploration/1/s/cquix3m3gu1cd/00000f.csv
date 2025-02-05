@@ -1,0 +1,6 @@
+"0","# Load stats file"
+"0","stats_file <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz', header = T)"
+"0",""
+"0","# Add column with subbatches"
+"0","stats_file <- left_join(stats_file, sample_layout[,c(""File.Name"", ""Analysis.Plate.96"", ""Replicate"", ""Analysis.Plate.96_Replicate"", ""Strain.Type"", "
+"0","                                                     ""Wrong_batch"", ""date"", ""Date_Injection_Order"")], by = ""File.Name"")"

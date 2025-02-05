@@ -1,0 +1,4 @@
+"0",""
+"0",""
+"0","# Remove unused objects"
+"0","rm(list = c(""my_grobs"", ""plot_list"", ""KOs_in_UCU_family"", ""temp"", ""da_only_KOs_from_UCU_family"", ""trna"", ""plot_title"", ""UCU_major_minor"", ""UCU_resp_filtered"", ""i""))"

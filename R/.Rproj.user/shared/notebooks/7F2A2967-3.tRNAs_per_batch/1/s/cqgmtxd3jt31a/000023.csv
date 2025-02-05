@@ -1,0 +1,4 @@
+"0","# Histogram of avg_nDEP for each KO strain"
+"0","ggplot(data = resp_filtered, aes(x = avg_nDEP)) +"
+"0","  geom_histogram(binwidth = 1, color=""black"", fill=""grey"") +"
+"0","  theme_light()"

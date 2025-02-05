@@ -1,0 +1,3 @@
+"0","sample_layout <- sample_layout %>%"
+"0","  mutate(sample_names = case_when(Strain.ID == ""WT"" ~ paste(gsub(""-"", ""_"", Sample.ID), "".0"", Replicate, sep=""""),"
+"0","                                  TRUE ~ paste(Strain.Name, ""_0"", Replicate, sep=""""))) "

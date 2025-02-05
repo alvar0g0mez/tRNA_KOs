@@ -1,0 +1,7 @@
+"0","# For all KOs together - pretty meaningless I think"
+"0","ggplot(data = da_full, aes(x = logFC, y = -log10(adj.P.Val), col = Strain.Name)) +"
+"0","  geom_point() +"
+"0","  geom_hline(yintercept = -log10(alpha), linetype = ""dashed"", col = ""gray"") +"
+"0","  geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = ""dashed"", col = ""gray"") +"
+"0","  theme_light() +"
+"0","  theme(legend.position = ""none"")"

@@ -1,0 +1,54 @@
+"0",""
+"0","# There are ~80 KO strains with 0 avg_nDEP, I don't think it's that straightforward but for now I'll assume those are the minor tRNA genes"
+"0",""
+"0","# Define a column with ""minor""-""major"" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)"
+"0","resp_filtered <- resp_filtered %>%"
+"0","  mutate(Gene_type = case_when(avg_nDEP == 0 ~ ""Minor"","
+"0","                               TRUE ~ ""Major"")) %>%"
+"0","  group_by(anticodon) %>%"
+"0","  summarize(Major_count = sum(Gene_type == ""Major""), across()) %>%"
+"0","  ungroup()"
+"2","Aviso: [38;5;255mThere was 1 warning in `summarize()`.[39m
+[38;5;255m[36mℹ[38;5;255m In argument: `across()`.[39m
+Caused by warning:
+[38;5;255m[33m![38;5;255m Using `across()` without supplying `.cols` was deprecated in dplyr 1.1.0.
+[36mℹ[38;5;255m Please supply `.cols` instead.
+[90mThis warning is displayed once every 8 hours.[38;5;255m
+[90mCall `lifecycle::last_lifecycle_warnings()` to see where this warning was generated.[38;5;255m[39m"
+"2","Aviso: Returning more (or less) than 1 row per `summarise()` group was deprecated in dplyr 1.1.0.
+Please use `reframe()` instead.
+When switching from `summarise()` to `reframe()`, remember that `reframe()` always returns an ungrouped data frame and adjust accordingly."
+"2","`summarise()` has grouped output by 'anticodon'. You can override using the `.groups` argument."
+"0","# Also need to count the total number of KOs I have from each family in the experiment"
+"0","resp_filtered <- resp_filtered %>%"
+"0","  group_by(anticodon) %>%"
+"0","  summarize(Family_count = n(), across()) %>%"
+"0","  ungroup()"
+"2","Aviso: Returning more (or less) than 1 row per `summarise()` group was deprecated in dplyr 1.1.0.
+Please use `reframe()` instead.
+When switching from `summarise()` to `reframe()`, remember that `reframe()` always returns an ungrouped data frame and adjust accordingly."
+"2","`summarise()` has grouped output by 'anticodon'. You can override using the `.groups` argument."
+"0","# Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this"
+"0","colnames(master_dataset)[colnames(master_dataset) == ""family_size""] <- ""Family_size"""
+"0","family_sizes <- left_join(master_dataset, resp_filtered, by = ""Strain.Name"")"
+"0","family_sizes <- family_sizes %>%"
+"0","  filter(Strain.Name %in% resp_filtered$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering"
+"0","  select(anticodon, Family_size, Family_count, Major_count) %>%"
+"0","  distinct(anticodon, .keep_all = T)"
+"0",""
+"0",""
+"0","# Get long version to plot, and re-order the anticodons by family size, in order to keep that order for the x axis of the plot"
+"0","family_sizes <- family_sizes[order(-family_sizes$Family_size), ]"
+"0","family_sizes_long <- family_sizes %>% pivot_longer(!anticodon, names_to = ""Type"", values_to = ""Count"")"
+"0","family_sizes_long$anticodon <- factor(family_sizes_long$anticodon, levels = family_sizes$anticodon)"
+"0","family_sizes_long$Type <- factor(family_sizes_long$Type, levels = c(""Family_size"", ""Family_count"", ""Major_count""))"
+"0",""
+"0","colnames(family_sizes_long)[colnames(family_sizes_long) == ""anticodon""] <- ""Anticodon"""
+"0",""
+"0",""
+"0","# Plot this"
+"0","ggplot(data = family_sizes_long, aes(x = Anticodon, y = Count, fill = Type)) +"
+"0","  geom_bar(position=""dodge"", stat=""identity"") +"
+"0","  theme_light() +"
+"0","  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),"
+"0","        legend.position = ""none"")"
