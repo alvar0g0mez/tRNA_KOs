@@ -1,4 +1,0 @@
-"0","# Plot precursor number vs. protein number coloring by sub-batch"
-"0","ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +"
-"0","  geom_point() +"
-"0","  theme_light()"

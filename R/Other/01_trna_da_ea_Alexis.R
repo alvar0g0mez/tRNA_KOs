@@ -17,7 +17,7 @@ library(gprofiler2)
 
 
 # Import data
-proteomics_raw <- read.delim2('C:/MyStuff/tRNAs/Data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv')
+proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv', header = T)
 
 
 

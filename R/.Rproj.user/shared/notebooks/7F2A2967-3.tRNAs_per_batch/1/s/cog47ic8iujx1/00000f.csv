@@ -1,5 +1,0 @@
-"0","# Significance level to be used for all tests and plots in this file"
-"0","alpha <- 0.01"
-"0",""
-"0","# Log-fold change limit to be considered ""biologically significant"""
-"0","lfc_threshold <- 1.5"

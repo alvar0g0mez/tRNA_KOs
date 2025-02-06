@@ -1,7 +1,0 @@
-"0","list_for_venn_diagram <- list(Proteomics = rownames(trna_ko),"
-"0","                              Transcriptomics = microarray_data$Gene.symbol)"
-"0","ggvenn("
-"0","  list_for_venn_diagram, "
-"0","  fill_color = c(""#80AAFF"", ""#FF8080""),"
-"0","  stroke_size = 0.5, set_name_size = 4"
-"0","  )"

@@ -56,10 +56,10 @@ proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLe
 sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 
 # The master tRNA dataset
-master_dataset <- as.data.frame(fread("C:/MyStuff/tRNAs/Data/GtRNAdb/master_tRNA_dataset.csv"))
+master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/GtRNAdb/master_tRNA_dataset.csv"))
 
 # Import the functions I have created in another file
-#source("C:/MyStuff/tRNAs/Scripts/R/Mine/0.general_use_functions.R")
+#source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
 ```
 
 ## 1.2. Add columns to sample_layout and merge it with master_dataframe
@@ -91,7 +91,6 @@ sample_layout <- sample_layout %>%
 ```
 
 ## 1.3. Pre-process proteomics data - this is where I deal with the 2 duplicated strains and remove samples in the wrong subbatch
-I AM NOT SURE HOW TO DEFINE THE COLUMN NAMES - THEY NEED TO BE DIFFERENT, BUT THEN WHEN I DO THE DESIGN MATRIX THEY NEED TO BE THE SAME? I DON'T REMEMBER HOW ALEXIS DID IT
 ```{r}
 # Come up with new colnames
 new_names <- c("sample_group", "genes")
@@ -129,9 +128,9 @@ proteomics_raw <- cbind(proteomics_raw, out_temp)
 
 # Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
 trna_ko <- proteomics_raw %>%                 
-  filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%         # Remove rows for which "genes" column is empty or has "Genes" as value
-  select(-genes & !contains('QC')) %>%                       # Remove UNIPROT IDs and QCs columns
-  column_to_rownames(var = 'sample_group')                                 # Convert gene name column to rownames
+  filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%             # Remove rows for which "genes" column is empty or has "Genes" as value
+  select(-genes & !contains('QC')) %>%                                  # Remove UNIPROT IDs and QCs columns
+  column_to_rownames(var = 'sample_group')                              # Convert gene name column to rownames
 
 # Convert to a numeric dataframe
 trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
@@ -153,89 +152,78 @@ rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
 ```{r}
-# Create a function that performs the DE analysis and returns the responsiveness dataset
-perform_DE_analysis <- function(trna_ko) {
-  # Get the names of all KOs we have, and set WT as the reference
-  temp <- data.frame(KO_names = colnames(trna_ko)) %>%
-    mutate(trna_levels = case_when(grepl("WT", KO_names) ~ "WT",
-                                   TRUE ~ KO_names))
-  
-  # Deal with column names not being unique, since we have all plates together here
-  sample_trna <- c()
-  for (i in 1:ncol(trna_ko)) {
-    column_name <- colnames(trna_ko)[i]
-    if (grepl("WT", column_name)) {
-      sample_trna <- c(sample_trna, "WT")
-    }
-    else {
-      sample_trna <- c(sample_trna, substr(column_name, 1, str_locate(column_name, "_")[1]-2))
-    }
+# Get the names of all KOs we have, and set WT as the reference
+trna_levels <- c()
+for (i in 1:ncol(trna_ko)) {
+  sample_name <- colnames(trna_ko)[i]
+  strain_name <- sample_layout$Strain.Name[sample_layout$sample_names == sample_name]
+  if (length(strain_name) > 1) {
+    strain_name <- strain_name[1]
   }
-  sample_trna <- as.factor(unique(sample_trna))
-  sample_trna <- relevel(as.factor(temp$trna_levels), ref = 'WT')
-  rm(temp)
-  
-  # Generate design matrix
-  mm <- model.matrix(~sample_trna)
-  colnames(mm) <- levels(sample_trna)
-  voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
-  
-  # Fit linear model
-  fit <- lmFit(log2(trna_ko), mm)                                 # Notice the log2 here
-  fit2 <- eBayes(fit, trend = TRUE)
-  
-  # Identify differentially expressed proteins
-  da <- list()
-  for (i in colnames(mm)) {
-    da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', n = Inf, sort.by = 'none')
-  }
-  
-  # Format data
-  da <- bind_rows(da) %>%
-    mutate(protein = rep(rownames(da[[1]]), times = length(da)),
-           Strain.Name = rep(names(da), each = nrow(da[[1]])), .before = 1) %>%
-    `rownames<-`(NULL) %>%
-    select(protein, Strain.Name, logFC, adj.P.Val) %>%
-    filter(Strain.Name != 'WT') %>%                              # From here on in this function it's added by me
-    mutate(diffexpressed = case_when(logFC > lfc_threshold & adj.P.Val < alpha ~ "Up_regulated",
-                                     logFC < -lfc_threshold & adj.P.Val < alpha ~ "Down_regulated",
-                                     TRUE ~ "Not_significant"))
-  
-  # Add a column to da with the number of replicates per KO - by me - THIS DOESN'T REALLY MAKE SENSE INSIDE THIS FUNCTION BUT WHEN DOING DE FOR ALL PLATES AT ONCE IT WAS, SO I'LL KEEP IT JUST IN CASE
-  unique_KOs <- unique(da$Strain.Name)
-  replicates <- c()
-  for (i in 1:length(unique_KOs)) {
-    KO <- unique_KOs[i]
-    replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
-  }
-  KOs_replicates <- data.frame(unique_KOs, replicates)
-  colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
-  da <- merge(da, KOs_replicates, by = "Strain.Name")
-  
-  # Responsiveness
-  responsiveness <- da %>%
-    group_by(Strain.Name) %>%
-    summarise(nDEP = sum(abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= 0.01, na.rm = T),
-              Replicate_num = mean(Replicate_num)) %>%
-    mutate(AA = str_sub(Strain.Name, 2, 2),
-           chromosome = str_extract(str_remove(str_sub(Strain.Name, 1, -4), '[:digit:]$'), '[:alpha:]$'),
-           anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))")) %>%
-    arrange(AA) %>%
-    mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
-  
-  return(list(fit = fit,
-              fit2 = fit2,
-              da = da, 
-              resp = responsiveness))
+  trna_levels <- c(trna_levels, strain_name)
+}
+trna_levels <- as.factor(trna_levels)
+trna_levels <- relevel(trna_levels, ref = "WT")
+
+
+# Generate design matrix
+mm <- model.matrix(~trna_levels)
+colnames(mm) <- levels(trna_levels)
+voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
+
+# Fit linear model
+fit <- lmFit(log2(trna_ko), mm)                                 # Notice the log2 here
+fit2 <- eBayes(fit, trend = TRUE)
+
+# Identify differentially expressed proteins
+da <- list()
+for (i in colnames(mm)) {
+  da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', n = Inf, sort.by = 'none')
 }
 
+# Format data
+da <- bind_rows(da) %>%
+  mutate(protein = rep(rownames(da[[1]]), times = length(da)),
+         Strain.Name = rep(names(da), each = nrow(da[[1]])), .before = 1) %>%
+  `rownames<-`(NULL) %>%
+  select(protein, Strain.Name, logFC, adj.P.Val) %>%
+  filter(Strain.Name != 'WT') %>%                              # From here on in this function it's added by me
+  mutate(diffexpressed = case_when(logFC > lfc_threshold & adj.P.Val < alpha ~ "Up_regulated",
+                                   logFC < -lfc_threshold & adj.P.Val < alpha ~ "Down_regulated",
+                                   TRUE ~ "Not_significant"))
 
-# Perform DE analysis for the 3 plates together
-DE <- perform_DE_analysis(trna_ko)
+# Add a column to da with the number of replicates per KO - by me - THIS DOESN'T REALLY MAKE SENSE INSIDE THIS FUNCTION BUT WHEN DOING DE FOR ALL PLATES AT ONCE IT WAS, SO I'LL KEEP IT JUST IN CASE
+unique_KOs <- unique(da$Strain.Name)
+replicates <- c()
+for (i in 1:length(unique_KOs)) {
+  KO <- unique_KOs[i]
+  replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
+}
+KOs_replicates <- data.frame(unique_KOs, replicates)
+colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
+da <- merge(da, KOs_replicates, by = "Strain.Name")
+
+# Responsiveness
+responsiveness <- da %>%
+  group_by(Strain.Name) %>%
+  summarise(nDEP = sum(abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= 0.01, na.rm = T),
+            Replicate_num = mean(Replicate_num)) %>%
+  mutate(AA = str_sub(Strain.Name, 2, 2),
+         chromosome = str_extract(str_remove(str_sub(Strain.Name, 1, -4), '[:digit:]$'), '[:alpha:]$'),
+         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))")) %>%
+  arrange(AA) %>%
+  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
+
+
+# Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
+DE <- list(fit = fit,
+            fit2 = fit2,
+            da = da, 
+            resp = responsiveness)
 
 # Save output with the right names for downstream analysis
 resp_filtered <- DE$resp
-da <- DE$da
+da_full <- DE$da
 ```
 
 
@@ -245,15 +233,6 @@ da <- DE$da
 
 ## 1.5. Volcano plots for the differential expression
 ```{r}
-# For all KOs together
-ggplot(data = da, aes(x = logFC, y = -log10(adj.P.Val), col = Strain.Name)) +
-  geom_point() +
-  geom_hline(yintercept = -log10(0.01), linetype = "dashed", col = "gray") +
-  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", col = "gray") +
-  theme_light() +
-  theme(legend.position = "none")
-
-
 # One plot per KO and save them to a PDF - for all KOs
 ## Come up with the list of plots
 plot_list <- list()
@@ -275,7 +254,7 @@ my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
 ggsave(
-   filename = "C:/MyStuff/tRNAs/Output/volcano_plots_per_KO_all_KOs.pdf", 
+   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together.pdf", 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -290,11 +269,11 @@ da_only_KOs_with_DE_proteins <- da[da$Strain.Name %in% KOs_with_DE_proteins,]
 plot_list <- list()
 for (i in 1:length(KOs_with_DE_proteins)) {
   trna <- KOs_with_DE_proteins[i]
-  temp <- da_only_KOs_with_DE_proteins %>% filter(ko == trna)
+  temp <- da_only_KOs_with_DE_proteins %>% filter(Strain.Name == trna)
   plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
     geom_point() +
-    geom_hline(yintercept = -log10(0.01), linetype = "dashed", col = "gray") +
-    geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", col = "gray") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
     labs(title = trna) +
@@ -306,7 +285,7 @@ my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
 ggsave(
-   filename = "C:/MyStuff/tRNAs/Output/volcano_plots_per_KO_KOs_with_DE_proteins.pdf", 
+   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -317,36 +296,38 @@ rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KO
 ```
 --> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
 
+
 ## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNAs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
 
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
   filter(UCU_family != "No") %>%
   select(gene_name, UCU_family) %>%
-  rename(ko = gene_name)
+  rename(Strain.Name = gene_name)
 
-UCU_responsiveness <- responsiveness %>% filter(anticodon == "UCU")
+UCU_responsiveness <- resp_filtered %>% filter(anticodon == "UCU")
 
-UCU_family <- full_join(UCU_major_minor, UCU_responsiveness, by = "ko")
+UCU_family <- full_join(UCU_major_minor, UCU_responsiveness, by = "Strain.Name")
 
 
 # Volcano plots
 ## Keep only KOs in UCU family
-KOs_in_UCU_family <- UCU_family$ko
-da_only_KOs_from_UCU_family <- da[da$ko %in% KOs_in_UCU_family,]
+KOs_in_UCU_family <- UCU_family$Strain.Name
+da_only_KOs_from_UCU_family <- da_full[da_full$Strain.Name %in% KOs_in_UCU_family,]
+
 
 ## Come up with the list of plots
 plot_list <- list()
 for (i in 1:length(KOs_in_UCU_family)) {
   trna <- KOs_in_UCU_family[i]
-  plot_title <- paste(trna, UCU_family$UCU_family[UCU_family$ko == trna], sep = "_")
-  temp <- da_only_KOs_from_UCU_family %>% filter(ko == trna)
+  plot_title <- paste(trna, UCU_family$UCU_family[UCU_family$Strain.Name == trna], sep = "_")
+  temp <- da_only_KOs_from_UCU_family %>% filter(Strain.Name == trna)
   plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
     geom_point() +
-    geom_hline(yintercept = -log10(0.01), linetype = "dashed", col = "gray") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
     geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
@@ -359,7 +340,7 @@ my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
 ggsave(
-   filename = "C:/MyStuff/tRNAs/Output/volcano_plots_per_KO_UCU_family.pdf", 
+   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together.pdf", 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -384,7 +365,7 @@ rm(replicate_num_vs_nDEP_cor)
 ```
 --> The point with this was that maybe a larger number of replicates causes more nDEP just because it's easier to achieve significance. However, there seems to be no correlation at all, I think that's actually good because it means that the nDEP will be only influenced by what is going on with the tRNA KOs? Even though that effect could be already confounding my results in this boxplot
 
---> COULD I FIND A BIMODAL DISTRIBUTION OF THE nDEPs IN EACH TRNA FAMILY, ONE FOR MAJOR AND ONE FOR MINOR TRNA GENES? maybe not enough trnas per family to find such thing as a distribution but yeah
+
 
 ## 1.9. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
@@ -409,12 +390,12 @@ cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$n)
 ## 1.10. Enrichment analysis - by Alexis
 ```{r}
 ea <- list()
-for (i in unique(da$ko)) {
-  ea[[i]] <- pull(filter(da, ko %in% i & abs(logFC) >= log2(1.5) & adj.P.Val <= 0.05), protein)
+for (i in unique(da_full$Strain.Name)) {
+  ea[[i]] <- pull(filter(da_full, Strain.Name %in% i & abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha), protein)
 }
 rm(i)
 
-ea <- gost(ea, organism = 'scerevisiae', correction_method = 'fdr', domain_scope = 'custom', custom_bg = unique(da$protein), sources = c('GO', 'KEGG', 'TF'))
+ea <- gost(ea, organism = 'scerevisiae', correction_method = 'fdr', domain_scope = 'custom', custom_bg = unique(da_full$protein), sources = c('GO', 'KEGG', 'TF'))
 
 ea_terms <- ea$result %>%
   group_by(query) %>%
@@ -433,15 +414,15 @@ ea_terms_ko <- ea$result %>%
 
 ## 1.11. Identify major and minor tRNA genes myself for all strains
 ```{r}
-# Histogram of nDEP for each KO strain
-ggplot(data = responsiveness, aes(x = nDEP)) +
+# Histogram of avg_nDEP for each KO strain
+ggplot(data = resp_filtered, aes(x = nDEP)) +
   geom_histogram(binwidth = 1, color="black", fill="grey") +
   theme_light()
 
-# There are ~80 KO strains with 0 nDEP, I don't think it's that straightforward but for now I'll assume those are the minor tRNA genes
+# There are ~80 KO strains with 0 avg_nDEP, I don't think it's that straightforward but for now I'll assume those are the minor tRNA genes
 
-# Define a column with "minor"-"major" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the nDEP tbh but oh well)
-responsiveness <- responsiveness %>%
+# Define a column with "minor"-"major" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
+resp_filtered <- resp_filtered %>%
   mutate(Gene_type = case_when(nDEP == 0 ~ "Minor",
                                TRUE ~ "Major")) %>%
   group_by(anticodon) %>%
@@ -449,7 +430,7 @@ responsiveness <- responsiveness %>%
   ungroup()
 
 # Also need to count the total number of KOs I have from each family in the experiment
-responsiveness <- responsiveness %>%
+resp_filtered <- resp_filtered %>%
   group_by(anticodon) %>%
   summarize(Family_count = n(), across()) %>%
   ungroup()
@@ -457,9 +438,9 @@ responsiveness <- responsiveness %>%
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
-family_sizes <- left_join(master_dataset, responsiveness, by = "Strain.Name")
+family_sizes <- left_join(master_dataset, resp_filtered, by = "Strain.Name")
 family_sizes <- family_sizes %>%
-  filter(Strain.Name %in% responsiveness$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
+  filter(Strain.Name %in% resp_filtered$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
   select(anticodon, Family_size, Family_count, Major_count) %>%
   distinct(anticodon, .keep_all = T)
 
@@ -503,11 +484,11 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
 ## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNAs/Data/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
 
 # Change "ko" colname to allow to merge datasets based on it
-colnames(responsiveness)[colnames(responsiveness) == "ko"] <- "gene_name"
-test <- full_join(phenotypic_data, responsiveness, by = "gene_name")
+colnames(resp_filtered)[colnames(resp_filtered) == "Strain.Name"] <- "gene_name"
+test <- full_join(phenotypic_data, resp_filtered, by = "gene_name")
 
 # Select numeric columns, calculate correlations and plot heatmap
 test <- test %>% select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
@@ -544,28 +525,21 @@ Important to remember that the microarray data are only for 5 tRNA families:
 ### Loading data
 ```{r}
 # Load their small microarray data: fold changes for all genes but only for 5 samples
-microarray_data <- as.data.frame(fread("C:/MyStuff/tRNAs/Data/microarray_fold_change_data.tsv"))
+microarray_data <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/microarray_fold_change_data.tsv"))
 
 # Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
-yeastmine <- as.data.frame(fread("C:/MyStuff/tRNAs/Data/alliancemine_results_2024-11-20T11-19-04.tsv"))
-```
+yeastmine <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/alliancemine_results_2024-11-20T11-19-04.tsv"))
 
 
-### Venn diagram between genes detected in proteomics and in transcriptomics
-```{r}
-list_for_venn_diagram <- list(Proteomics = rownames(trna_ko),
-                              Transcriptomics = microarray_data$Gene.symbol)
-ggvenn(
-  list_for_venn_diagram, 
-  fill_color = c("#80AAFF", "#FF8080"),
-  stroke_size = 0.5, set_name_size = 4
-  )
+# Need to change the colnames in the microarray data to use () instead of ..
+colnames(microarray_data) <- c("gene_names", "tM(CAU)C", "tR(CCU)J", "tR(UCU)M2", "tH(GUG)G1", "tL(GAG)G")
 ```
 
 
 ### Correlation heatmap between microarray and proteomics
 ```{r}
 # Get standard protein names
+source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 microarray_data <- match_systematic_and_standard_protein_names(data = microarray_data,
                                                                yeastmine = yeastmine,
                                                                input = "systematic",
@@ -579,10 +553,11 @@ proteomics_and_microarray_data <- left_join(trna_ko_temp, microarray_data, by = 
 
 # Correlation heatmap between our samples 
 samples_in_microarray <- colnames(microarray_data)[2:6]
+sample_names_escaped <- c("tM\\(CAU\\)C",  "tR\\(CCU\\)J",  "tR\\(UCU\\)M2", "tH\\(GUG\\)G1", "tL\\(GAG\\)G")
 proteomics_and_microarray_subset <- data.frame(matrix(nrow = nrow(proteomics_and_microarray_data), ncol = 0))
 
 for (i in 1:length(samples_in_microarray)) {
-  sample_name <- samples_in_microarray[i]
+  sample_name <- sample_names_escaped[i]
   temp <- proteomics_and_microarray_data[, grepl(sample_name, colnames(proteomics_and_microarray_data))]
   proteomics_and_microarray_subset <- cbind(proteomics_and_microarray_subset, temp)
 }
@@ -605,6 +580,18 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
 
 ```
 --> The proteomics samples for these 5 strains have literally 0 correlation with the microarray data from the same strains. Could it be because the proteomics data are direct measurements while the microarray data are actually presented as the fold-change with respect to the WT? I don't think so but maybe I could look into it? Could try to make my proteomics data for these strains into that as well?
+
+
+### Venn diagram between genes detected in proteomics and in transcriptomics
+```{r}
+list_for_venn_diagram <- list(Proteomics = rownames(trna_ko),
+                              Transcriptomics = microarray_data$Gene.symbol)
+ggvenn(
+  list_for_venn_diagram, 
+  fill_color = c("#80AAFF", "#FF8080"),
+  stroke_size = 0.5, set_name_size = 4
+  )
+```
 
 
 ### Correlation heatmap within microarray
@@ -631,8 +618,7 @@ rm(test, corrs, melted_corrs)
 ### Correlation heatmap within proteomics (only the samples involved here)
 ```{r}
 # Grab columns of proteomics data with only samples from the strains for which there are microarray data
-toMatch <- colnames(microarray_data)[2:6]
-matches <- grepl(paste(toMatch,collapse="|"), 
+matches <- grepl(paste(sample_names_escaped, collapse="|"), 
                         colnames(trna_ko))
 MC_and_SC_proteomics <- trna_ko[, matches]
 
@@ -696,12 +682,12 @@ Check that proteins which are upregulated in these samples in the proteomics dat
 ```{r}
 microarray_samples <- colnames(microarray_data[2:6])
 
-da_for_microarray_samples <- da %>% filter(ko %in% microarray_samples)
+da_for_microarray_samples <- da_full %>% filter(Strain.Name %in% microarray_samples)
 
 for (i in 1:length(microarray_samples)) {
   sample <- microarray_samples[i]
-  da_temp <- da %>% 
-    filter(ko == sample) %>%
+  da_temp <- da_full %>% 
+    filter(Strain.Name == sample) %>%
     select(protein, diffexpressed, logFC, adj.P.Val)
   colnames(da_temp) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val")
   microarray_temp <- microarray_data %>% select(all_of(sample), Gene.symbol)
@@ -714,7 +700,7 @@ for (i in 1:length(microarray_samples)) {
   
   
   # Calculate correlation to add to plot
-  corr_coef <- round(cor(test$logFC, test$logfold_microarray, method = "spearman"), 2)
+  corr_coef <- round(cor(test$logFC, test$logfold_microarray, method = "spearman", use = "complete.obs"), 2)
   
   
   # Protein names in X axis, transcriptomics fold change in Y axis, color by significance in proteomics - not such a good plot tbh
@@ -767,49 +753,33 @@ for (i in 1:length(microarray_samples)) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-## 3.4. Join master dataset and phenotypic results from Bloom-Ackermann et al., 2014
+# 3. Compare to expression data from Cozen et al., 2015 - THESE ARE JUST RAW READS I'M LOOKING AT, HONESTLY NO IDEA IF THIS MAKES SENSE
+The main issue with this dataset (apart from the fact that I think they are raw reads???) is that in many rows, the counts are not assigned to a single tRNA gene, but they can come from any tRNA gene with a certain anticodon. Not sure how to go about this, so for now I am going to try to look only at the rows which identify one single tRNA gene, and see if that is enough for the analysis
 ```{r}
-# 2. Bring both datasets together into a final master dataset
-# 2.0. Load phenotypic results dataset
-phenotypic_results <- fread("C:/MyStuff/tRNAs/data/bloom_ackermann_2014/phenotypic_results.tsv")
+cozen <- read.xlsx("C:/MyStuff/tRNA_KOs/Data/tRNA_expression_comparative/cozen_et_al_2015.xlsx", 1)
+
+# Keep only rows with a single tRNA gene identified, remove those with unknown (NA) gene identified and with NA in the mean.normalized.ReadCount..AlkB column
+cozen_single <- cozen %>% 
+  filter(!grepl(",", saccaromyces.genome.datasbase..sgd..tRNA.name) & 
+           saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
+           read.mapping..genomic.sequence.or.mature.tRNA. == "genomic" &
+           mean.normalized.ReadCount..AlkB != "NA")
+
+cozen_single_to_merge <- cozen_single %>%
+  select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB) %>%
+  group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
+  mutate(mean_reads_per_tRNA = mean(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
+  rename(gene_name = saccaromyces.genome.datasbase..sgd..tRNA.name)
 
 
-# 2.1. Since the anticodon sequences are different (in the database they are in DNA,
-# e.g. TGC, while in the phenotypic results they are in RNA, e.g. UGC), I will take the opportunity
-# to tag this before I merge them. Honestly I don't know why they keep them in DNA in the dabase,
-# since in the GtRNADB_name they are in RNA, but oh well
-colnames(db)[colnames(db) == "Anticodon"] <- "Anticodon_DNA"
-colnames(phenotypic_results)[colnames(phenotypic_results) == "anticodon"] <- "Anticodon_RNA"
+# Merge with resp_filtered
+resp_and_expression <- left_join(resp_filtered, cozen_single_to_merge, by = "gene_name")
 
 
-# 2.2. Join to their phenotypic results dataset
-master_dataset <- left_join(db, phenotypic_results, by = "GtRNADB_name")
-
-
-# 2.4. Check that all tRNAs from both the database and the phenotypic results are included in the final dataset
-length(phenotypic_results$GtRNADB_name[which(!(phenotypic_results$GtRNADB_name %in% master_dataset$GtRNADB_name))]) == 0
-length(db$GtRNADB_name[which(!(db$GtRNADB_name %in% master_dataset$GtRNADB_name))]) == 0
-
-
-## 2.5. Change gene_name column to Strain.Name so that it maps to the sample_layout dataset
-colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
-
-
-## Remove unnecessary variables
-rm(GtRNADB_names, new_name, og_name, part_to_be_replaced, replacement, roman_num, i, phenotypic_results, db)
+# Plot average nDEP vs. avg expression
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = avg_nDEP)) +
+  geom_point() +
+  theme_light()
 ```
 
 
@@ -817,29 +787,6 @@ rm(GtRNADB_names, new_name, og_name, part_to_be_replaced, replacement, roman_num
 
 
 
-
-
-
-
-
-
-
-
-
-TRYING TO FIND A DATASET WITH EXPRESSION OF TRNA GENES IN S CEREVISIAE
-```{r}
-library(data.table)
-
-# alhaj_sulaiman
-df <- as.data.frame(fread("C:/Users/algo12/Downloads/GSE201413.final.pcl"))
-alhaj_sulaiman <- df[, grepl("Wild Type, untreated", colnames(df)) | grepl("NAME", colnames(df))]
-
-# Bose 2012
-df <- as.data.frame(fread("C:/Users/algo12/Downloads/GSE27235.final.pcl"))
-
-# Chu 2013
-df <- as.data.frame(fread("C:/Users/algo12/Downloads/GSE47713.final.pcl"))
-```
 
 
 

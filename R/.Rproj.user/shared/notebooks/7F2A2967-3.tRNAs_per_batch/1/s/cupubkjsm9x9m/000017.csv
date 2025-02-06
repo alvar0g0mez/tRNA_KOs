@@ -1,5 +1,0 @@
-"0",""
-"0",""
-"0",""
-"0","# Remove unnecessary objects"
-"0","rm(toMatch, matches, corrs, melted_corrs, old_colname, new_colnames)"

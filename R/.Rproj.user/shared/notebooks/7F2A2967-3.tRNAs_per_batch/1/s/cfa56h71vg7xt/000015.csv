@@ -1,3 +1,0 @@
-"0",""
-"0","# Remove unnecessary variables"
-"0","rm(test, corrs, melted_corrs)"

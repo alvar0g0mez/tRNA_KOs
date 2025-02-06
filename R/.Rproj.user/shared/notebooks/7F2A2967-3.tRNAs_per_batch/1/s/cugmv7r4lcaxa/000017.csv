@@ -1,3 +1,0 @@
-"0",""
-"0","# Remove unnecessary objects"
-"0","rm(test, test_corrs, melted_corrs)"

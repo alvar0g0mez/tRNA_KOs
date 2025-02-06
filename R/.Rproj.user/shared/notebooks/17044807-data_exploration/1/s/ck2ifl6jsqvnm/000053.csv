@@ -1,4 +1,0 @@
-"0","# Plot precursor number vs. MS1.Signal coloring by sub-batch"
-"0","ggplot(data = stats_file, aes(x = MS1.Signal, y = Precursors.Identified, col = Analysis.Plate.96_Replicate)) +"
-"0","  geom_point() +"
-"0","  theme_light()"

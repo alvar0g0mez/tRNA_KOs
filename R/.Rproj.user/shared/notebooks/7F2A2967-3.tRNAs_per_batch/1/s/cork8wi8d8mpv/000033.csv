@@ -1,4 +1,0 @@
-"0",""
-"0",""
-"0","# Remove unused objects"
-"0","rm(list = c(""my_grobs"", ""plot_list"", ""KOs_with_DE_proteins"", ""temp"", ""da_only_KOs_with_DE_proteins"", ""trna"", ""i""))"

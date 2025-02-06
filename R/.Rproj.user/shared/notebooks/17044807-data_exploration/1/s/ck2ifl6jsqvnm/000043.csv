@@ -1,4 +1,0 @@
-"0","# Plot precursor number vs. protein number, color by whether they are in the wrong batch or not"
-"0","ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Wrong_batch)) +"
-"0","  geom_point() +"
-"0","  theme_light()"

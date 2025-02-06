@@ -1,4 +1,0 @@
-"0",""
-"0",""
-"0","# Remove intermediate objects"
-"0","rm(trna_samples)"
