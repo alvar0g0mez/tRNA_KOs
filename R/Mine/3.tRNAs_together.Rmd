@@ -56,7 +56,7 @@ proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLe
 sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 
 # The master tRNA dataset
-master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/GtRNAdb/master_tRNA_dataset.csv"))
+master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
 
 # Import the functions I have created in another file
 #source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
@@ -227,10 +227,6 @@ da_full <- DE$da
 ```
 
 
-
-
-
-
 ## 1.5. Volcano plots for the differential expression
 ```{r}
 # One plot per KO and save them to a PDF - for all KOs
@@ -300,7 +296,7 @@ rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KO
 ## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/Other/bloom_ackermann_2014/phenotypic_results.tsv'))
 
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
@@ -484,7 +480,7 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
 ## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/Other/bloom_ackermann_2014/phenotypic_results.tsv'))
 
 # Change "ko" colname to allow to merge datasets based on it
 colnames(resp_filtered)[colnames(resp_filtered) == "Strain.Name"] <- "gene_name"

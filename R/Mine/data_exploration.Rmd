@@ -49,7 +49,7 @@ proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLe
 sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 
 # The master tRNA dataset
-master_dataset <- as.data.frame(fread("C:/MyStuff/tRNAs/Data/GtRNAdb/master_tRNA_dataset.csv"))
+master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
 
 # Import the functions I have created in another file
 #source("C:/MyStuff/tRNAs/Scripts/R/Mine/0.general_use_functions.R")
@@ -544,6 +544,16 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
   theme_light()
 ```
 Nothing figured out from this yet :(
+
+
+
+
+
+
+# 5. Obtain CV and make CV plot
+
+
+
 
 
 
