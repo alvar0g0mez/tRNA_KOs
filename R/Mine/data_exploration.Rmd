@@ -38,22 +38,43 @@ library(tidyr)
 
 
 # 1. Load data and initial analysis
-## 1.1. Load data
+## 1.1. Load data - Charité
 ```{r}
-# Our proteomics data 
-#proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
-
-proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-
-# The sample layout
-sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-
-# The master tRNA dataset
-master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
-
-# Import the functions I have created in another file
-#source("C:/MyStuff/tRNAs/Scripts/R/Mine/0.general_use_functions.R")
+## Proteomics data and sample layout - from the S drive
+##proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tR#NA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+#
+#proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRN#A/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
+#
+#sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUs#age-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+#
+#
+## My data - in the project folder - when I open the project, the directory is set to its location
+### The master tRNA dataset
+#master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+#
+### Import the functions I have created in another file
+##source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 ```
+
+## 1.1. Load data - home
+```{r}
+# Proteomics data and sample layout - from the S drive
+#proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+
+proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
+
+sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+
+
+# My data - in the project folder - when I open the project, the directory is set to its location
+## The master tRNA dataset
+master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+
+## Import the functions I have created in another file
+#source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+```
+
+
 
 ## 1.2. Add columns to sample_layout and merge it with master_dataframe
 ```{r}
@@ -550,7 +571,29 @@ Nothing figured out from this yet :(
 
 
 
-# 5. Obtain CV and make CV plot
+# 5. Try to normalize each subbatch by its WT samples, see if that makes it all comparable
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# 6. Obtain CV and make CV plot
 
 
 

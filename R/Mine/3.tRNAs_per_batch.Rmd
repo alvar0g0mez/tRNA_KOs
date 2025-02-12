@@ -45,25 +45,51 @@ alpha <- 0.01
 
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 1.5
+
+# Directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/tRNA_KOs/"
+}
 ```
 
 
 ## 1.1. Load data
 ```{r}
-# Proteomics data - with the PCA outliers removed, without batch correction
-#proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+if (working_from == "charite") {
+  # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAU#age-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  
+  # The sample layout
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/Alterna#iveAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  
+  # The master tRNA dataset
+  master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+  
+  # Import the functions I have created in another file
+  #source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
+} else 
 
-# Proteomics data - all outliers still included (filter the wrong batch myself later), without batch correction
-proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-
-# The sample layout
-sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-
-# The master tRNA dataset
-master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/GtRNAdb/master_tRNA_dataset.csv"))
-
-# Import the functions I have created in another file
-#source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
+if (working_from == "home") {
+  # Proteomics data and sample layout - from the S drive
+  #proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  
+  proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
+  
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  
+  
+  # My data - in the project folder - when I open the project, the directory is set to its location
+  ## The master tRNA dataset
+  master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+  
+  ## Import the functions I have created in another file
+  #source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+}
 ```
 
 ## 1.2. Add columns to sample_layout and merge it with master_dataframe
@@ -334,8 +360,9 @@ for (i in 1:length(levels(as.factor(da_full$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_all_KOs_per_batch.pdf", sep="")
 ggsave(
-   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_all_KOs_per_batch.pdf", 
+   filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -365,8 +392,9 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_KOs_with_DE_proteins_per_batch.pdf", sep="")
 ggsave(
-   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_KOs_with_DE_proteins_per_batch.pdf", 
+   filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -380,7 +408,7 @@ rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KO
 ## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, 'Data/bloom_ackermann_2014/phenotypic_results.tsv', sep="")))
 
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
@@ -418,8 +446,9 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_UCU_family_per_batch.pdf", sep="")
 ggsave(
-   filename = "C:/MyStuff/tRNA_KOs/Output/Plots/Volcano_plots/DE_per_batch/volcano_plots_per_KO_UCU_family_per_batch.pdf", 
+   filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
@@ -563,7 +592,7 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
 ## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread('C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/phenotypic_results.tsv'))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, 'Data/Other/bloom_ackermann_2014/phenotypic_results.tsv', sep="")))
 
 # Change "ko" colname to allow to merge datasets based on it
 colnames(resp_filtered)[colnames(resp_filtered) == "Strain.Name"] <- "gene_name"
@@ -604,10 +633,10 @@ Important to remember that the microarray data are only for 5 tRNA families:
 ### Loading data
 ```{r}
 # Load their small microarray data: fold changes for all genes but only for 5 samples
-microarray_data <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/bloom_ackermann_2014/microarray_fold_change_data.tsv"))
+microarray_data <- as.data.frame(fread(paste(base_dir, "Data/Other/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
 
 # Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
-yeastmine <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/alliancemine_results_2024-11-20T11-19-04.tsv"))
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
 
 # Need to change the colnames in the microarray data to use () instead of ..
@@ -618,7 +647,7 @@ colnames(microarray_data) <- c("gene_names", "tM(CAU)C", "tR(CCU)J", "tR(UCU)M2"
 ### Correlation heatmap between microarray and proteomics
 ```{r}
 # Get standard protein names
-source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
 microarray_data <- match_systematic_and_standard_protein_names(data = microarray_data,
                                                                yeastmine = yeastmine,
                                                                input = "systematic",
@@ -841,7 +870,7 @@ for (i in 1:length(microarray_samples)) {
 # 3. Compare to expression data from Cozen et al., 2015 - THESE ARE JUST RAW READS I'M LOOKING AT, HONESTLY NO IDEA IF THIS MAKES SENSE
 The main issue with this dataset (apart from the fact that I think they are raw reads???) is that in many rows, the counts are not assigned to a single tRNA gene, but they can come from any tRNA gene with a certain anticodon. Not sure how to go about this, so for now I am going to try to look only at the rows which identify one single tRNA gene, and see if that is enough for the analysis
 ```{r}
-cozen <- read.xlsx("C:/MyStuff/tRNA_KOs/Data/tRNA_expression_comparative/cozen_et_al_2015.xlsx", 1)
+cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen_et_al_2015.xlsx", sep=""), 1)
 
 # Keep only rows with a single tRNA gene identified, remove those with unknown (NA) gene identified and with NA in the mean.normalized.ReadCount..AlkB column
 cozen_single <- cozen %>% 
