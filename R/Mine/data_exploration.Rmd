@@ -38,40 +38,62 @@ library(tidyr)
 
 
 # 1. Load data and initial analysis
-## 1.1. Load data - Charité
+## 1.0. Set parameters
 ```{r}
-## Proteomics data and sample layout - from the S drive
-##proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tR#NA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
-#
-#proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRN#A/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-#
-#sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUs#age-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-#
-#
-## My data - in the project folder - when I open the project, the directory is set to its location
-### The master tRNA dataset
-#master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
-#
-### Import the functions I have created in another file
-##source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+# Significance level to be used for all tests and plots in this file
+alpha <- 0.01
+
+# Log-fold change limit to be considered "biologically significant"
+lfc_threshold <- 1.5
+
+# Directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/tRNA_KOs/"
+}
 ```
 
-## 1.1. Load data - home
+## 1.1. Load data
 ```{r}
-# Proteomics data and sample layout - from the S drive
-#proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+if (working_from == "charite") {
+  # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAU#age-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  
+  # The sample layout
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/Alterna#iveAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  
+  # The master tRNA dataset
+  master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+  
+  # stats file
+  stats_file <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz', header = T)
+  
+  # Import the functions I have created in another file
+  #source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
+} else 
 
-proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-
-sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-
-
-# My data - in the project folder - when I open the project, the directory is set to its location
-## The master tRNA dataset
-master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
-
-## Import the functions I have created in another file
-#source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+if (working_from == "home") {
+  # Proteomics data and sample layout - from the S drive
+  #proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  
+  proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
+  
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  
+  # stats file
+  stats_file <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/report.stats.tsv', header = T)
+  
+  # My data - in the project folder - when I open the project, the directory is set to its location
+  ## The master tRNA dataset
+  master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+  
+  ## Import the functions I have created in another file
+  #source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+}
 ```
 
 
@@ -484,10 +506,7 @@ rm(PCA_tags, var_exp_PC1, var_exp_PC2, var_explained, get_PCA_tags, PC, PCA_data
 # 4. Check stats file to see if that explains the differences in batch 3_2
 ## 4.1. Load and pre-process stats_file
 ```{r}
-# Load stats file
-stats_file <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz', header = T)
-
-# Add column with subbatches
+# Add column with subbatches to stats file
 stats_file <- left_join(stats_file, sample_layout[,c("File.Name", "Analysis.Plate.96", "Replicate", "Analysis.Plate.96_Replicate", "Strain.Type", 
                                                      "Wrong_batch", "date", "Date_Injection_Order")], by = "File.Name")
 ```
@@ -495,18 +514,21 @@ stats_file <- left_join(stats_file, sample_layout[,c("File.Name", "Analysis.Plat
 ## 4.2. Plots to try to explain what is wrong with the subbatch
 ```{r}
 # Plot precursor number vs. protein number coloring by sub-batch
+output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png", sep="")
 ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
   geom_point() +
   theme_light()
-ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png")
+ggsave(output_file)
 
 # Plot precursor number vs. protein number, color by whether they are in the wrong batch or not
+output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_wrong_batch.png", sep="")
 ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Wrong_batch)) +
   geom_point() +
   theme_light()
-ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_wrong_batch.png")
+ggsave(output_file)
 
 # Plot precursor number vs. date_injection_order, color by sub-batch
+output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_identified_vs_injection_by_subbatch.png", sep="")
 ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = Analysis.Plate.96_Replicate)) +
   geom_point() +
   theme_light() +
@@ -514,9 +536,10 @@ ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identifie
         axis.ticks.x=element_blank(),
         # Remove the vertical grid lines
         panel.grid.major.x = element_blank())
-ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_identified_vs_injection_by_subbatch.png")
+ggsave(output_file)
 
 # Plot protein number vs. date_injection_order, color by sub-batch
+output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png", sep="")
 ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
   geom_point() +
   theme_light() +
@@ -524,9 +547,10 @@ ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Proteins.Identified,
         axis.ticks.x=element_blank(),
         # Remove the vertical grid lines
         panel.grid.major.x = element_blank())
-ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png")
+ggsave(output_file)
 
 # Plot precursor number vs. date_injection_order, color by date
+output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_identified_vs_injection_by_date.png", sep="")
 ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = date)) +
   geom_point() +
   theme_light() +
@@ -534,7 +558,7 @@ ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identifie
         axis.ticks.x=element_blank(),
         # Remove the vertical grid lines
         panel.grid.major.x = element_blank())
-ggsave("C:/MyStuff/tRNAs/Output/Plots/QC/stats_file/precs_identified_vs_injection_by_date.png")
+ggsave(output_file)
 
 # Plot precursor number vs. MS1.Signal coloring by sub-batch
 ggplot(data = stats_file, aes(x = MS1.Signal, y = Precursors.Identified, col = Analysis.Plate.96_Replicate)) +

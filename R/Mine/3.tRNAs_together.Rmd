@@ -46,6 +46,9 @@ alpha <- 0.01
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 1.5
 
+# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included)
+threshold_major <- 2
+
 # Directories to be used
 working_from = "home"
 
@@ -90,7 +93,6 @@ if (working_from == "home") {
   #source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 }
 ```
-
 
 ## 1.2. Add columns to sample_layout and merge it with master_dataframe
 ```{r}
@@ -179,7 +181,6 @@ rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows
    samples_in_wrong_batch)
 ```
 
-
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
 ```{r}
 # Get the names of all KOs we have, and set WT as the reference
@@ -210,6 +211,16 @@ da <- list()
 for (i in colnames(mm)) {
   da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', n = Inf, sort.by = 'none')
 }
+
+# Save DE proteins for enrichment analysis
+de_proteins_list_001 <- list()
+de_proteins_list_001[["background"]] <- rownames(da[[1]])
+for (i in 1:length(da)) {
+  temp <- da[[i]]
+  de_proteins_list_001[[names(da)[i]]] <- rownames(temp)[na.omit(temp$adj.P.Val) < alpha]
+}
+output_file <- paste(base_dir, "Data/de_proteins_list_001.RData", sep="")
+saveRDS(de_proteins_list_001, file=output_file)
 
 # Format data
 da <- bind_rows(da) %>%
@@ -255,7 +266,6 @@ DE <- list(fit = fit,
 resp_filtered <- DE$resp
 da_full <- DE$da
 ```
-
 
 ## 1.5. Volcano plots for the differential expression
 ```{r}
@@ -324,11 +334,10 @@ rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KO
 ```
 --> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
 
-
-## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
+## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-loc <- paste(base_dir, "Data/Other/bloom_ackermann_2014/phenotypic_results.tsv", sep = "")
+loc <- paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep = "")
 phenotypic_data <- as.data.frame(fread(loc))
 
 # Just number of DE proteins
@@ -395,8 +404,6 @@ rm(replicate_num_vs_nDEP_cor)
 ```
 --> The point with this was that maybe a larger number of replicates causes more nDEP just because it's easier to achieve significance. However, there seems to be no correlation at all, I think that's actually good because it means that the nDEP will be only influenced by what is going on with the tRNA KOs? Even though that effect could be already confounding my results in this boxplot
 
-
-
 ## 1.9. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
 responsiveness <- responsiveness %>%
@@ -447,13 +454,16 @@ cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$n)
 # Histogram of avg_nDEP for each KO strain
 ggplot(data = resp_filtered, aes(x = nDEP)) +
   geom_histogram(binwidth = 1, color="black", fill="grey") +
-  theme_light()
+  theme_light() +
+  xlab("nDEP per tRNA KO") +
+  ylab("Count") +
+  labs(title = "Frequency of nDEP across all tRNA KO strains")
 
 # There are ~80 KO strains with 0 avg_nDEP, I don't think it's that straightforward but for now I'll assume those are the minor tRNA genes
 
 # Define a column with "minor"-"major" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
 resp_filtered <- resp_filtered %>%
-  mutate(Gene_type = case_when(nDEP == 0 ~ "Minor",
+  mutate(Gene_type = case_when(nDEP < threshold_major ~ "Minor",
                                TRUE ~ "Major")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
@@ -496,7 +506,6 @@ ggplot(data = family_sizes_long, aes(x = Anticodon, y = Count, fill = Type)) +
 ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
   geom_point() +
   geom_abline() +
-  geom_smooth(method='lm') +
   theme_light() +
   xlab("Genes in this family in the experiment") +
   ylab("Major genes detected in the family") +
@@ -556,7 +565,7 @@ Important to remember that the microarray data are only for 5 tRNA families:
 ### Loading data
 ```{r}
 # Load their small microarray data: fold changes for all genes but only for 5 samples
-microarray_data <- as.data.frame(fread(paste(base_dir, "Data/Other/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
+microarray_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
 
 # Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
 yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
@@ -882,7 +891,6 @@ chu_trnas <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S
 
 # Join the synthetase data to the resp_and_expression dataset
 amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) %>%
-  select(X1_letter_code, X3_letter_code) %>%
   rename(Amino_acid = X3_letter_code, 
          AA = X1_letter_code)
 
@@ -960,24 +968,33 @@ cozen_to_merge <- cozen %>%
          saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
   group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
-  rename(gene_name = saccaromyces.genome.datasbase..sgd..tRNA.name)
+  rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name)
 
 ## Merge with resp_filtered
-resp_and_expression <- left_join(resp_filtered, cozen_to_merge, by = "gene_name")
+resp_and_expression <- left_join(resp_filtered, cozen_to_merge, by = "Strain.Name")
 ```
 
-Get plots
+Plots - nDEP vs. tRNA expression from Cozen et al., 2015
 ```{r}
 # Plot average nDEP vs. avg expression - genomic tRNA sequences
 ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP)) +
   geom_point() +
   theme_light() + 
-  xlab("Sequencing reads per tRNA") +
+  labs(title = "nDEP vs. tRNA expression") +
+  xlab("Sequencing reads per tRNA (from Cozen et al., 2015)") +
+  ylab("nDEP per tRNA KO")
+
+# Same, but color by number of tRNA genes in family
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = Family_count)) +
+  geom_point() +
+  theme_light() + 
+  xlab("Sequencing reads per tRNA (from Cozen et al., 2015)") +
   ylab("nDEP per tRNA KO")
 ```
 
 
 ## 4.2. Integrate data from tRNA synthetase abundance and tRNA abundance (Chu et al., 2011) 
+Load and prepare data
 ```{r}
 # Load data
 chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))
@@ -986,7 +1003,6 @@ chu_trnas <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S
 
 # Join the synthetase data to the resp_and_expression dataset
 amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) %>%
-  select(X1_letter_code, X3_letter_code) %>%
   rename(Amino_acid = X3_letter_code, 
          AA = X1_letter_code)
 
@@ -996,9 +1012,33 @@ chu_synths <- left_join(chu_synths, amino_acids, by = "Amino_acid") %>%
 resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "AA")
 ```
 
-Plots 
+Plots - nDEP vs. tRNA expression from Cozen et al., 2015 (coloring by amino acid characteristics)
 ```{r}
-# Plot tRNA abundance from Cozen et al., against log2 tRNA synthetase abundance from Chu et al.
+# Plot average nDEP vs. avg expression - color by amino acid type
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = amino_acid_type)) +
+  geom_point() +
+  theme_light() + 
+  xlab("Sequencing reads per tRNA (from Cozen et al., 2015)") +
+  ylab("nDEP per tRNA KO")
+
+# Plot average nDEP vs. avg expression - color by amino acid charge
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = amino_acid_charge)) +
+  geom_point() +
+  theme_light() + 
+  xlab("Sequencing reads per tRNA (from Cozen et al., 2015)") +
+  ylab("nDEP per tRNA KO")
+
+# Plot average nDEP vs. avg expression - color by amino acid weight
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = molecular_weight)) +
+  geom_point() +
+  theme_light() + 
+  xlab("Sequencing reads per tRNA (from Cozen et al., 2015)") +
+  ylab("nDEP per tRNA KO")
+```
+
+Plots - tRNA expression from Cozen et al., 2015 vs. tRNA synthetase abundance from Chu et al., 2011
+```{r}
+# tRNA abundance from Cozen et al., vs. log2 tRNA synthetase abundance from Chu et al.
 ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_reads_per_tRNA)) +
   geom_point() +
   theme_light()
@@ -1008,11 +1048,29 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_
   geom_point() +
   theme_light()
 
-# Same plots as before, tRNA abundance from Cozen et al. vs. our nDEP, coloring by tRNA synthetase abundance from Chu et al.
+# Plot average nDEP vs. avg expression, but color by tRNA synthetase abundance from Chu et al.
 ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = synthetase_abundance)) +
   geom_point() +
   theme_light()
 
+# Same, but color by amino acid type
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_reads_per_tRNA, col = amino_acid_type)) +
+  geom_point() +
+  theme_light()
+
+# Same, but color by amino acid charge
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_reads_per_tRNA, col = amino_acid_charge)) +
+  geom_point() +
+  theme_light()
+
+# Same, but color by amino acid weight
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_reads_per_tRNA, col = molecular_weight)) +
+  geom_point() +
+  theme_light()
+```
+
+Plots - nDEP vs. synthetase abundance
+```{r}
 # nDEP vs. synthetase abundance
 ggplot(data = resp_and_expression, aes(x = synthetase_abundance, y = nDEP)) +
   geom_point()
@@ -1021,14 +1079,191 @@ ggplot(data = resp_and_expression, aes(x = synthetase_abundance, y = nDEP)) +
 ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance") +
+  xlab("log2-tRNA synthetase abundance (from von der Haar, 2008)") +
+  ylab("nDEP per tRNA KO")
+
+# nDEP vs. log2-synthetase abundance - color by family size
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = Family_count)) +
+  geom_point() +
+  theme_light() +
+  xlab("log2-tRNA synthetase abundance (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# nDEP vs. log2-synthetase abundance - color by chromosome
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = chromosome.y)) +
+  geom_point() +
+  theme_light() +
+  xlab("log2-tRNA synthetase abundance (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# nDEP vs. log2-synthetase abundance - color by amino acid type
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = amino_acid_type)) +
+  geom_point() +
+  theme_light() +
+  xlab("log2-tRNA synthetase abundance (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# nDEP vs. log2-synthetase abundance - color by amino acid charge
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = amino_acid_charge)) +
+  geom_point() +
+  theme_light() +
+  xlab("log2-tRNA synthetase abundance (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# nDEP vs. log2-synthetase abundance - color by amino acid weight
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = molecular_weight)) +
+  geom_point() +
+  theme_light() +
+  xlab("log2-tRNA synthetase abundance (from Chu et al., 2011)") +
   ylab("nDEP per tRNA KO")
 ```
 
 
-Try to fit a linear model to predict nDEP based on synthetase abundance and genomic tRNA read counts, and their interaction - not very successful
+## 4.3. Add information about anticodon frequency as well
+Load and prepare data
 ```{r}
-fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*mean_reads_per_tRNA)
+# Create function to get anticodon from codon
+exchange_individual_nucleotide <- function(nt) {
+  if (nt == "A") {return("U")}
+  else if (nt == "C") {return("G")}
+  else if (nt == "G") {return("C")}
+  else if (nt == "T") {return("A")}
+  else if (nt == "U") {return("A")}
+  else {return("Provided letter is not a nucleotide")}
+}
+
+get_anticodon_from_codon <- function(codon) {
+  anticodon <- ""
+  for (i in 1:nchar(codon)) {
+    nt <- substr(codon, i, i)
+    new_nt <- exchange_individual_nucleotide(nt)
+    anticodon <- paste(anticodon, new_nt, sep="")
+  }
+  return(anticodon)
+}
+```
+
+```{r}
+# Get anticodon from codon and rename columns
+anticodon_freq <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S1.csv", sep="")))
+anticodon_freq$anticodon <- lapply(anticodon_freq[,colnames(anticodon_freq) == "Codon"], get_anticodon_from_codon)
+anticodon_freq$anticodon <- as.character(anticodon_freq$anticodon)
+anticodon_freq$anticodon <- as.factor(anticodon_freq$anticodon)
+anticodon_freq <- anticodon_freq %>%
+  rename(codon_frequency_chu_2011 = Frequency)
+
+# Merge to resp_and_expression
+resp_and_expression <- left_join(resp_and_expression, anticodon_freq, by = "anticodon")
+```
+
+Plots - nDEP vs. codon frequency (from van der Haar, 2008)
+```{r}
+# Codon frequency vs. nDEP
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. codon frequency") +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by tRNA abundance from Cozen et al.
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = mean_reads_per_tRNA)) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by log2 tRNA synthetase abundance from Chu et al.
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = log2(synthetase_abundance))) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by family size
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = Family_count)) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by amino acid type
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_type)) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by amino acid charge
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_charge)) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+
+# Codon frequency vs. nDEP - color by amino acid weight
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = molecular_weight)) +
+  geom_point() +
+  theme_light() +
+  xlab("Codon frequency (from Chu et al., 2011)") +
+  ylab("nDEP per tRNA KO")
+```
+
+
+## 4.4. Plots regarding family size and so on, from 1.11., but I want to color by variables only introduced here
+```{r}
+# Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
+temp <- resp_and_expression %>%
+  select(anticodon, AA)
+temp_2 <- left_join(family_sizes, temp, by = "anticodon") %>%
+  distinct(anticodon, .keep_all = T)
+
+ggplot(data = temp_2, aes(x = Family_count, y = Major_count, col = AA)) +
+  geom_point() +
+  geom_abline() +
+  theme_light() +
+  xlab("Genes in this family in the experiment") +
+  ylab("Major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count == 1 | Major_count/Family_count < 0.3),
+                  aes(x = Family_count, y = Major_count, label = anticodon),
+                  size = 4, 
+                  max.overlaps = 100)
+
+# Same, but use in the y axis the % of major tRNAs instead of the count
+ggplot(data = temp_2, aes(x = Family_count, y = Major_count/Family_count)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  theme_light() +
+  xlab("Genes in this family in the study") +
+  ylab("% of major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3| anticodon == "CAA"),
+                  aes(x = Family_count, y = Major_count/Family_count, label = anticodon, col = AA),
+                  size = 4)
+
+# Same, but use in the y axis the % of major tRNAs instead of the count, and color by aa
+ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  theme_light() +
+  xlab("Genes in this family in total") +
+  ylab("% of major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3 | anticodon == "CAA"),
+                  aes(x = Family_size, y = Major_count/Family_count, label = anticodon, col = AA),
+                  size = 4)
+```
+
+
+
+
+
+# 5. Modelling
+
+## 5.1. Try to fit a linear model to predict nDEP based on synthetase abundance and genomic tRNA read counts, and their interaction - not very successful
+```{r}
+# Simple linear model with synthetase abundance, tRNA expression and codon frequency (and interactions)
+fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*mean_reads_per_tRNA*codon_frequency_chu_2011)
+summary(fit)
 ```
 
 

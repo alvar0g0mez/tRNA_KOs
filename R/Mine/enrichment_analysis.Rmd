@@ -1,0 +1,96 @@
+---
+title: "enrichment_analysis"
+author: "Álvaro Gómez Pérez"
+date: "2025-02-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Libraries
+```{r}
+library(clusterProfiler)
+library(org.Sc.sgd.db)
+library(data.table)
+```
+
+
+# 1. Load data and initial analysis
+## 1.0. Set parameters
+```{r}
+# Significance level to be used for all tests and plots in this file
+alpha <- 0.01
+
+# Log-fold change limit to be considered "biologically significant"
+lfc_threshold <- 1.5
+
+# Directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/tRNA_KOs/"
+}
+```
+
+Load data
+```{r}
+de_proteins_list_001 <- readRDS(paste(base_dir, "Data/de_proteins_list_001.RData", sep=""))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
