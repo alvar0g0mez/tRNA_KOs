@@ -15,10 +15,12 @@ Libraries
 library(clusterProfiler)
 library(org.Sc.sgd.db)
 library(data.table)
+library(dplyr)
+library(fgsea)
 ```
 
 
-# 1. Load data and initial analysis
+# 1. Load and prepare data
 ## 1.0. Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
@@ -28,7 +30,7 @@ alpha <- 0.01
 lfc_threshold <- 1.5
 
 # Directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -38,28 +40,280 @@ if (working_from == "charite") {
 }
 ```
 
-Load data
+## 1.1. Load data
 ```{r}
-de_proteins_list_001 <- readRDS(paste(base_dir, "Data/de_proteins_list_001.RData", sep=""))
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
+de_proteins_list_001 <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.RData", sep=""))
+
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05
+de_proteins_list_005 <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.RData", sep=""))
+
+# Full Entrez ID dataframe, with all genes
+entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
+
+# Load the dataset with that information
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+
+# Phenotypic data from Bloom-Ackermann et al., 2014
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+```
+
+
+
+# 2. GO enrichment analysis - for proteins at 0.01
+
+## 2.1. Get NCBI gene IDs for each of the systematic name vectors I have
+```{r}
+de_proteins_list_entrez_ID_001 <- list()
+for (i in 1:length(de_proteins_list_001)) {
+  temp <- data.frame("Protein_stable_ID" = de_proteins_list_001[[i]])
+  temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
+  temp <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
+  de_proteins_list_entrez_ID_001[[i]] <- temp
+}
+names(de_proteins_list_entrez_ID_001) <- names(de_proteins_list_001)
+```
+
+
+## 2.2. Get the information of how many DE proteins there are for each tRNA KO strain
+```{r}
+de_prots_per_strain <- c()
+for (i in 1:length(de_proteins_list_001)) {
+  temp <- de_proteins_list_001[[i]]
+  de_prots_per_strain <- c(de_prots_per_strain, length(temp))
+}
+
+de_prots_per_strain_001 <- data.frame(Strain.Name = names(de_proteins_list_001),
+                                      nDEP = de_prots_per_strain) %>%
+  filter(Strain.Name != "WT")
+```
+
+
+## 2.3. Perform enrichment analysis
+### Biological process
+```{r}
+# Come up with background (all proteins detected)
+my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
+
+# Create empty list for GO results, perform GO for each KO strain, and store them there
+go_results_list_001_bp <- list()
+for (i in 2:length(de_proteins_list_entrez_ID_001)) {
+  proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
+  if (length(proteins_detected) > 0) {
+    go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "BP", 
+                           universe = my_universe)
+    go_results <- as.data.frame(go_results)
+    if (nrow(go_results) > 0) {
+      go_results_list_001_bp[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
+    }
+  }
+}
+
+# Check how much correlation there is between strains having many DEPs and strains showing some GO enrichment results
+has_go_results <- c()
+number_of_go_terms <- c()
+for (i in 1:nrow(de_prots_per_strain_001)) {
+  strain <- de_prots_per_strain_001$Strain.Name[i]
+  if (strain %in% names(go_results_list_001_bp)) {
+    has_go_results <- c(has_go_results, "Yes")
+    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_bp[[strain]]))
+  }
+  else {
+    has_go_results <- c(has_go_results, "No")
+    number_of_go_terms <- c(number_of_go_terms, 0)
+  }
+}
+de_prots_per_strain_001$GO_results_bp <- has_go_results
+de_prots_per_strain_001$num_of_go_terms_bp <- number_of_go_terms
+```
+
+### Molecular function
+```{r}
+# Come up with background (all proteins detected)
+my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
+
+# Create empty list for GO results, perform GO for each KO strain, and store them there
+go_results_list_001_mf <- list()
+for (i in 2:length(de_proteins_list_entrez_ID_001)) {
+  proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
+  if (length(proteins_detected) > 0) {
+    go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "MF", 
+                           universe = my_universe)
+    go_results <- as.data.frame(go_results)
+    if (nrow(go_results) > 0) {
+      go_results_list_001_mf[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
+    }
+  }
+}
+
+# Check how much correlation there is between strains having many DEPs and strains showing some GO enrichment results
+has_go_results <- c()
+number_of_go_terms <- c()
+for (i in 1:nrow(de_prots_per_strain_001)) {
+  strain <- de_prots_per_strain_001$Strain.Name[i]
+  if (strain %in% names(go_results_list_001_mf)) {
+    has_go_results <- c(has_go_results, "Yes")
+    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_mf[[strain]]))
+  }
+  else {
+    has_go_results <- c(has_go_results, "No")
+    number_of_go_terms <- c(number_of_go_terms, 0)
+  }
+}
+de_prots_per_strain_001$GO_results_mf <- has_go_results
+de_prots_per_strain_001$num_of_go_terms_mf <- number_of_go_terms
+```
+
+### Cellular compartment
+```{r}
+# Come up with background (all proteins detected)
+my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
+
+# Create empty list for GO results, perform GO for each KO strain, and store them there
+go_results_list_001_cc <- list()
+for (i in 2:length(de_proteins_list_entrez_ID_001)) {
+  proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
+  if (length(proteins_detected) > 0) {
+    go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "CC", 
+                           universe = my_universe)
+    go_results <- as.data.frame(go_results)
+    if (nrow(go_results) > 0) {
+      go_results_list_001_cc[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
+    }
+  }
+}
+
+# Check how much correlation there is between strains having many DEPs and strains showing some GO enrichment results
+has_go_results <- c()
+number_of_go_terms <- c()
+for (i in 1:nrow(de_prots_per_strain_001)) {
+  strain <- de_prots_per_strain_001$Strain.Name[i]
+  if (strain %in% names(go_results_list_001_cc)) {
+    has_go_results <- c(has_go_results, "Yes")
+    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_cc[[strain]]))
+  }
+  else {
+    has_go_results <- c(has_go_results, "No")
+    number_of_go_terms <- c(number_of_go_terms, 0)
+  }
+}
+de_prots_per_strain_001$GO_results_cc <- has_go_results
+de_prots_per_strain_001$num_of_go_terms_cc <- number_of_go_terms
+```
+
+
+## 2.4. Add other informational columns to this dataset that might explain the success of the GO analysis for some strains
+```{r}
+de_prots_per_strain_001 <- left_join(de_prots_per_strain_001, master_dataset, by = "Strain.Name")
+```
+
+
+
+
+# 3. GO enrichment analysis - for proteins at 0.05
+
+## 3.1. Get NCBI gene IDs for each of the systematic name vectors I have
+```{r}
+de_proteins_list_entrez_ID_005 <- list()
+for (i in 1:length(de_proteins_list_005)) {
+  temp <- data.frame("Protein_stable_ID" = de_proteins_list_005[[i]])
+  temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
+  temp <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
+  de_proteins_list_entrez_ID_005[[i]] <- temp
+}
+names(de_proteins_list_entrez_ID_005) <- names(de_proteins_list_005)
+```
+
+
+## 3.2. Get the information of how many DE proteins there are for each tRNA KO strain
+```{r}
+
+```
+
+
+## 3.3. Perform enrichment analysis
+```{r}
+# Come up with background (all proteins detected)
+my_universe <- as.character(de_proteins_list_entrez_ID_005[["WT"]])
+
+# Create empty list for GO results, perform GO for each KO strain, and store them there
+go_results_list_005 <- list()
+for (i in 2:length(de_proteins_list_entrez_ID_005)) {
+  proteins_detected <- as.character(de_proteins_list_entrez_ID_005[[i]])
+  if (length(proteins_detected) > 0) {
+    go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "BP", 
+                           universe = my_universe)
+    go_results <- as.data.frame(go_results)
+    if (nrow(go_results) > 0) {
+      go_results_list_005[[names(de_proteins_list_entrez_ID_005)[i]]] <- go_results
+    }
+  }
+}
+
 ```
 
 
 
 
 
+# 4. GSEA - try to imitate the results from the original article
+```{r}
+# Load list of all dataframes (one per strain) wiht the DE results
+da <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+da <- da[names(da) != "WT"]
+
+# Iterate over these dataframes
+for (i in 1:length(da)) {
+  temp <- da[[i]]
+  
+  # Since we are using all genes, not only DE ones, we need to rank them
+  rankings <- sign(temp$logFC)*(-log10(temp$adj.P.Val))
+  names(rankings) <- rownames(temp)
+}
+
+```
 
 
 
+## 2.5. THIS IS WHAT I HAD WRITTEN ABOVE BEFORE (WITHIN GO ENRICHMENT ANALYSIS) BEFORE REALIZING I NEEDED TO DO GSEA SEPARATELY, JUST IN CASE I CAN REUSE THE TEXT, EVEN IF NOT THE CODE
 
+### For SC strains: pathways related to proteotoxic stress were significantly induced w.r.t. to the MC group!! That is not what I am checking here, keep that in mind. These include:
+  - Proteasome
+  - Protein processing in endoplasmic reticulum
+```{r}
+SC_strains <- phenotypic_data$gene_name[phenotypic_data$MC_or_SC == "SC"]
 
+for (i in 1:length(go_results_list_001)) {
+  if (names(go_results_list_001)[i] %in% SC_strains) {
+    print(go_results_list_001[[i]][["Description"]])
+  }
+}
+```
 
+### For MC strains: pathways related to translation were significantly induced w.r.t. to the SC group!! That is not what I am checking here, keep that in mind. These include:
+  - Ribosome biogenesis
+  - Ribosome
+```{r}
+MC_strains <- phenotypic_data$gene_name[phenotypic_data$MC_or_SC == "MC"]
 
-
-
-
-
-
-
+for (i in 1:length(go_results_list_001)) {
+  if (names(go_results_list_001)[i] %in% MC_strains) {
+    print(go_results_list_001[[i]][["Description"]])
+  }
+}
+```
 
 
 

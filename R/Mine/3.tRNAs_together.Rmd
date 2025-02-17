@@ -33,6 +33,9 @@ library(dendextend)
 library(ggrepel)
 library(ggvenn)
 library(tidyr)
+library(interactions)
+library(performance)
+library(MASS)
 ```
 
 
@@ -50,7 +53,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -64,16 +67,16 @@ if (working_from == "charite") {
 ```{r}
 if (working_from == "charite") {
   # Our proteomics data 
-  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAU#age-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
   
   # The sample layout
-  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/Alterna#iveAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
   
   # The master tRNA dataset
   master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
   # Import the functions I have created in another file
-  #source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
+  source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else 
 
 if (working_from == "home") {
@@ -90,7 +93,7 @@ if (working_from == "home") {
   master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
   ## Import the functions I have created in another file
-  #source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+  source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 }
 ```
 
@@ -118,7 +121,7 @@ sample_layout <- sample_layout %>%
 colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
 
 sample_layout <- sample_layout %>% 
-  select(-Anticodon) %>%
+  dplyr::select(-Anticodon) %>%
   left_join(master_dataset, by = c("Strain.Name"))
 ```
 
@@ -161,7 +164,7 @@ proteomics_raw <- cbind(proteomics_raw, out_temp)
 # Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
 trna_ko <- proteomics_raw %>%                 
   filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%             # Remove rows for which "genes" column is empty or has "Genes" as value
-  select(-genes & !contains('QC')) %>%                                  # Remove UNIPROT IDs and QCs columns
+  dplyr::select(-genes & !contains('QC')) %>%                                  # Remove UNIPROT IDs and QCs columns
   column_to_rownames(var = 'sample_group')                              # Convert gene name column to rownames
 
 # Convert to a numeric dataframe
@@ -182,6 +185,8 @@ rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
+
+Perform DE analysis
 ```{r}
 # Get the names of all KOs we have, and set WT as the reference
 trna_levels <- c()
@@ -211,23 +216,75 @@ da <- list()
 for (i in colnames(mm)) {
   da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', n = Inf, sort.by = 'none')
 }
+```
 
-# Save DE proteins for enrichment analysis
+Check why I get NAs for many proteins in many of the strains
+```{r}
+
+```
+
+
+Save DE proteins for GO enrichment analysis
+```{r}
+# At the alpha specified at the top of the document
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 de_proteins_list_001 <- list()
-de_proteins_list_001[["background"]] <- rownames(da[[1]])
 for (i in 1:length(da)) {
   temp <- da[[i]]
-  de_proteins_list_001[[names(da)[i]]] <- rownames(temp)[na.omit(temp$adj.P.Val) < alpha]
+  
+  # Collect protein names and turn them all into systematic notation
+  general_protein_names <- rownames(temp)[na.omit(temp$adj.P.Val) < alpha]
+  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
+  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
+  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
+                                                                                                 yeastmine = yeastmine,
+                                                                                                 input = "standard",
+                                                                                                 simplify = T))
+  
+  # Save protein names
+  de_proteins_list_001[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/de_proteins_list_001.RData", sep="")
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.RData", sep="")
 saveRDS(de_proteins_list_001, file=output_file)
 
+
+
+
+# At alpha= 0.05
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+de_proteins_list_005 <- list()
+for (i in 1:length(da)) {
+  temp <- da[[i]]
+  
+  # Collect protein names and turn them all into systematic notation
+  general_protein_names <- rownames(temp)[na.omit(temp$adj.P.Val) < 0.05]
+  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
+  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
+  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
+                                                                                                 yeastmine = yeastmine,
+                                                                                                 input = "standard",
+                                                                                                 simplify = T))
+  
+  # Save protein names
+  de_proteins_list_005[[names(da)[i]]] <- final_protein_names
+}
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.RData", sep="")
+saveRDS(de_proteins_list_005, file=output_file)
+```
+
+Save all proteins for GSEA
+```{r}
+saveRDS(da, file=paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+```
+
+Finish processing the DE analysis results
+```{r}
 # Format data
 da <- bind_rows(da) %>%
   mutate(protein = rep(rownames(da[[1]]), times = length(da)),
          Strain.Name = rep(names(da), each = nrow(da[[1]])), .before = 1) %>%
   `rownames<-`(NULL) %>%
-  select(protein, Strain.Name, logFC, adj.P.Val) %>%
+  dplyr::select(protein, Strain.Name, logFC, adj.P.Val) %>%
   filter(Strain.Name != 'WT') %>%                              # From here on in this function it's added by me
   mutate(diffexpressed = case_when(logFC > lfc_threshold & adj.P.Val < alpha ~ "Up_regulated",
                                    logFC < -lfc_threshold & adj.P.Val < alpha ~ "Down_regulated",
@@ -343,7 +400,7 @@ phenotypic_data <- as.data.frame(fread(loc))
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
   filter(UCU_family != "No") %>%
-  select(gene_name, UCU_family) %>%
+  dplyr::select(gene_name, UCU_family) %>%
   rename(Strain.Name = gene_name)
 
 UCU_responsiveness <- resp_filtered %>% filter(anticodon == "UCU")
@@ -481,7 +538,7 @@ colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_s
 family_sizes <- left_join(master_dataset, resp_filtered, by = "Strain.Name")
 family_sizes <- family_sizes %>%
   filter(Strain.Name %in% resp_filtered$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
-  select(anticodon, Family_size, Family_count, Major_count) %>%
+  dplyr::select(anticodon, Family_size, Family_count, Major_count) %>%
   distinct(anticodon, .keep_all = T)
 
 
@@ -523,15 +580,14 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
 ## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-loc <- paste(base_dir, "Data/Other/bloom_ackermann_2014/phenotypic_results.tsv", sep="")
-phenotypic_data <- as.data.frame(fread(loc))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
 
 # Change "ko" colname to allow to merge datasets based on it
 colnames(resp_filtered)[colnames(resp_filtered) == "Strain.Name"] <- "gene_name"
 test <- full_join(phenotypic_data, resp_filtered, by = "gene_name")
 
 # Select numeric columns, calculate correlations and plot heatmap
-test <- test %>% select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
+test <- test %>% dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
 colnames(test) <- c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP")
 test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(test_corrs)
@@ -636,7 +692,7 @@ ggvenn(
 
 ### Correlation heatmap within microarray
 ```{r}
-test <- microarray_data %>% select(-Gene.secondaryIdentifier, -Gene.symbol)
+test <- microarray_data %>% dplyr::select(-Gene.secondaryIdentifier, -Gene.symbol)
 corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(corrs)
 
@@ -672,7 +728,7 @@ for (i in 1:ncol(MC_and_SC_proteomics)) {
     new_colnames <- c(new_colnames, paste("SC", old_colname, sep = "_"))
 }
 colnames(MC_and_SC_proteomics) <- new_colnames
-MC_and_SC_proteomics <- MC_and_SC_proteomics %>% select(order(colnames(MC_and_SC_proteomics)))
+MC_and_SC_proteomics <- MC_and_SC_proteomics %>% dplyr::select(order(colnames(MC_and_SC_proteomics)))
 
 # Correlation heatmap
 corrs <- round(cor(MC_and_SC_proteomics, use = "pairwise.complete.obs"), 2)
@@ -728,9 +784,9 @@ for (i in 1:length(microarray_samples)) {
   sample <- microarray_samples[i]
   da_temp <- da_full %>% 
     filter(Strain.Name == sample) %>%
-    select(protein, diffexpressed, logFC, adj.P.Val)
+    dplyr::select(protein, diffexpressed, logFC, adj.P.Val)
   colnames(da_temp) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val")
-  microarray_temp <- microarray_data %>% select(all_of(sample), Gene.symbol)
+  microarray_temp <- microarray_data %>% dplyr::select(all_of(sample), Gene.symbol)
   test <- left_join(microarray_temp, da_temp, by = "Gene.symbol")
   test <- inner_join(da_temp, microarray_temp, by = "Gene.symbol")
   test <- test %>% mutate(diffexpressed = case_when(diffexpressed == "Up_regulated" ~ "Up_regulated",
@@ -809,7 +865,7 @@ cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen
 
 # Split rows with multiple genes identified into multiple rows with a single gene, with the same values in all other columns - add a column identifying whether each row came from an original row with multiple tRNAs or not
 cozen <- cozen %>% 
-  select(-c(corresponding.mature.tRNA.or.tRNA.locus.names..RNA.central., genomic.tRNA.database.legacy.names))
+  dplyr::select(-c(corresponding.mature.tRNA.or.tRNA.locus.names..RNA.central., genomic.tRNA.database.legacy.names))
 
 new_column <- c()
 cozen_split <- data.frame(matrix(nrow = 0, ncol = ncol(cozen)))
@@ -844,7 +900,7 @@ Old code where I simply got rid of those rows - NOT RUN NOW
 #           saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
 #           read.mapping..genomic.sequence.or.mature.tRNA. == "genomic" &
 #           mean.normalized.ReadCount..AlkB != "NA") %>%
-#  select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB) %>%
+#  dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB) %>%
 #  group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
 #  mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
 #  rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name)
@@ -855,7 +911,7 @@ Remove rows with NAs in relevant columns, select columns of interest, get the su
 cozen_to_merge <- cozen_split %>%
   filter(saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
            mean.normalized.ReadCount..AlkB != "NA") %>%
-  select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, Num_of_tRNAs_originally_in_row,
+  dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, Num_of_tRNAs_originally_in_row,
          saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
   group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
@@ -896,7 +952,7 @@ amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_aci
 
 chu_synths <- left_join(chu_synths, amino_acids, by = "Amino_acid") %>%
   rename(synthetase_abundance = Abundance) %>%
-  select(-c(k_cat_value, k_cat_organism))
+  dplyr::select(-c(k_cat_value, k_cat_organism))
 resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "AA")
 ```
 
@@ -964,7 +1020,7 @@ Remove rows with NAs in relevant columns, select columns of interest, get the su
 cozen_to_merge <- cozen %>%
   filter(saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
            mean.normalized.ReadCount..AlkB != "NA") %>%
-  select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start,
+  dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start,
          saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
   group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
@@ -1007,8 +1063,7 @@ amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_aci
          AA = X1_letter_code)
 
 chu_synths <- left_join(chu_synths, amino_acids, by = "Amino_acid") %>%
-  rename(synthetase_abundance = Abundance) %>%
-  select(-c(k_cat_value, k_cat_organism))
+  rename(synthetase_abundance = Abundance)
 resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "AA")
 ```
 
@@ -1119,6 +1174,29 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP,
   ylab("nDEP per tRNA KO")
 ```
 
+Plots - nDEP vs. synthetase k_cat
+```{r}
+# nDEP vs. log2-synthetase k_cat
+ggplot(data = resp_and_expression, aes(x = log2(k_cat_value), y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. log2(synthetase catalytic constant)") +
+  xlab(bquote(log2-k["cat"]))
+
+# The synthetases for W seem to have a k_cat more than 10x those of other amino acids, so I am going to get rid of that one then repeat the plot
+ggplot(data = resp_and_expression, aes(x = k_cat_value, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  coord_cartesian(xlim = c(0, 150))
+
+# Not really a pattern I think, let's try synthetase abundance*k_cat
+ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  coord_cartesian(xlim = c(0, 500000))
+```
+
+
 
 ## 4.3. Add information about anticodon frequency as well
 Load and prepare data
@@ -1215,7 +1293,7 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, c
 ```{r}
 # Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
 temp <- resp_and_expression %>%
-  select(anticodon, AA)
+  dplyr::select(anticodon, AA)
 temp_2 <- left_join(family_sizes, temp, by = "anticodon") %>%
   distinct(anticodon, .keep_all = T)
 
@@ -1254,19 +1332,58 @@ ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
 ```
 
 
+## 4.5. Save the resp_and_expression dataset as it is at this point, can be useful later in other files
+```{r}
+fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=""))
+```
+
 
 
 
 # 5. Modelling
 
-## 5.1. Try to fit a linear model to predict nDEP based on synthetase abundance and genomic tRNA read counts, and their interaction - not very successful
+## 5.1. Try to fit a linear model to predict nDEP based on synthetase abundance and genomic tRNA read counts, and their interaction - THIS IS WRONG, I CANNOT REALLY MODEL MY DATA WITH A LINEAR MODEL, THEY ARE NOT CONTINUOUS
 ```{r}
 # Simple linear model with synthetase abundance, tRNA expression and codon frequency (and interactions)
 fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*mean_reads_per_tRNA*codon_frequency_chu_2011)
 summary(fit)
+
+# Simple linear model with synthetase abundance and synthetase k_cat (and interactions) - this is the only significant one
+fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011)
+summary(fit)
+```
+
+Plot interactions for the significant model
+```{r}
+interact_plot(fit, pred = k_cat_value, modx = synthetase_abundance)
 ```
 
 
+## 5.2. Model the data with a GLM instead
+
+Poisson
+```{r}
+# Poisson model
+fit <- glm(data = resp_and_expression,
+           formula = nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011,
+           family = poisson)
+summary(fit)
+
+# Check overdispersion - seems like there is, unsurprisingly
+check_overdispersion(fit)
+
+# Actually in the fit for the Poisson model we can already get an idea of if there is overdispersion or not: we do this by looking at the residual deviance and at the corresponding degrees of freedom, if the ratio between them is roughly 1, there is no overdispersion. If it is larger, there is overdispersion. So yeah, we see that we indeed have it here. 
+```
+
+Negative binomial
+```{r}
+fit <- glm.nb(data = resp_and_expression, 
+              formula = nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+```
 
 
 
