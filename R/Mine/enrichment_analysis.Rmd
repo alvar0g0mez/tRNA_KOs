@@ -269,10 +269,14 @@ for (i in 2:length(de_proteins_list_entrez_ID_005)) {
 
 
 # 4. GSEA - try to imitate the results from the original article
+## 4.1. Prepare ranks
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
 da <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
 da <- da[names(da) != "WT"]
+
+# Create empty list to put the named ranked gene lists in
+ranked_genes <- list()
 
 # Iterate over these dataframes
 for (i in 1:length(da)) {
@@ -281,9 +285,38 @@ for (i in 1:length(da)) {
   # Since we are using all genes, not only DE ones, we need to rank them
   rankings <- sign(temp$logFC)*(-log10(temp$adj.P.Val))
   names(rankings) <- rownames(temp)
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  # Add them to the list where we are saving them
+  ranked_genes[[names(da)[i]]] <- rankings
+  
+  # Plot
+  plot(rankings)
+  
+  # Check max and min - to see if there is a need to correct for -Inf and +Inf
+  max(rankings)
+  min(rankings)
 }
 
 ```
+
+## 4.2. Perform GSEA
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

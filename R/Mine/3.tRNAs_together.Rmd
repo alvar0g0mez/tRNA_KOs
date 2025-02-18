@@ -185,7 +185,6 @@ rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
-
 Perform DE analysis
 ```{r}
 # Get the names of all KOs we have, and set WT as the reference
@@ -207,20 +206,34 @@ mm <- model.matrix(~trna_levels)
 colnames(mm) <- levels(trna_levels)
 voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
 
+# In order to fit linear model we need to get log2(data), but that causes log2(0) = -Inf --> I am turning 0s to 1s before log2 --> IDK HOW CORRECT THIS IS
+zeros_to_ones <- function(x) {
+  if (x == 0) {return(1)}
+  else {return(x)}
+}
+trna_ko_log <- trna_ko
+trna_ko_log[] <- apply(trna_ko, c(1,2), zeros_to_ones)
+trna_ko_log <- log2(trna_ko_log)
+
 # Fit linear model
-fit <- lmFit(log2(trna_ko), mm)                                 # Notice the log2 here
+fit <- lmFit(trna_ko_log, mm)                                 # Notice the log2 here
 fit2 <- eBayes(fit, trend = TRUE)
 
 # Identify differentially expressed proteins
 da <- list()
 for (i in colnames(mm)) {
-  da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', n = Inf, sort.by = 'none')
+  da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', number = Inf, sort.by = 'none')
 }
 ```
 
 Check why I get NAs for many proteins in many of the strains
 ```{r}
+# Check if the -Inf values in fit are caused by that protein being less detected overall
+ameans <- fit[["Amean"]]
+total_counts_per_prot <- apply(trna_ko, 1, sum)
+zero_counts <- apply(trna_ko, 1, function(x) sum(unlist(lapply(x, function(x) x == 0)), use.names = F))
 
+temp <- data.frame(ameans, total_counts_per_prot, zero_counts)
 ```
 
 
