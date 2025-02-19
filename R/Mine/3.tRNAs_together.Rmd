@@ -53,7 +53,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -181,7 +181,7 @@ trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 
 # Remove unnecessary objects
 rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
-   samples_in_wrong_batch)
+   samples_in_wrong_batch, working_from)
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
@@ -225,17 +225,6 @@ for (i in colnames(mm)) {
   da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', number = Inf, sort.by = 'none')
 }
 ```
-
-Check why I get NAs for many proteins in many of the strains
-```{r}
-# Check if the -Inf values in fit are caused by that protein being less detected overall
-ameans <- fit[["Amean"]]
-total_counts_per_prot <- apply(trna_ko, 1, sum)
-zero_counts <- apply(trna_ko, 1, function(x) sum(unlist(lapply(x, function(x) x == 0)), use.names = F))
-
-temp <- data.frame(ameans, total_counts_per_prot, zero_counts)
-```
-
 
 Save DE proteins for GO enrichment analysis
 ```{r}
@@ -330,11 +319,14 @@ responsiveness <- da %>%
 DE <- list(fit = fit,
             fit2 = fit2,
             da = da, 
-            resp = responsiveness)
+            responsiveness= responsiveness)
 
-# Save output with the right names for downstream analysis
-resp_filtered <- DE$resp
-da_full <- DE$da
+
+
+# Remove unnecesary variables
+rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, sample_layout, temp, trna_ko, trna_ko_log, 
+   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
+   systematic_protein_names, trna_levels, unique_KOs)
 ```
 
 ## 1.5. Volcano plots for the differential expression
@@ -400,15 +392,14 @@ ggsave(
 
 
 # Remove unused objects
-rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i"))
+rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i", "output_file"))
 ```
 --> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
 
 ## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-loc <- paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep = "")
-phenotypic_data <- as.data.frame(fread(loc))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep = "")))
 
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
@@ -416,7 +407,7 @@ UCU_major_minor <- phenotypic_data %>%
   dplyr::select(gene_name, UCU_family) %>%
   rename(Strain.Name = gene_name)
 
-UCU_responsiveness <- resp_filtered %>% filter(anticodon == "UCU")
+UCU_responsiveness <- responsiveness%>% filter(anticodon == "UCU")
 
 UCU_family <- full_join(UCU_major_minor, UCU_responsiveness, by = "Strain.Name")
 
@@ -424,7 +415,7 @@ UCU_family <- full_join(UCU_major_minor, UCU_responsiveness, by = "Strain.Name")
 # Volcano plots
 ## Keep only KOs in UCU family
 KOs_in_UCU_family <- UCU_family$Strain.Name
-da_only_KOs_from_UCU_family <- da_full[da_full$Strain.Name %in% KOs_in_UCU_family,]
+da_only_KOs_from_UCU_family <- da[da$Strain.Name %in% KOs_in_UCU_family,]
 
 
 ## Come up with the list of plots
@@ -456,7 +447,7 @@ ggsave(
 
 
 # Remove unused objects
-rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_from_UCU_family", "trna", "plot_title", "UCU_major_minor", "UCU_responsiveness", "i"))
+rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_from_UCU_family", "trna", "plot_title", "UCU_major_minor", "UCU_responsiveness", "i", "UCU_family", "phenotypic_data", "output_location"))
 ```
 
 ## 1.8. Check number of DE proteins vs. replicates per KO
@@ -490,49 +481,28 @@ resp_summarized_by_family <- merge(resp_summarized_by_family, responsiveness[, c
 resp_summarized_by_family <- resp_summarized_by_family %>%
   distinct(anticodon, .keep_all = T)
 cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$n)
+
+
+# Remove unnecessary variables
+rm(resp_summarized_by_family)
 ```
 --> The boxplot is not particularly illustrative, but the correlation is pretty meaningful I think? Looks like larger families show, on average over all tRNAs in them, less DE proteins, which makes sense with their hypothesis I think? If there are a couple major tRNA genes per family, larger families are going to have a lot of minor ones, while small families will be mostly major ones. Here I am also assuming that there are only a couple major copies per family, which I don't think they said at any point? But I guess makes sense with this. 
 
 
-## 1.10. Enrichment analysis - by Alexis
-```{r}
-#ea <- list()
-#for (i in unique(da_full$Strain.Name)) {
-#  ea[[i]] <- pull(filter(da_full, Strain.Name %in% i & abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha), protein)
-#}
-#rm(i)
-#
-#ea <- gost(ea, organism = 'scerevisiae', correction_method = 'fdr', domain_scope = 'custom', custom_bg = unique(da_full$protein), sources = c('GO', 'KEGG', #'TF'))
-#
-#ea_terms <- ea$result %>%
-#  group_by(query) %>%
-#  summarise(n_terms = n()) %>%
-#  mutate(AA = str_sub(query, 2, 2),
-#         chromosome = str_extract(str_remove(query, '[:digit:]$'), '[:alpha:]$'),
-#         anticodon = str_extract(query, '(?<=\\.)[:alpha:]{3}'))
-#
-#ea_terms_ko <- ea$result %>%
-#  group_by(term_name) %>%
-#  summarise(n_kos = n(), source = unique(source)) %>%
-#  ungroup() %>%
-#  filter(n_kos > 25)
-```
-
-
-## 1.11. Identify major and minor tRNA genes myself for all strains
+## 1.10. Identify major and minor tRNA genes myself for all strains
 ```{r}
 # Histogram of avg_nDEP for each KO strain
-ggplot(data = resp_filtered, aes(x = nDEP)) +
+ggplot(data = responsiveness, aes(x = nDEP)) +
   geom_histogram(binwidth = 1, color="black", fill="grey") +
   theme_light() +
   xlab("nDEP per tRNA KO") +
   ylab("Count") +
   labs(title = "Frequency of nDEP across all tRNA KO strains")
 
-# There are ~80 KO strains with 0 avg_nDEP, I don't think it's that straightforward but for now I'll assume those are the minor tRNA genes
+# Given this histogram, I define the threshold to make out major and minor tRNA genes - for now I have it at 2
 
 # Define a column with "minor"-"major" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
-resp_filtered <- resp_filtered %>%
+responsiveness<- responsiveness%>%
   mutate(Gene_type = case_when(nDEP < threshold_major ~ "Minor",
                                TRUE ~ "Major")) %>%
   group_by(anticodon) %>%
@@ -540,7 +510,7 @@ resp_filtered <- resp_filtered %>%
   ungroup()
 
 # Also need to count the total number of KOs I have from each family in the experiment
-resp_filtered <- resp_filtered %>%
+responsiveness<- responsiveness%>%
   group_by(anticodon) %>%
   summarize(Family_count = n(), across()) %>%
   ungroup()
@@ -548,9 +518,9 @@ resp_filtered <- resp_filtered %>%
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
-family_sizes <- left_join(master_dataset, resp_filtered, by = "Strain.Name")
+family_sizes <- left_join(master_dataset, responsiveness, by = "Strain.Name")
 family_sizes <- family_sizes %>%
-  filter(Strain.Name %in% resp_filtered$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
+  filter(Strain.Name %in% responsiveness$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
   dplyr::select(anticodon, Family_size, Family_count, Major_count) %>%
   distinct(anticodon, .keep_all = T)
 
@@ -582,6 +552,39 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
   geom_text_repel(data = subset(family_sizes, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3),
                   aes(x = Family_count, y = Major_count, label = anticodon),
                   size = 4)
+
+# Produce a single histogram like the one at the beginning of this chunk for each set of tRNA isoacceptors - and save them to a PDF
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+aas <- levels(as.factor(responsiveness$AA))
+for (i in 1:length(aas)) {
+  aa <- aas[i]
+  temp <- responsiveness%>%
+    filter(AA == aa)
+  plot_list[[aa]] <- ggplot(data = temp, aes(x = nDEP, col = anticodon, fill = anticodon)) +
+    geom_histogram(binwidth = 1) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("Frequency of nDEP in tRNAs loading {aa}"))
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Remove unnecessary variables
+rm(family_sizes, family_sizes_long, my_grobs, plot_list, temp, aa, aas, loc, output_file, i)
 ```
 
 
@@ -596,8 +599,8 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
 phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
 
 # Change "ko" colname to allow to merge datasets based on it
-colnames(resp_filtered)[colnames(resp_filtered) == "Strain.Name"] <- "gene_name"
-test <- full_join(phenotypic_data, resp_filtered, by = "gene_name")
+colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
+test <- full_join(phenotypic_data, resp, by = "gene_name")
 
 # Select numeric columns, calculate correlations and plot heatmap
 test <- test %>% dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
@@ -791,11 +794,11 @@ Check that proteins which are upregulated in these samples in the proteomics dat
 ```{r}
 microarray_samples <- colnames(microarray_data[2:6])
 
-da_for_microarray_samples <- da_full %>% filter(Strain.Name %in% microarray_samples)
+da_for_microarray_samples <- da %>% filter(Strain.Name %in% microarray_samples)
 
 for (i in 1:length(microarray_samples)) {
   sample <- microarray_samples[i]
-  da_temp <- da_full %>% 
+  da_temp <- da %>% 
     filter(Strain.Name == sample) %>%
     dplyr::select(protein, diffexpressed, logFC, adj.P.Val)
   colnames(da_temp) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val")
@@ -930,8 +933,8 @@ cozen_to_merge <- cozen_split %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
   rename(gene_name = saccaromyces.genome.datasbase..sgd..tRNA.name)
 
-## Merge with resp_filtered
-resp_and_expression <- left_join(resp_filtered, cozen_to_merge, by = "gene_name")
+## Merge with resp
+resp_and_expression <- left_join(resp, cozen_to_merge, by = "gene_name")
 ```
 
 Get plots
@@ -1039,8 +1042,8 @@ cozen_to_merge <- cozen %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
   rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name)
 
-## Merge with resp_filtered
-resp_and_expression <- left_join(resp_filtered, cozen_to_merge, by = "Strain.Name")
+## Merge with resp
+resp_and_expression <- left_join(resp, cozen_to_merge, by = "Strain.Name")
 ```
 
 Plots - nDEP vs. tRNA expression from Cozen et al., 2015

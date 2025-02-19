@@ -17,7 +17,9 @@ library(org.Sc.sgd.db)
 library(data.table)
 library(dplyr)
 library(fgsea)
+library(ggplot2)
 ```
+
 
 
 # 1. Load and prepare data
@@ -30,7 +32,7 @@ alpha <- 0.01
 lfc_threshold <- 1.5
 
 # Directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -61,7 +63,6 @@ phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloo
 
 
 # 2. GO enrichment analysis - for proteins at 0.01
-
 ## 2.1. Get NCBI gene IDs for each of the systematic name vectors I have
 ```{r}
 de_proteins_list_entrez_ID_001 <- list()
@@ -73,7 +74,6 @@ for (i in 1:length(de_proteins_list_001)) {
 }
 names(de_proteins_list_entrez_ID_001) <- names(de_proteins_list_001)
 ```
-
 
 ## 2.2. Get the information of how many DE proteins there are for each tRNA KO strain
 ```{r}
@@ -217,10 +217,47 @@ de_prots_per_strain_001 <- left_join(de_prots_per_strain_001, master_dataset, by
 ```
 
 
+## 2.5. Check the enriched pathways for the KO strains that were checked for growth under DTT in the original article
+Biological process
+```{r}
+## Grew ~ as WT under DTT
+View(go_results_list_001_bp[["tR(UCU)M2"]])
+View(go_results_list_001_bp[["tH(GUG)G1"]])
+
+## Grew better than WT under DTT
+View(go_results_list_001_bp[["tR(CCU)J"]])
+View(go_results_list_001_bp[["tL(GAG)G"]])
+View(go_results_list_001_bp[["tM(CAU)C"]])
+```
+
+Cellular compartment
+```{r}
+## Grew ~ as WT under DTT
+View(go_results_list_001_cc[["tR(UCU)M2"]])
+View(go_results_list_001_cc[["tH(GUG)G1"]])
+
+## Grew better than WT under DTT
+View(go_results_list_001_cc[["tR(CCU)J"]])
+View(go_results_list_001_cc[["tL(GAG)G"]])
+View(go_results_list_001_cc[["tM(CAU)C"]])
+```
+
+Molecular function
+```{r}
+## Grew ~ as WT under DTT
+View(go_results_list_001_mf[["tR(UCU)M2"]])
+View(go_results_list_001_mf[["tH(GUG)G1"]])
+
+## Grew better than WT under DTT
+View(go_results_list_001_mf[["tR(CCU)J"]])
+View(go_results_list_001_mf[["tL(GAG)G"]])
+View(go_results_list_001_mf[["tM(CAU)C"]])
+```
+
+
 
 
 # 3. GO enrichment analysis - for proteins at 0.05
-
 ## 3.1. Get NCBI gene IDs for each of the systematic name vectors I have
 ```{r}
 de_proteins_list_entrez_ID_005 <- list()
@@ -233,12 +270,18 @@ for (i in 1:length(de_proteins_list_005)) {
 names(de_proteins_list_entrez_ID_005) <- names(de_proteins_list_005)
 ```
 
-
 ## 3.2. Get the information of how many DE proteins there are for each tRNA KO strain
 ```{r}
+de_prots_per_strain <- c()
+for (i in 1:length(de_proteins_list_005)) {
+  temp <- de_proteins_list_005[[i]]
+  de_prots_per_strain <- c(de_prots_per_strain, length(temp))
+}
 
+de_prots_per_strain_005 <- data.frame(Strain.Name = names(de_proteins_list_005),
+                                      nDEP = de_prots_per_strain) %>%
+  filter(Strain.Name != "WT")
 ```
-
 
 ## 3.3. Perform enrichment analysis
 ```{r}
@@ -267,9 +310,87 @@ for (i in 2:length(de_proteins_list_entrez_ID_005)) {
 
 
 
+# 4. Compare EA results to growth in DTT (equal or worse than WT vs. better than WT) 
+## 4.1. Evaluate growth in DTT and classify strains to better than WT or equal/worse
+```{r}
+# Plot GR and GY in DTT
+ggplot(data = phenotypic_data, aes(x = DTT)) +
+  geom_histogram(binwidth = 1) +
+  theme_light() +
+  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)+sd(phenotypic_data$DTT, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)-sd(phenotypic_data$DTT, na.rm = T), col = "red")
 
-# 4. GSEA - try to imitate the results from the original article
-## 4.1. Prepare ranks
+ggplot(data = phenotypic_data, aes(x = DTT_GY)) +
+  geom_histogram(binwidth = 1) +
+  theme_light() +
+  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)+sd(phenotypic_data$DTT_GY, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)-sd(phenotypic_data$DTT_GY, na.rm = T), col = "red")
+
+# For now I am just going to take 0 as the threshold, since these data are in comparison to WT, idk if they published the raw data, I don't think so
+# In any case maybe some more restrictive thresholds (like the SDs I plotted above) would be better, but for now this will do
+
+# Need to look into the original article to figure out which one to use - going with both for now, so I don't take all strains here, only those that agree on their GR and GY (not sure if that makes sense, going by vibes for now)
+strains_better_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT > 0 & phenotypic_data$DTT_GY > 0]
+strains_worse_or_equal_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT <= 0 & phenotypic_data$DTT_GY <= 0]
+```
+
+## 4.2. Compare EA results to these strain classification
+Biological process
+```{r}
+go_list_better_dtt <- list()
+go_list_worse_dtt <- list()
+
+for (i in 1:length(go_results_list_001_bp)) {
+  strain_name <- names(go_results_list_001_bp)[i]
+  if (strain_name %in% strains_better_in_DTT) {
+    go_list_better_dtt[[strain_name]] <- go_results_list_001_bp[[i]]
+  }
+  else if (strain_name %in% strains_worse_or_equal_in_DTT) {
+    go_list_worse_dtt[[strain_name]] <- go_results_list_001_bp[[i]]
+  }
+}
+```
+
+
+
+
+
+
+# 5. The one Alexis did
+```{r}
+# Load data
+da_full <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+
+# Alexis' code: EA for GO, KEGG and TF all at once, and summarize which gene sets are enriched in the most tRNA KOs
+ea <- list()
+for (i in unique(da_full$Strain.Name)) {
+  ea[[i]] <- pull(filter(da_full, Strain.Name %in% i & abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha), protein)
+}
+rm(i)
+
+ea <- gost(ea, organism = 'scerevisiae', correction_method = 'fdr', domain_scope = 'custom', custom_bg = unique(da_full$protein), sources = c('GO', 'KEGG', 'TF'))
+
+ea_terms <- ea$result %>%
+  group_by(query) %>%
+  summarise(n_terms = n()) %>%
+  mutate(AA = str_sub(query, 2, 2),
+         chromosome = str_extract(str_remove(query, '[:digit:]$'), '[:alpha:]$'),
+         anticodon = str_extract(query, '(?<=\\.)[:alpha:]{3}'))
+
+ea_terms_ko <- ea$result %>%
+  group_by(term_name) %>%
+  summarise(n_kos = n(), source = unique(source)) %>%
+  ungroup() %>%
+  filter(n_kos > 25)
+```
+
+
+
+
+
+
+# 6. GSEA - try to imitate the results from the original article
+## 6.1. Prepare ranks
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
 da <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
@@ -300,7 +421,7 @@ for (i in 1:length(da)) {
 
 ```
 
-## 4.2. Perform GSEA
+## 6.2. Perform GSEA
 ```{r}
 
 ```
