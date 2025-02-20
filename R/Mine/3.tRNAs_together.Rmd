@@ -36,6 +36,7 @@ library(tidyr)
 library(interactions)
 library(performance)
 library(MASS)
+library(jsonlite)
 ```
 
 
@@ -52,8 +53,8 @@ lfc_threshold <- 1.5
 # Number of nDEP from which a tRNA is considered "major" (this threshold value should be included)
 threshold_major <- 2
 
-# Directories to be used
-working_from = "home"
+# Set directories to be used
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -246,8 +247,8 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_001[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.RData", sep="")
-saveRDS(de_proteins_list_001, file=output_file)
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep="")
+write_json(de_proteins_list_001, path=output_file)
 
 
 
@@ -270,13 +271,13 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_005[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.RData", sep="")
-saveRDS(de_proteins_list_005, file=output_file)
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep="")
+write_json(de_proteins_list_005, path=output_file)
 ```
 
 Save all proteins for GSEA
 ```{r}
-saveRDS(da, file=paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""))
 ```
 
 Finish processing the DE analysis results
@@ -1404,6 +1405,59 @@ check_overdispersion(fit)
 
 
 
+
+# 6. Evaluate codon enrichment in DEPs sequences
+SHOULD I CONSIDER SOME GROUPING BY CODON HERE? LIKE, THE DIFFERENT TRNAS THAT HAVE THE SAME CODON?
+Load data (generated in Python script "check_codon_enrichment_in_DEPs_sequences.py")
+```{r}
+# Load list
+codon_ratios_list <- fromJSON(paste(base_dir, "Data/Other/check_codon_enrichment_in_protein_sequences/codon_counts.json", sep=""))
+
+# Remove from the list those strains where there aren't at least 4 DE proteins
+bool <- c()
+for (i in 1:length(codon_ratios_list)) {
+  bool <- c(bool, length(codon_ratios_list[[i]][["DE"]]) > 4)
+}
+codon_ratios_list <- codon_ratios_list[bool]
+```
+
+Iterate over the strains and perform a test for each, testing the mean counts of DE vs. that of non_DE
+REMEMBER TO CORRECT FOR MULTIPLE TESTING
+```{r}
+strains <- names(codon_ratios_list)
+p.values_wmw <- c()
+mean_de <- c()
+mean_non_de <- c()
+for (i in 1:length(codon_ratios_list)) {
+  # Grab data for this strain
+  strain_name <- names(codon_ratios_list)[i]
+  de <- codon_ratios_list[[strain_name]][["DE"]]
+  non_de <- codon_ratios_list[[strain_name]][["non_DE"]]
+  de_df <- data.frame(codon_ratios_list[[strain_name]][["DE"]])
+  non_de_df <- data.frame(codon_ratios_list[[strain_name]][["non_DE"]])
+  
+  # Plot overlapping histograms
+  ggplot() +
+    geom_histogram(data = de_df, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "red", alpha = 0.9) +
+    geom_histogram(data = non_de_df, aes(x = log2(codon_ratios_list..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+  
+  # Test - WMW
+  p.values_wmw <- c(p.values_wmw, wilcox.test(de, non_de)$p.value)
+  
+  # Test - log2 transform (need to take care of 0s) and use t-test - is this worth doing?
+  
+  
+  # Save the mean of each group to the output dataframe as well
+  mean_de <- c(mean_de, mean(de))
+  mean_non_de <- c(mean_non_de, mean(non_de))
+}
+
+p.values.adj <- p.adjust(p.values_wmw, method = "fdr")
+
+test_codon_enrichment <- data.frame(strains, p.values_wmw, p.values.adj, mean_de, mean_non_de) %>%
+  mutate(direction = case_when(mean_de > mean_non_de ~ "DE",
+                               TRUE ~ "non_DE"))
+```
 
 
 

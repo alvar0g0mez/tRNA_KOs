@@ -31,8 +31,8 @@ alpha <- 0.01
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 1.5
 
-# Directories to be used
-working_from = "home"
+# Set directories to be used
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -45,10 +45,10 @@ if (working_from == "charite") {
 ## 1.1. Load data
 ```{r}
 # List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
-de_proteins_list_001 <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.RData", sep=""))
+de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
 
 # List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05
-de_proteins_list_005 <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.RData", sep=""))
+de_proteins_list_005 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep=""))
 
 # Full Entrez ID dataframe, with all genes
 entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
@@ -359,7 +359,7 @@ for (i in 1:length(go_results_list_001_bp)) {
 # 5. The one Alexis did
 ```{r}
 # Load data
-da_full <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+da_full <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""))
 
 # Alexis' code: EA for GO, KEGG and TF all at once, and summarize which gene sets are enriched in the most tRNA KOs
 ea <- list()
