@@ -597,7 +597,7 @@ rm(family_sizes, family_sizes_long, my_grobs, plot_list, temp, aa, aas, loc, out
 ## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
 
 # Change "ko" colname to allow to merge datasets based on it
 colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
@@ -1044,7 +1044,7 @@ cozen_to_merge <- cozen %>%
   rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name)
 
 ## Merge with resp
-resp_and_expression <- left_join(resp, cozen_to_merge, by = "Strain.Name")
+resp_and_expression <- left_join(responsiveness, cozen_to_merge, by = "Strain.Name")
 ```
 
 Plots - nDEP vs. tRNA expression from Cozen et al., 2015
@@ -1217,28 +1217,6 @@ ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y =
 
 ## 4.3. Add information about anticodon frequency as well
 Load and prepare data
-```{r}
-# Create function to get anticodon from codon
-exchange_individual_nucleotide <- function(nt) {
-  if (nt == "A") {return("U")}
-  else if (nt == "C") {return("G")}
-  else if (nt == "G") {return("C")}
-  else if (nt == "T") {return("A")}
-  else if (nt == "U") {return("A")}
-  else {return("Provided letter is not a nucleotide")}
-}
-
-get_anticodon_from_codon <- function(codon) {
-  anticodon <- ""
-  for (i in 1:nchar(codon)) {
-    nt <- substr(codon, i, i)
-    new_nt <- exchange_individual_nucleotide(nt)
-    anticodon <- paste(anticodon, new_nt, sep="")
-  }
-  return(anticodon)
-}
-```
-
 ```{r}
 # Get anticodon from codon and rename columns
 anticodon_freq <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S1.csv", sep="")))
@@ -1422,7 +1400,6 @@ codon_ratios_list <- codon_ratios_list[bool]
 ```
 
 Iterate over the strains and perform a test for each, testing the mean counts of DE vs. that of non_DE
-REMEMBER TO CORRECT FOR MULTIPLE TESTING
 ```{r}
 strains <- names(codon_ratios_list)
 p.values_wmw <- c()
@@ -1456,9 +1433,34 @@ p.values.adj <- p.adjust(p.values_wmw, method = "fdr")
 
 test_codon_enrichment <- data.frame(strains, p.values_wmw, p.values.adj, mean_de, mean_non_de) %>%
   mutate(direction = case_when(mean_de > mean_non_de ~ "DE",
-                               TRUE ~ "non_DE"))
+                               TRUE ~ "non_DE"),
+         FC = mean_de - mean_non_de)
+
+# Get the logFC - need to deal with the negative values in the FC - there is definitely a better way to do this but oh well
+logFC <- c()
+for (i in 1:nrow(test_codon_enrichment)) {
+  FC <- test_codon_enrichment$FC[i]
+  if (FC < 0) {
+    out <- -log10(abs(FC))
+  }
+  else if (FC > 0) {
+    out <- log10(FC)
+  }
+  else if (FC == 0) {
+    out <- 0
+  }
+  logFC <- c(logFC, out)
+}
+test_codon_enrichment$logFC <- logFC
 ```
 
+Volcano plot
+```{r}
+ggplot(data = test_codon_enrichment, aes(x = logFC, y = -log10(p.values.adj))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  theme_light()
+```
 
 
 

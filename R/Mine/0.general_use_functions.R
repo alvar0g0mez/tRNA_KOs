@@ -146,6 +146,108 @@ match_systematic_and_standard_protein_names <- function(data,
 
 
 
+################################################################################
+# Functions to turn a codon to its anticodon and viceversa
+################################################################################
+
+
+#' Change a nucleotide for another one following the DNA transcription pattern
+#' 
+#' Literally just provide one of the nucleotides that are observed in DNA sequences
+#' (A, C, G, T) and the corresponding one in an RNA sequence will be returned 
+#' (U, G, C, A). If you provide a different letter, an error message will pop up.
+#' 
+#' @param nt The nucleotide you want to transcribe
+#' @return The corresponding nucleotide (a 1-character string)
+transcribe_nucleotide <- function(nt) {
+  if (nt == "A") {return("U")}
+  else if (nt == "C") {return("G")}
+  else if (nt == "G") {return("C")}
+  else if (nt == "T") {return("A")}
+  else {return("Provided letter is not a nucleotide")}
+}
+
+
+#' Change a nucleotide for another one following the opposite pattern to that of 
+#' DNA transcription - so to get from an RNA sequence to the DNA sequence that 
+#' produced it
+#' 
+#' Literally just provide one of the nucleotides that are observed in RNA sequences
+#' (A, C, G, U) and the corresponding one in a DNA sequence will be returned 
+#' (T, G, C, A). If you provide a different letter, an error message will pop up.
+#' 
+#' @param nt The nucleotide you want to reverse transcribe
+#' @return The corresponding nucleotide (a 1-character string)
+reverse_transcribe_nucleotide <- function(nt) {
+  if (nt == "A") {return("T")}
+  else if (nt == "C") {return("G")}
+  else if (nt == "G") {return("C")}
+  else if (nt == "U") {return("A")}
+  else {return("Provided letter is not a nucleotide")}
+}
+
+
+#' Turn a codon into its corresponding anticodon
+#' 
+#' Provide a codon sequence as a 3-character string, and another 3-character
+#' string will be returned with the corresponding anticodon. Makes use of the 
+#' above defined function "transcribe_nucleotide".
+#' 
+#' @param codon A 3-character string composed only of valid nucleotide letters 
+#' (as defined by "transcribe_nucleotide()")
+#' @return The corresponding anticodon (a 3-character string composed of only 
+#' nucleotide-valid letters)
+codon_to_anticodon <- function(codon) {
+  anticodon <- ""
+  for (i in 1:nchar(codon)) {
+    nt <- substr(codon, i, i)
+    new_nt <- transcribe_nucleotide(nt)
+    anticodon <- paste(anticodon, new_nt, sep="")
+  }
+  return(anticodon)
+}
+
+
+#' Turn an anticodon into the codon that it came from
+#' 
+#' Provide an anticodon sequence as a 3-character string, and another 3-character
+#' string will be returned with the corresponding codon. Makes use of the 
+#' above defined function "reverse_transcribe_nucleotide".
+#' 
+#' @param codon A 3-character string composed only of valid nucleotide letters 
+#' (as defined by "reverse_transcribe_nucleotide()")
+#' @return The corresponding codon (a 3-character string composed of only 
+#' nucleotide-valid letters)
+anticodon_to_codon <- function(anticodon) {
+  codon <- ""
+  for (i in 1:nchar(anticodon)) {
+    nt <- substr(anticodon, i, i)
+    new_nt <- reverse_transcribe_nucleotide(nt)
+    codon <- paste(codon, new_nt, sep="")
+  }
+  return(codon)
+}
+
+
+
+
+
+
+################################################################################
+# Functions to take log2 or log10 leaving 0 values as 0
+################################################################################
+
+#' log2 ignoring 0s
+#' 
+#' Literally just want to be able to take log2 of my data without generating -Inf 
+#' values, so when the value is 0 this function returns 0, when it is positive it
+#' returns its log2. 
+#' 
+#' @param value A number 
+log2_ignoring_zeros <- function(value) {
+  if (value == 0) {return(0)}
+  else {return(log2(value))}
+}
 
 
 
@@ -156,49 +258,18 @@ match_systematic_and_standard_protein_names <- function(data,
 
 
 
-# Old version just in case
-#match_systematic_to_standard_protein_names <- function(data, 
-#                                                       yeastmine,
-#                                                       simplify = FALSE,
-#                                                       add_extra_columns = FALSE) {
-#  
-#  # First of all, if we have received a vector as input, turn it into a dataframe and work from there
-#  if (class(data) == "character") {
-#    data <- data.frame(data)
-#    colnames(data) <- c("Gene.secondaryIdentifier")
-#  }
-#  
-#  # Match the names to the YeastMine ones
-#  df <- left_join(data, yeastmine, by = join_by(Gene.secondaryIdentifier))
-#  
-#  # Create the new column we'll keep as output, where we take standard gene names, but if this is not present, we fill it in with the systematic one
-#  df <- df %>% 
-#    mutate(Final.Ids = case_when(Gene.symbol == "" ~ Gene.secondaryIdentifier,
-#                                 is.na(Gene.symbol) ~ Gene.secondaryIdentifier,
-#                                 TRUE ~ Gene.symbol))
-#  
-#  # Prepare the output according to the specifications provided when calling the function
-#  if (simplify == TRUE) {
-#    out <- as.character(df$Final.Ids)
-#  }
-#  else {
-#    if (add_extra_columns == TRUE) {
-#      out <- df
-#    }
-#    else if (class(data) == "data.frame") {
-#      colnames_to_remove <- colnames(yeastmine)
-#      colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c("Gene.secondaryIdentifier")]
-#      out <- df %>%
-#        select(-c(colnames_to_remove))}
-#    else {
-#      out <- df %>%
-#        select(Gene.secondaryIdentifier, Final.Ids)
-#    }
-#  }
-#  
-#  # Return output
-#  return(out)
-#}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
