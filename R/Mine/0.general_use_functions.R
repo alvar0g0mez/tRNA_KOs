@@ -79,10 +79,10 @@ match_systematic_and_standard_protein_names <- function(data,
         colnames_to_remove <- colnames(yeastmine)
         colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c("Gene.secondaryIdentifier")]
         out <- df %>%
-          select(-any_of(colnames_to_remove))}
+          dplyr::select(-any_of(colnames_to_remove))}
       else {
         out <- df %>%
-          select(Gene.secondaryIdentifier, Final.Ids)
+          dplyr::select(Gene.secondaryIdentifier, Final.Ids)
       }
       
       # Change the final column name to Gene.symbol
@@ -126,10 +126,10 @@ match_systematic_and_standard_protein_names <- function(data,
         colnames_to_remove <- colnames(yeastmine)
         colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c("Gene.symbol")]
         out <- df %>%
-          select(-any_of(colnames_to_remove))}
+          dplyr::select(-any_of(colnames_to_remove))}
       else {
         out <- df %>%
-          select(Gene.symbol, Final.Ids)
+          dplyr::select(Gene.symbol, Final.Ids)
       }
       
       # Change the final column name to Gene.secondaryIdentifier
@@ -164,6 +164,7 @@ transcribe_nucleotide <- function(nt) {
   else if (nt == "C") {return("G")}
   else if (nt == "G") {return("C")}
   else if (nt == "T") {return("A")}
+  else if (nt == "U") {return("A")}                     # NEED TO ADD THIS TO THE PYTHON VERSION - FOR SOME REASON IN SOME DATA THE CODON SEQUENCES HAVE U IN THEM
   else {return("Provided letter is not a nucleotide")}
 }
 

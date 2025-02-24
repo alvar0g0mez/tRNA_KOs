@@ -1,0 +1,166 @@
+---
+title: "deleted_code"
+author: "Álvaro Gómez Pérez"
+date: "2025-02-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+
+# 3. from tRNAs_together.Rmd
+
+Compare to expression data from Cozen et al., 2015 - THESE ARE JUST READ COUNTS I'M LOOKING AT, HONESTLY NO IDEA IF THIS MAKES SENSE
+The main issue with this dataset (apart from the fact that they are read counts) is that in many rows, the counts are not assigned to a single tRNA gene, but they can come from any tRNA gene with a certain anticodon. Not sure how to go about this, so for now I am going to try to look only at the rows which identify one single tRNA gene, and see if that is enough for the analysis
+
+I think that maybe the different rows that correspond to the same tRNA (including those rows that map to different tRNAs) occur because each of these rows comes from reads mapping to a certain section of that tRNA molecule??? In that case, it makes much more sense to sum across rows for the same tRNA, instead of taking the mean. In fact, I could sum those which are mapped to different tRNAs as well. I should do that. 
+
+--------> I think this section is now pretty useless, the correct one is 4., where I do this only using genomic tRNA sequencing counts
+
+
+## 3.1. Come up with plots with nDEP vs. expression - using all rows
+
+Split rows that are mapped to multiple tRNAs 
+```{r}
+cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen_et_al_2015.xlsx", sep=""), 1)
+
+# Split rows with multiple genes identified into multiple rows with a single gene, with the same values in all other columns - add a column identifying whether each row came from an original row with multiple tRNAs or not
+cozen <- cozen %>% 
+  dplyr::select(-c(corresponding.mature.tRNA.or.tRNA.locus.names..RNA.central., genomic.tRNA.database.legacy.names))
+
+new_column <- c()
+cozen_split <- data.frame(matrix(nrow = 0, ncol = ncol(cozen)))
+colnames(cozen_split) <- colnames(cozen)
+
+for (i in 1:nrow(cozen)) {
+  trna_names <- cozen$saccaromyces.genome.datasbase..sgd..tRNA.name[i]
+  
+  if (!grepl(",", trna_names)) {
+    cozen_split <- rbind(cozen_split, cozen[i,])
+    new_column <- c(new_column, "Single")
+  }
+  
+  else {
+    trnas_mapped_to <- strsplit(trna_names, ",")[[1]]
+    for (j in 1:length(trnas_mapped_to)) {
+      new_row <- cozen[i,]
+      new_row[which(colnames(cozen) == "saccaromyces.genome.datasbase..sgd..tRNA.name")] <- trnas_mapped_to[j]
+      cozen_split <- rbind(cozen_split, new_row)
+      new_column <- c(new_column, "Multiple")
+    }
+  }
+}
+cozen_split$Num_of_tRNAs_originally_in_row <- new_column
+```
+
+Old code where I simply got rid of those rows - NOT RUN NOW
+```{r}
+## Keep only rows with a single tRNA gene identified, remove those with unknown (NA) gene identified and with NA in the mean.normalized.ReadCount..AlkB column
+#cozen_single_to_merge <- cozen %>% 
+#  filter(!grepl(",", saccaromyces.genome.datasbase..sgd..tRNA.name) & 
+#           saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
+#           read.mapping..genomic.sequence.or.mature.tRNA. == "genomic" &
+#           mean.normalized.ReadCount..AlkB != "NA") %>%
+#  dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB) %>%
+#  group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
+#  mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
+#  rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name)
+```
+
+Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
+```{r}
+cozen_to_merge <- cozen_split %>%
+  filter(saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
+           mean.normalized.ReadCount..AlkB != "NA") %>%
+  dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start, Num_of_tRNAs_originally_in_row,
+         saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
+  group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
+  mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
+  rename(gene_name = saccaromyces.genome.datasbase..sgd..tRNA.name)
+
+## Merge with resp
+resp_and_expression <- left_join(resp, cozen_to_merge, by = "gene_name")
+```
+
+Get plots
+```{r}
+# Plot average nDEP vs. avg expression - genomic tRNA sequences
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "genomic"), 
+       aes(x = mean_reads_per_tRNA, y = nDEP, col = Num_of_tRNAs_originally_in_row)) +
+  geom_point() +
+  theme_light()
+
+# Plot average nDEP vs. avg expression - mature tRNA sequences
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "mature_tRNA"), 
+       aes(x = mean_reads_per_tRNA, y = nDEP, col = Num_of_tRNAs_originally_in_row)) +
+  geom_point() +
+  theme_light()
+```
+Would like to have more data points in the second one, I guess mature tRNAs are harder to sequence???
+
+
+## 3.2. Integrate data from tRNA synthetase abundance and tRNA abundance (Chu et al., 2011) 
+```{r}
+# Load data
+chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))
+chu_trnas <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S2.csv", sep="")))
+# The problem with these abundances for tRNAs is that they are for each family, not for each tRNA concretely, so I don't really know if they will be useful to me. I could collapse those from Cozen et al. by family and compare them to this to see if they point in the same direction, but might be a bit of a time waste
+
+# Join the synthetase data to the resp_and_expression dataset
+amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) %>%
+  rename(Amino_acid = X3_letter_code, 
+         AA = X1_letter_code)
+
+chu_synths <- left_join(chu_synths, amino_acids, by = "Amino_acid") %>%
+  rename(synthetase_abundance = Abundance) %>%
+  dplyr::select(-c(k_cat_value, k_cat_organism))
+resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "AA")
+```
+
+Plots
+```{r}
+# Plot tRNA abundance from Cozen et al., against tRNA synthetase abundance from Chu et al.
+## Genomic tRNAs
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "genomic"), 
+       aes(x = synthetase_abundance, y = mean_reads_per_tRNA)) +
+  geom_point() +
+  theme_light()
+
+## Mature tRNAs
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "mature_tRNA"), 
+       aes(x = synthetase_abundance, y = mean_reads_per_tRNA)) +
+  geom_point() +
+  theme_light()
+
+
+
+# Same plots as before, tRNA abundance from Cozen et al. vs. our nDEP, coloring by tRNA synthetase abundance from Chu et al.
+## Genomic tRNA sequences
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "genomic"), 
+       aes(x = mean_reads_per_tRNA, y = nDEP, col = synthetase_abundance)) +
+  geom_point() +
+  theme_light()
+
+## Mature tRNA sequences
+ggplot(data = subset(resp_and_expression, read.mapping..genomic.sequence.or.mature.tRNA. == "mature_tRNA"), 
+       aes(x = mean_reads_per_tRNA, y = nDEP, col = synthetase_abundance)) +
+  geom_point() +
+  theme_light()
+```
+
+
+## 3.3. Explore the "genomic" and "mature tRNAs" rows, they seem to be the same?
+```{r}
+genomic <- resp_and_expression %>%
+  filter(read.mapping..genomic.sequence.or.mature.tRNA. == "genomic")
+
+mature <- resp_and_expression %>%
+  filter(read.mapping..genomic.sequence.or.mature.tRNA. == "mature_tRNA")
+```
+
