@@ -40,8 +40,9 @@ library(jsonlite)
 ```
 
 
-
+################################################################################
 # 1. Load data and initial analysis
+################################################################################
 ## 1.0. Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
@@ -54,7 +55,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -593,270 +594,6 @@ rm(family_sizes_long, my_grobs, plot_list, temp, aa, aas, output_file, i)
 
 
 
-# 2. Correlation with the original article by Pizpel et al., 2014
-## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
-```{r}
-# Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
-
-# Change "ko" colname to allow to merge datasets based on it
-colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
-test <- full_join(phenotypic_data, resp, by = "gene_name")
-
-# Select numeric columns, calculate correlations and plot heatmap
-test <- test %>% dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
-colnames(test) <- c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP")
-test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
-melted_corrs <- melt(test_corrs)
-
-ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile() +
-  geom_text(aes(Var2, Var1, label = value), size = 3) +
-  scale_fill_gradient2(low = "blue", high = "red",
-                       limit = c(-1,1), name="Correlation") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-# Remove unnecessary objects
-rm(test, test_corrs, melted_corrs)
-```
-nDEP has:
-  - No correlation with growth rate under SDC, YPD and low glucose
-  - Relatively large, positive correlation with growth rate and growth yield under DTT: those that show more DEPs in rich medium are those that        grow better under DTT, this agrees with the original article: these strains have proteotoxic stress going on already in the cell because of the     lack of that necessary (major?) tRNA, so they adapt better to living in DTT. 
-  - Relatively large, negative correlation with growth rates and growth yields under all other conditions: also makes sense with the original            article, the strains which are less affected by the KO (so less DEPs) grow better in most conditions, simply because less things are affected     inside the cell, reasonable. The more unintuitive one is the previous one. 
-
-
-
-
-## 2.2. Compare our proteomics data and their microarray data
-Important to remember that the microarray data are only for 5 tRNA families: 
-  - MC (multi-copy) families: tR.UCU.M2 and tH.GUG.G1, both of which had impaired or WT growth under DTT
-  - SC (single-copy) families: Two viable single deletions: tR.CCU.J and tL.GAG.G, plus the initiator methionine tiM.CAU.C. They all had improved growth under DTT. 
-
-### Loading data
-```{r}
-# Load their small microarray data: fold changes for all genes but only for 5 samples
-microarray_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
-
-# Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-
-
-# Need to change the colnames in the microarray data to use () instead of ..
-colnames(microarray_data) <- c("gene_names", "tM(CAU)C", "tR(CCU)J", "tR(UCU)M2", "tH(GUG)G1", "tL(GAG)G")
-```
-
-
-### Correlation heatmap between microarray and proteomics
-```{r}
-# Get standard protein names
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
-microarray_data <- match_systematic_and_standard_protein_names(data = microarray_data,
-                                                               yeastmine = yeastmine,
-                                                               input = "systematic",
-                                                               simplify = FALSE,
-                                                               add_extra_columns = FALSE)
-
-# Join with our proteomics data - not too sure if this merge is the most appropriate way to do it, even though I think so?
-trna_ko_temp <- trna_ko %>%
-  mutate(Gene.symbol = rownames(trna_ko))
-proteomics_and_microarray_data <- left_join(trna_ko_temp, microarray_data, by = "Gene.symbol") # IM KEEPING ALL PROTEINS IN TRNA_KO, THERE ARE ACTUALLY 2863 WHICH ARE IN BOTH, SO SOME IN TRNA_KO ARE NOT IN MICROARRAY_DATA, I SHOULD FIX THIS CODE SO THOSE ARE NOT INCLUDED IN THE RESULTING DATA SET
-
-# Correlation heatmap between our samples 
-samples_in_microarray <- colnames(microarray_data)[2:6]
-sample_names_escaped <- c("tM\\(CAU\\)C",  "tR\\(CCU\\)J",  "tR\\(UCU\\)M2", "tH\\(GUG\\)G1", "tL\\(GAG\\)G")
-proteomics_and_microarray_subset <- data.frame(matrix(nrow = nrow(proteomics_and_microarray_data), ncol = 0))
-
-for (i in 1:length(samples_in_microarray)) {
-  sample_name <- sample_names_escaped[i]
-  temp <- proteomics_and_microarray_data[, grepl(sample_name, colnames(proteomics_and_microarray_data))]
-  proteomics_and_microarray_subset <- cbind(proteomics_and_microarray_subset, temp)
-}
-
-cormat <- round(cor(proteomics_and_microarray_subset, use = "pairwise.complete.obs", method = "kendall"), 2)
-melted_cormat <- melt(cormat)
-
-ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile() +
-  geom_text(aes(Var2, Var1, label = value), size = 3) +
-  scale_fill_gradient2(low = "blue", high = "red",
-                       limit = c(-1,1), name="Correlation") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-
-# Remove unnecessary objects
-
-```
---> The proteomics samples for these 5 strains have literally 0 correlation with the microarray data from the same strains. Could it be because the proteomics data are direct measurements while the microarray data are actually presented as the fold-change with respect to the WT? I don't think so but maybe I could look into it? Could try to make my proteomics data for these strains into that as well?
-
-
-### Venn diagram between genes detected in proteomics and in transcriptomics
-```{r}
-list_for_venn_diagram <- list(Proteomics = rownames(trna_ko),
-                              Transcriptomics = microarray_data$Gene.symbol)
-ggvenn(
-  list_for_venn_diagram, 
-  fill_color = c("#80AAFF", "#FF8080"),
-  stroke_size = 0.5, set_name_size = 4
-  )
-```
-
-
-### Correlation heatmap within microarray
-```{r}
-test <- microarray_data %>% dplyr::select(-Gene.secondaryIdentifier, -Gene.symbol)
-corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
-melted_corrs <- melt(corrs)
-
-ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile() +
-  geom_text(aes(Var2, Var1, label = value), size = 3) +
-  scale_fill_gradient2(low = "blue", high = "red",
-                       limit = c(-1,1), name="Correlation") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-# Remove unnecessary variables
-rm(test, corrs, melted_corrs)
-```
-
-
-### Correlation heatmap within proteomics (only the samples involved here)
-```{r}
-# Grab columns of proteomics data with only samples from the strains for which there are microarray data
-matches <- grepl(paste(sample_names_escaped, collapse="|"), 
-                        colnames(trna_ko))
-MC_and_SC_proteomics <- trna_ko[, matches]
-
-# Add MC or SC information to column names and sort columns by this so (expected) clusters are easily visible on heatmap
-new_colnames <- c()
-for (i in 1:ncol(MC_and_SC_proteomics)) {
-  old_colname <- colnames(MC_and_SC_proteomics)[i]
-  if (grepl(paste(c("UCU", "GUG"), collapse = "|"), old_colname))
-    new_colnames <- c(new_colnames, paste("MC", old_colname, sep = "_"))
-  else if ((grepl(paste(c("CCU", "GAG", "CAU"), collapse = "|"), old_colname)))
-    new_colnames <- c(new_colnames, paste("SC", old_colname, sep = "_"))
-}
-colnames(MC_and_SC_proteomics) <- new_colnames
-MC_and_SC_proteomics <- MC_and_SC_proteomics %>% dplyr::select(order(colnames(MC_and_SC_proteomics)))
-
-# Correlation heatmap
-corrs <- round(cor(MC_and_SC_proteomics, use = "pairwise.complete.obs"), 2)
-melted_corrs <- melt(corrs)
-
-ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile() +
-  geom_text(aes(Var2, Var1, label = value), size = 3) +
-  scale_fill_gradient2(low = "blue", high = "red",
-                       limit = c(-1,1), name="Correlation") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-
-
-# Remove unnecessary objects
-rm(toMatch, matches, corrs, melted_corrs, old_colname, new_colnames)
-```
---> In the heatmap based on microarray data, the SC and MC samples separate quite nicely, each of them correlating only with those in the same group as itself. However, at the proteomic level we see extremely high correlation between all of the samples, with no particular pattern to be seen. Is this something to do with how the proteomics data were processed? Or?
-Okay this probably also explains why I see no correlation at all between the proteomics data and the microarray in the other heatmap, but still, what is going on here???
-
-Get one of these for all the proteomics data and see if they all are this heavily correlated to each other or if I can actually see some pattern per KOs. Because if all of them are this correlated to each other, it feels a bit wrong I'd say? Idk, maybe it's normal. Also maybe try to get a heatmap for the proteomics data themselves, not only for the correlations between them
-
-
-### Correlation heatmap of only proteomics data (for all samples)
-```{r}
-corrs <- round(cor(trna_ko, use = "pairwise.complete.obs"), 2)
-melted_corrs <- melt(corrs)
-
-ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile() +
-  scale_fill_gradient2(low = "blue", high = "red",
-                       limit = c(-1,1), name="Correlation") +
-  theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x=element_blank(), 
-        axis.ticks.x=element_blank(), 
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank())
-```
-
-
-Check that proteins which are upregulated in these samples in the proteomics data, are also upregulated in microarray data - if this is the case, it should mean that my correlation between the 2 datasets is not wrong and that in fact there are interesting things to look at here
-```{r}
-microarray_samples <- colnames(microarray_data[2:6])
-
-da_for_microarray_samples <- da %>% filter(Strain.Name %in% microarray_samples)
-
-for (i in 1:length(microarray_samples)) {
-  sample <- microarray_samples[i]
-  da_temp <- da %>% 
-    filter(Strain.Name == sample) %>%
-    dplyr::select(protein, diffexpressed, logFC, adj.P.Val)
-  colnames(da_temp) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val")
-  microarray_temp <- microarray_data %>% dplyr::select(all_of(sample), Gene.symbol)
-  test <- left_join(microarray_temp, da_temp, by = "Gene.symbol")
-  test <- inner_join(da_temp, microarray_temp, by = "Gene.symbol")
-  test <- test %>% mutate(diffexpressed = case_when(diffexpressed == "Up_regulated" ~ "Up_regulated",
-                                                    diffexpressed == "Down_regulated" ~ "Down_regulated",
-                                                    TRUE ~ "Not_significant"))
-  colnames(test) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val", "logfold_microarray")
-  
-  
-  # Calculate correlation to add to plot
-  corr_coef <- round(cor(test$logFC, test$logfold_microarray, method = "spearman", use = "complete.obs"), 2)
-  
-  
-  # Protein names in X axis, transcriptomics fold change in Y axis, color by significance in proteomics - not such a good plot tbh
-  
-  #p1 <- ggplot(data = test, aes(x = Gene.symbol, y = as.numeric(logfold_microarray), col = diffexpressed)) +
-  #  geom_point() +
-  #  labs(title = sample,
-  #       col = "Differentially\nexpressed\nin proteomics\ndata") +
-  #  xlab("Protein name") +
-  #  ylab("Transcriptomics fold change") +
-  #  theme(axis.text.x=element_blank(),
-  #      axis.ticks.x=element_blank()) +
-  #  geom_text(data = subset(test, diffexpressed == "Up_regulated" | diffexpressed == "Down_regulated"),
-  #            aes(x = Gene.symbol, y = as.numeric(logfold_microarray), col = diffexpressed, label = Gene.symbol),
-  #            size = 5)
-  #print(p1)
-  
-  
-  # logFC transcriptomics vs. logFC proteomics - color by significance in proteomics: much better
-  p2 <- ggplot(data = test, aes(x = logFC, y = logfold_microarray, col = diffexpressed)) +
-    geom_point(size = 1.5) +
-    labs(title = glue('{sample} - correlation coef. = {corr_coef}'),
-         col = "Differentially\nexpressed\nin proteomics\ndata") +
-    xlab("logFC proteomics") +
-    ylab("logFC transcriptomics") +
-    theme_light() +
-    geom_text_repel(data = subset(test, diffexpressed == "Up_regulated" | diffexpressed == "Down_regulated"),
-              aes(x = logFC, y = logfold_microarray, col = diffexpressed, label = Gene.symbol),
-              size = 4) +
-    geom_abline() +
-    scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
-  print(p2)
-  
-  # This is just to check if the FCs from the microarrays data are also log2FCs, which I think so but their article says only FC
-  #hist(test$logfold_microarray)
-  #hist(test$logFC)
-  #hist((test$logFC)^2)
-}
-
-```
---> The correlations here get quite a bit better than in the heatmap for proteomics vs. transcriptomics, I guess because the proteomics data is averaged over the replicates for each tRNA? That's the only difference I can think of
-
---> Interestingly, I get decent correlations between proteomics and transcriptomics in the KOs for MC tRNAs, those which grew worse than WT or equally bad in DTT, so those where we assume the removal of the tRNA is not having a proteotoxic effect. On the other hand, for SC tRNAs (those where the removal of the tRNA has a proteotoxic effect, hence allowing them to grow better than WT in DTT), there is barely any correlation between transcriptomics and proteomics. 
 
 
 
@@ -864,7 +601,16 @@ for (i in 1:length(microarray_samples)) {
 
 
 
-# 4. Repeat 3, but only using genomic tRNA sequencing data from Cozen et al., 2015 - FIX THE TITLE OF THIS SECTION BASED ON THE ONE IN THE DELETED CODE
+########################################################################################
+# 2. Compare to data from the literature that might explain the nDEP for each KO strain:
+########################################################################################
+  - tRNA expression data from Cozen et al., 2015
+  - tRNA synthetase abundance data from Chu et al., 2011
+  - anticodon frequency in the genome from van der Haar, 2008
+
+
+## 2.1. tRNA expression data from Cozen et al., 2015
+The main issue with this dataset (apart from the fact that they are read counts) is that in many rows, the counts are not assigned to a single tRNA gene, but they can come from any tRNA gene with a certain anticodon. Actually, these are the reads that come from sequencing the actual, mature tRNAs, seemingly these are very hard to differentiate. Also, there are extremely high counts for these ones, so they are pretty uninformative and make it complicated to interpret when summing them up with the read counts that are for each tRNA gene specifically (because it seems like all those that are counted together as the mature tRNA have basically the same level of expression). Hence, I decided to only use the rows which have one single tRNA identified per row, this is, the genomic rows: these are the ones where the information comes from sequencing the tRNA just after it has been trasncribed, before maturation or anything, which allows to identify exactly which gene they are coming from (all of this is kind of my interpretation, not 100% sure of it, but I think this is it). 
 
 Load data and keep only genomic rows
 ```{r}
@@ -906,7 +652,7 @@ ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = 
 ```
 
 
-## 4.2. Integrate data from tRNA synthetase abundance and tRNA abundance (Chu et al., 2011) 
+## 2.2. Integrate data from tRNA synthetase abundance and tRNA abundance (Chu et al., 2011) 
 Load and prepare data
 ```{r}
 # Load data
@@ -1055,7 +801,7 @@ ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y =
 
 
 
-## 4.3. Add information about anticodon frequency as well
+## 2.3. Add information about anticodon frequency as well
 Load and prepare data
 ```{r}
 # Get anticodon from codon and rename columns
@@ -1124,7 +870,7 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, c
 ```
 
 
-## 4.4. Plots regarding family size and so on, from 1.11., but I want to color by variables only introduced here
+## 2.4. Plots regarding family size and so on, from 1.11., but I want to color by variables only introduced here
 ```{r}
 # Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
 temp <- resp_and_expression %>%
@@ -1167,7 +913,7 @@ ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
 ```
 
 
-## 4.5. Save the resp_and_expression dataset as it is at this point, can be useful later in other files
+## 2.5. Save the resp_and_expression dataset as it is at this point, can be useful later in other files
 ```{r}
 fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=""))
 ```
@@ -1175,33 +921,15 @@ fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=
 
 
 
-# 5. Modelling
-
-## 5.0. Load data - so I don't have to run everything above
+################################################################################
+# 3. Modelling
+################################################################################
+## 3.0. Load data - so I don't have to run everything above
 ```{r}
 resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
 ```
 
-
-## 5.1. Try to fit a linear model to predict nDEP based on synthetase abundance and genomic tRNA read counts, and their interaction - THIS IS WRONG, I CANNOT REALLY MODEL MY DATA WITH A LINEAR MODEL, THEY ARE NOT CONTINUOUS
-```{r}
-# Simple linear model with synthetase abundance, tRNA expression and codon frequency (and interactions)
-fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*mean_reads_per_tRNA*codon_frequency_chu_2011)
-summary(fit)
-
-# Simple linear model with synthetase abundance and synthetase k_cat (and interactions) - this is the only significant one
-fit <- lm(data = resp_and_expression, nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011)
-summary(fit)
-```
-
-Plot interactions for the significant model
-```{r}
-interact_plot(fit, pred = k_cat_value, modx = synthetase_abundance)
-```
-
-
-## 5.2. Model the data with a GLM instead
-
+## 3.1. Model the data with a GLM instead
 Poisson
 ```{r}
 # Poisson model
@@ -1229,8 +957,9 @@ check_overdispersion(fit)
 
 
 
-
-# 6. Evaluate codon enrichment in DEPs sequences
+################################################################################
+# 4. Evaluate codon enrichment in DEPs sequences
+################################################################################
 SHOULD I CONSIDER SOME GROUPING BY CODON HERE? LIKE, THE DIFFERENT TRNAS THAT HAVE THE SAME CODON?
 Load data (generated in Python script "check_codon_enrichment_in_DEPs_sequences.py")
 ```{r}
@@ -1376,9 +1105,10 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col =
 
 
 
-
-# 7. Look for the expression of the tRNA synthetases in my proteomics data
-## 7.0. Load data
+################################################################################
+# 5. Look for the expression of the tRNA synthetases in my proteomics data
+################################################################################
+## 5.0. Load data
 ```{r}
 # List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
 de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
@@ -1422,7 +1152,7 @@ chu_synths_new <- match_systematic_and_standard_protein_names(data = chu_synths_
                                                               add_extra_columns = F)
 ```
 
-## 7.1. Go over the KO strains and see if any of the synthetases are DE in any of them
+## 5.1. Go over the KO strains and see if any of the synthetases are DE in any of them
 ```{r}
 de_synthetases <- list()
 for (i in 1:length(de_proteins_list_001)) {
@@ -1441,7 +1171,7 @@ sort(table(temp))
 rm(de_proteins, temp)
 ```
 
-## 7.2. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains 
+## 5.2. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains 
 ```{r}
 de_synthetases_dfs <- list()
 for (i in 1:length(da_full)) {
@@ -1523,6 +1253,58 @@ temp <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
 de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Synthetase") %>%
   rename()
 ```
+
+
+
+
+
+######################################################################################
+# 6. Check if different KOs with the same anticodon cause the same proteins to be DE
+######################################################################################
+## 6.0. Load data
+```{r}
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
+de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
+
+## Remove WT dataframe
+de_proteins_list_001 <- de_proteins_list_001[names(de_proteins_list_001) != "WT"]
+```
+
+
+```{r}
+anticodons <- unique(responsiveness$anticodon)
+
+for (i in 1:length(anticodons)) {
+  anticodon <- anticodons[i]
+  
+}
+
+
+
+
+
+# Remove unnecessary variables
+rm(anticodons, )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
