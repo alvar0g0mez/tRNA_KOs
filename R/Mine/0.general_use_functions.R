@@ -238,7 +238,7 @@ anticodon_to_codon <- function(anticodon) {
 # Functions to take log2 or log10 leaving 0 values as 0
 ################################################################################
 
-#' log2 ignoring 0s
+#' log2 ignoring 0s - this one is not working or used anywhere, maybe delete it?
 #' 
 #' Literally just want to be able to take log2 of my data without generating -Inf 
 #' values, so when the value is 0 this function returns 0, when it is positive it
@@ -253,6 +253,23 @@ log2_ignoring_zeros <- function(value) {
 
 
 
+################################################################################
+# Jaccard Similarity function
+################################################################################
+#' Jaccard similarity index
+#' This is a statistic used for evaluating the similarity or diversity of sample
+#' sets: it's just the intersection of 2 sets divided by their union. It takes in
+#' 2 vectors and returns a numeric value
+#' 
+#' @param a A vector containing the first set of values
+#' @param b A vector containing another set of values
+#' 
+#' @return A numeric value, the Jaccard index between the 2 provided vectors
+jaccard <- function(a, b) {
+  intersection <- length(intersect(a, b))
+  union <- length(a) + length(b) - intersection
+  return(intersection/union)
+}
 
 
 
@@ -261,9 +278,41 @@ log2_ignoring_zeros <- function(value) {
 
 
 
-
-
-
+################################################################################
+# Generate Jaccard index matrix
+################################################################################
+#' Take a list of vectors, and a vector indicating the names of those vectors in
+#' the list to be used. For those, calculating the Jaccard index pairwise between
+#' all of them, and return the corresponding matrix.
+#' 
+#' @param list_of_vectors A list of vectors
+#' @param vectors_to_be_used A vector containing all or some of the names of the
+#' vectors in the list, those to be used
+#' 
+#' @return A numeric matrix containing Jaccard indexes
+get_jaccad_index_matrix <- function(list_of_vectors, vectors_to_be_used) {
+  # Create emtpy matrix to be filled and returned
+  output_matrix <- matrix(nrow = length(vectors_to_be_used), ncol = length(vectors_to_be_used))
+  colnames(output_matrix) <- rownames(output_matrix) <- vectors_to_be_used
+  
+  # Iterate over the vectors
+  for (i in 1:length(vectors_to_be_used)) {
+    name_1 <- vectors_to_be_used[i]
+    vector_1 <- unlist(list_of_vectors[names(list_of_vectors) == name_1])
+    
+    # For each of the vectors, iterate over all vectors again, for each pair get
+    # the Jaccard index and add it to a vector, which will be a row in the matrix
+    new_row <- c()
+    for(j in 1:length(vectors_to_be_used)) {
+      name_2 <- vectors_to_be_used[j]
+      vector_2 <- unlist(list_of_vectors[names(list_of_vectors) == name_2])
+      
+      new_row <- c(new_row, jaccard(vector_1, vector_2))
+    }
+    output_matrix[i,] <- new_row
+  }
+  return(output_matrix)
+}
 
 
 

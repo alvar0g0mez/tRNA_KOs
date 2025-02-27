@@ -55,7 +55,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -316,6 +316,8 @@ responsiveness <- da %>%
   arrange(AA) %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
+# Save responsiveness dataset
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
 
 # Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
 DE <- list(fit = fit,
@@ -588,8 +590,6 @@ ggsave(
 # Remove unnecessary variables
 rm(family_sizes_long, my_grobs, plot_list, temp, aa, aas, output_file, i)
 ```
-
-
 
 
 
@@ -1268,25 +1268,180 @@ de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis
 
 ## Remove WT dataframe
 de_proteins_list_001 <- de_proteins_list_001[names(de_proteins_list_001) != "WT"]
+
+# Load responsiveness dataset
+responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
 ```
 
 
+## 6.1. Get Jaccard index heatmaps - KOs with no DEPs are ignored here, not included in the plots!
+Heatmaps by anticodon
 ```{r}
+# Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
 anticodons <- unique(responsiveness$anticodon)
+jaccard_matrices_list <- list()
 
+# Iterate over the anticodons and get a Jaccard index matrix for each of them
 for (i in 1:length(anticodons)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the Jaccard index across them
   anticodon <- anticodons[i]
+  KOs_with_anticodon <- names(de_protein_list)[grepl(anticodon, names(de_protein_list))]
   
+  # This is so I don't end up with matrices with a single cell
+  if (length(KOs_with_anticodon) > 1) {
+    jaccard_matrix <- get_jaccad_index_matrix(de_protein_list, KOs_with_anticodon)
+    jaccard_matrices_list[[anticodon]] <- jaccard_matrix
+  }
 }
 
+# Iterate over the Jaccard index matrices and get a heatmap from each of them
+plot_list <- list()
+for (i in 1:length(jaccard_matrices_list)) {
+  anticodon <- names(jaccard_matrices_list)[i]
+  mat <- jaccard_matrices_list[[i]]
+  melt_mat <- melt(mat)
+  plot_list[[i]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                      geom_tile(aes(fill = value), colour = "white") +
+                      scale_fill_gradient(low = "white", high = "red") +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("Jaccard index heatmap - anticodon {anticodon}")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+}
 
+my_grobs <- lapply(plot_list, ggplotGrob)
 
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
+   width = 15, height = 9
+)
 
 
 # Remove unnecessary variables
-rm(anticodons, )
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
 ```
 
+Heatmaps by amino acid
+```{r}
+# Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+amino_acids <- unique(responsiveness$AA)
+jaccard_matrices_list <- list()
+
+# Iterate over the amino acids and get a Jaccard index matrix for each of them
+for (i in 1:length(amino_acids)) {
+  # For each amino acid, grab the tRNAs that carry it, and get a matrix with the Jaccard index across them
+  aa <- amino_acids[i]
+  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
+  KOs_with_amino_acid <- names(de_protein_list)[names(de_protein_list) %in% strain_names]
+  
+  # This is so I don't end up with matrices with a single cell
+  if (length(KOs_with_amino_acid) > 1) {
+    jaccard_matrix <- get_jaccad_index_matrix(de_protein_list, KOs_with_amino_acid)
+    jaccard_matrices_list[[aa]] <- jaccard_matrix
+  }
+}
+
+# Iterate over the Jaccard index matrices and get a heatmap from each of them
+plot_list <- list()
+for (i in 1:length(jaccard_matrices_list)) {
+  aa <- names(jaccard_matrices_list)[i]
+  mat <- jaccard_matrices_list[[i]]
+  melt_mat <- melt(mat)
+  plot_list[[i]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                      geom_tile(aes(fill = value), colour = "white") +
+                      scale_fill_gradient(low = "white", high = "red") +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("Jaccard index heatmap - amino acid: {aa}")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+}
+
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
+   width = 15, height = 9
+)
+
+
+# Remove unnecessary variables
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
+```
+
+
+## 6.2. Check how frequent each DEP is - provided pretty much the same information as the Jaccard index heatmaps above I think
+By anticodon
+```{r}
+# Preparations: grab anticodon names, create empty list to put the plots there
+anticodons <- unique(responsiveness$anticodon)
+plot_list <- list()
+
+# Iterate over anticodons
+for (i in 1:length(anticodons)) {
+  anticodon <- anticodons[i]
+  
+  # For this anticodon, get a count of the appearances of the DEPs, and a barplot
+  all_de_proteins <- data.frame(table(unlist(de_proteins_list_001[grepl(anticodon, names(de_proteins_list_001))])))
+  all_de_proteins$Freq <- as.factor(all_de_proteins$Freq)
+  plot_list[[i]] <- ggplot(data = all_de_proteins, aes(x = Freq)) +
+                      geom_bar() +
+                      theme_light() +
+                      xlab("Number of KOs in which proteins where DE") +
+                      ylab("Number of DE proteins") +
+                      labs(title = glue("Anticodon {anticodon} - {sum(grepl(anticodon, names(de_proteins_list_001)))} total KOs"))
+}
+
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/barplots_DE_counts_per_anticodon.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
+   width = 15, height = 9
+)
+```
+
+By amino acid
+```{r}
+# Preparations: grab amino acid names, create empty list to put the plots there
+amino_acids <- unique(responsiveness$AA)
+plot_list <- list()
+
+# Iterate over amino acids
+for (i in 1:length(amino_acids)) {
+  aa <- amino_acids[i]
+  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
+  
+  # For this anticodon, get a count of the appearances of the DEPs, and a barplot
+  all_de_proteins <- data.frame(table(unlist(de_proteins_list_001[names(de_proteins_list_001) %in% strain_names])))
+  all_de_proteins$Freq <- as.factor(all_de_proteins$Freq)
+  plot_list[[i]] <- ggplot(data = all_de_proteins, aes(x = Freq)) +
+                      geom_bar() +
+                      theme_light() +
+                      xlab("Number of KOs in which proteins where DE") +
+                      ylab("Number of DE proteins") +
+                      labs(title = glue("Amino acid {aa} - {sum(names(de_proteins_list_001) %in% strain_names)} total KOs"))
+}
+
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/barplots_DE_counts_per_amino_acid.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
+   width = 15, height = 9
+)
+```
 
 
 
