@@ -39,11 +39,7 @@ library(MASS)
 library(jsonlite)
 ```
 
-
-################################################################################
-# 1. Load data and initial analysis
-################################################################################
-## 1.0. Set parameters
+Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
 alpha <- 0.01
@@ -65,6 +61,13 @@ if (working_from == "charite") {
 }
 ```
 
+
+
+
+
+################################################################################
+# 1. Load data and initial analysis
+################################################################################
 ## 1.1. Load data
 ```{r}
 if (working_from == "charite") {
@@ -328,7 +331,7 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, sample_layout, temp, trna_ko, trna_ko_log, 
+rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, sample_layout, temp, trna_ko_log, 
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
    systematic_protein_names, trna_levels, unique_KOs)
 ```
@@ -656,7 +659,7 @@ ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = 
 Load and prepare data
 ```{r}
 # Load data
-chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))
+chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
 chu_trnas <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S2.csv", sep="")))
 # The problem with these abundances for tRNAs is that they are for each family, not for each tRNA concretely, so I don't really know if they will be useful to me. I could collapse those from Cozen et al. by family and compare them to this to see if they point in the same direction, but might be a bit of a time waste
 
@@ -1116,6 +1119,12 @@ de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis
 ## Remove WT dataframe
 de_proteins_list_001 <- de_proteins_list_001[names(de_proteins_list_001) != "WT"]
 
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05
+de_proteins_list_005 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep=""))
+
+## Remove WT dataframe
+de_proteins_list_005 <- de_proteins_list_005[names(de_proteins_list_005) != "WT"]
+
 # Synthetase information
 chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
 
@@ -1152,57 +1161,155 @@ chu_synths_new <- match_systematic_and_standard_protein_names(data = chu_synths_
                                                               add_extra_columns = F)
 ```
 
-## 5.1. Go over the KO strains and see if any of the synthetases are DE in any of them
+
+## 5.1. Evaluate some basic stuff about synthetases: how many are there, how many do I detect, etc.
+Check from YeastMine how many synthetases there are and come up with a final version of a dataframe with all synthetase information
 ```{r}
-de_synthetases <- list()
+# Load YeastMine dataset
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+
+# Subset this into a new dataframe with only info of tRNA synthases/synthetases (remove "kinase" because there is one that says "tRNA synthase-associated kinase")
+synthetases <- yeastmine[(grepl("trna synthase", yeastmine$Gene.name, ignore.case = T)|grepl("trna synthetase", yeastmine$Gene.name, ignore.case = T)) &
+                           !grepl("kinase", yeastmine$Gene.name, ignore.case = T),]
+
+# How many tRNA synthases
+sum(grepl("trna synthase", synthetases$Gene.name, ignore.case = T))
+
+# How many tRNA synthetases 
+sum(grepl("trna synthetase", synthetases$Gene.name, ignore.case = T))
+
+# How many of these are mitochondrial and how many nuclear? Is this overlapping?
+sum(grepl("mitochondrial", synthetases$Gene.name, ignore.case = T))
+
+# Add a column with information on:
+#   - Whether each synthetase is mitochondrial or not 
+#   - Whether it is a synthase or a synthetase
+#   - Whether it is the actual enzyme or a cofactor
+synthetases <- synthetases %>%
+  mutate(mitochondrial = case_when(grepl("mitochondrial", Gene.name, ignore.case = T) ~ "Yes",
+                                   TRUE ~ "No"),
+         type = case_when(grepl("synthase", Gene.name, ignore.case = T) ~ "synthase",
+                          grepl("synthetase", Gene.name, ignore.case = T) ~ "synthetase"),
+         cofactor_or_enzyme = case_when(grepl("cofactor", Gene.name, ignore.case = T) ~ "cofactor",
+                                        TRUE ~ "enzyme"))
+
+# Merge this with the k_cat and other synthetase info from van der Haar et al., 2008
+check <- left_join(synthetases, chu_synths_new, by = "Gene.secondaryIdentifier") %>%
+  dplyr::select(-Gene.briefDescription)
+
+# Save this final version of the synthetase data to use it later
+fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
+```
+
+Check how many of them we detect in our dataset
+```{r}
+# Get all the proteins we detect into systematic notation
+detected_proteins <- match_systematic_and_standard_protein_names(data = rownames(trna_ko),
+                                                                 yeastmine = yeastmine,
+                                                                 input = "standard",
+                                                                 simplify = T)
+
+# See how many tRNA synthetases are in there: 18, 67% of them
+sum(detected_proteins %in% synthetases$Gene.secondaryIdentifier)
+sum(detected_proteins %in% synthetases$Gene.secondaryIdentifier)/length(unique(synthetases$Gene.secondaryIdentifier))
+
+# Check which ones: only 1 is mitochondrial, all others are cytosolic - so I think we are mainly interested in cytosolic, we detect 17 of the 18 there are, the one we don't detect is YPL040C
+synths_detected <- synthetases[synthetases$Gene.secondaryIdentifier %in% detected_proteins,]
+sum(synths_detected$mitochondrial == "Yes")
+sum(synthetases$mitochondrial == "No")
+temp <- synthetases$Gene.secondaryIdentifier[synthetases$mitochondrial == "No"]
+synthetases$Gene.secondaryIdentifier[!(synthetases$Gene.secondaryIdentifier %in% synths_detected$Gene.secondaryIdentifier) & (synthetases$mitochondrial == "No")]
+
+
+# Remove unnecessary variables
+rm(detected_proteins, synths_detected, temp, check, synthetases)
+```
+
+
+## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
+At alpha = 0.01
+```{r}
+de_synthetases_001 <- list()
 for (i in 1:length(de_proteins_list_001)) {
   de_proteins <- de_proteins_list_001[[i]]
   temp <- de_proteins[de_proteins %in% chu_synths_new$Gene.secondaryIdentifier]
   if (length(temp) > 0) {
-    de_synthetases[[names(de_proteins_list_001)[i]]] <- temp
+    de_synthetases_001[[names(de_proteins_list_001)[i]]] <- temp
   }
 }
 
 # Get a table summarizing this
-temp <- unlist(de_synthetases)
+temp <- unlist(de_synthetases_001)
 sort(table(temp))
 
 # Remove unnecessary variables
 rm(de_proteins, temp)
 ```
 
-## 5.2. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains 
+At alpha = 0.05
 ```{r}
-de_synthetases_dfs <- list()
-for (i in 1:length(da_full)) {
-  strain_name <- names(da_full)[[i]]
-  strains_with_de_synths <- names(de_synthetases)
-  if (strain_name %in% strains_with_de_synths) {
-    print(i)
-    temp <- da_full[[i]]
-    rownames(temp) <- match_systematic_and_standard_protein_names(data = rownames(temp),
-                                                                     yeastmine = yeastmine,
-                                                                     input = "standard",
-                                                                     simplify = T) 
-    temp <- temp[rownames(temp) %in% de_synthetases[[strain_name]],]
-    temp$Synthetase <- rownames(temp)
-    temp$Strain.Name <- strain_name
-    de_synthetases_dfs[[strain_name]] <- temp
+de_synthetases_005 <- list()
+for (i in 1:length(de_proteins_list_005)) {
+  de_proteins <- de_proteins_list_005[[i]]
+  temp <- de_proteins[de_proteins %in% chu_synths_new$Gene.secondaryIdentifier]
+  if (length(temp) > 0) {
+    de_synthetases_005[[names(de_proteins_list_005)[i]]] <- temp
   }
 }
 
-# Turn the resulting list into a single dataframe
-de_synthetases_df <- bind_rows(de_synthetases_dfs)
-rownames(de_synthetases_df) <- NULL
+# Get a table summarizing this
+temp <- unlist(de_synthetases_005)
+sort(table(temp))
 
-# Add a column with the standard names for the tRNA synthetase genes
-temp <- match_systematic_and_standard_protein_names(data = as.character(de_synthetases_df$Synthetase),
-                                                    yeastmine = yeastmine, 
-                                                    input = "systematic",
-                                                    simplify = T)
-de_synthetases_df$Synthetase_standard <- temp
-de_synthetases_df <- de_synthetases_df %>%
-  rename(Synthetase_systematic = Synthetase)
+# Remove unnecessary variables
+rm(de_proteins, temp)
+```
+
+
+## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains 
+
+NO IDEA WHAT I MEANT HERE BY DA_FULL, IT'S THE ONLY TIME IT APPEARS IN THE DOCUMENT, NEED TO FIGURE THIS OUT
+```{r}
+grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
+  de_synthetases_dfs <- list()
+  for (i in 1:length(da_full)) {
+    strain_name <- names(da_full)[[i]]
+    strains_with_de_synths <- names(de_synthetases)
+    if (strain_name %in% strains_with_de_synths) {
+      print(i)
+      temp <- da_full[[i]]
+      rownames(temp) <- match_systematic_and_standard_protein_names(data = rownames(temp),
+                                                                       yeastmine = yeastmine,
+                                                                       input = "standard",
+                                                                       simplify = T) 
+      temp <- temp[rownames(temp) %in% de_synthetases[[strain_name]],]
+      temp$Synthetase <- rownames(temp)
+      temp$Strain.Name <- strain_name
+      de_synthetases_dfs[[strain_name]] <- temp
+    }
+  }
+  
+  # Turn the resulting list into a single dataframe
+  de_synthetases_df <- bind_rows(de_synthetases_dfs)
+  rownames(de_synthetases_df) <- NULL
+  
+  # Add a column with the standard names for the tRNA synthetase genes
+  temp <- match_systematic_and_standard_protein_names(data = as.character(de_synthetases_df$Synthetase),
+                                                      yeastmine = yeastmine, 
+                                                      input = "systematic",
+                                                      simplify = T)
+  de_synthetases_df$Synthetase_standard <- temp
+  de_synthetases_df <- de_synthetases_df %>%
+    rename(Synthetase_systematic = Synthetase)
+  
+  return(de_synthetases_dfs)
+}
+
+de_synthetases_dfs_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
+de_synthetases_dfs_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
+
+
+
 ```
 
 Add 2 columns: one for the amino acid which the KOd tRNA carries, another for the the amino acid that is loaded by the synthetase found to be DE
