@@ -164,3 +164,82 @@ mature <- resp_and_expression %>%
   filter(read.mapping..genomic.sequence.or.mature.tRNA. == "mature_tRNA")
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
+  de_synthetases_dfs <- list()
+  for (i in 1:length(da_full)) {
+    strain_name <- names(da_full)[[i]]
+    strains_with_de_synths <- names(de_synthetases)
+    if (strain_name %in% strains_with_de_synths) {
+      print(i)
+      temp <- da_full[[i]]
+      rownames(temp) <- match_systematic_and_standard_protein_names(data = rownames(temp),
+                                                                       yeastmine = yeastmine,
+                                                                       input = "standard",
+                                                                       simplify = T) 
+      temp <- temp[rownames(temp) %in% de_synthetases[[strain_name]],]
+      temp$Synthetase <- rownames(temp)
+      temp$Strain.Name <- strain_name
+      de_synthetases_dfs[[strain_name]] <- temp
+    }
+  }
+  
+  # Turn the resulting list into a single dataframe
+  de_synthetases_df <- bind_rows(de_synthetases_dfs)
+  rownames(de_synthetases_df) <- NULL
+  
+  # Add a column with the standard names for the tRNA synthetase genes
+  temp <- match_systematic_and_standard_protein_names(data = as.character(de_synthetases_df$Synthetase),
+                                                      yeastmine = yeastmine, 
+                                                      input = "systematic",
+                                                      simplify = T)
+  de_synthetases_df$Synthetase_standard <- temp
+  de_synthetases_df <- de_synthetases_df %>%
+    rename(Synthetase_systematic = Synthetase)
+  
+  return(de_synthetases_dfs)
+}
+
+
+da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""))
+
+de_synthetases_dfs_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
+de_synthetases_dfs_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
+```

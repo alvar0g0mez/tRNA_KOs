@@ -51,7 +51,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -184,9 +184,12 @@ sample_layout <- sample_layout %>%
 samples_in_wrong_batch <- sample_layout$sample_names[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 
+# Save this last dataset for later usage elsewhere
+fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
+
 # Remove unnecessary objects
 rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
-   samples_in_wrong_batch, working_from)
+   samples_in_wrong_batch, working_from, trna_ko)
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
@@ -281,7 +284,7 @@ write_json(de_proteins_list_005, path=output_file)
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""))
+write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -1113,6 +1116,9 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col =
 ################################################################################
 ## 5.0. Load data
 ```{r}
+# Processed KO proteomics dataframe
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+
 # List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
 de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
 
@@ -1198,7 +1204,7 @@ check <- left_join(synthetases, chu_synths_new, by = "Gene.secondaryIdentifier")
   dplyr::select(-Gene.briefDescription)
 
 # Save this final version of the synthetase data to use it later
-fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
+fwrite(synthetases, paste(base_dir, "Data/Other/synthetases/trna_synthetases.csv", sep=""))
 ```
 
 Check how many of them we detect in our dataset
@@ -1219,10 +1225,6 @@ sum(synths_detected$mitochondrial == "Yes")
 sum(synthetases$mitochondrial == "No")
 temp <- synthetases$Gene.secondaryIdentifier[synthetases$mitochondrial == "No"]
 synthetases$Gene.secondaryIdentifier[!(synthetases$Gene.secondaryIdentifier %in% synths_detected$Gene.secondaryIdentifier) & (synthetases$mitochondrial == "No")]
-
-
-# Remove unnecessary variables
-rm(detected_proteins, synths_detected, temp, check, synthetases)
 ```
 
 
@@ -1266,9 +1268,7 @@ rm(de_proteins, temp)
 ```
 
 
-## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains 
-
-NO IDEA WHAT I MEANT HERE BY DA_FULL, IT'S THE ONLY TIME IT APPEARS IN THE DOCUMENT, NEED TO FIGURE THIS OUT
+## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains
 ```{r}
 grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
   de_synthetases_dfs <- list()
@@ -1276,7 +1276,6 @@ grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
     strain_name <- names(da_full)[[i]]
     strains_with_de_synths <- names(de_synthetases)
     if (strain_name %in% strains_with_de_synths) {
-      print(i)
       temp <- da_full[[i]]
       rownames(temp) <- match_systematic_and_standard_protein_names(data = rownames(temp),
                                                                        yeastmine = yeastmine,
@@ -1302,64 +1301,112 @@ grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
   de_synthetases_df <- de_synthetases_df %>%
     rename(Synthetase_systematic = Synthetase)
   
-  return(de_synthetases_dfs)
+  return(de_synthetases_df)
 }
 
-de_synthetases_dfs_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
-de_synthetases_dfs_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
 
+da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), simplifyVector = T)
 
-
+de_synthetases_df_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
+de_synthetases_df_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
 ```
 
 Add 2 columns: one for the amino acid which the KOd tRNA carries, another for the the amino acid that is loaded by the synthetase found to be DE
 ```{r}
-# Amino acid carried by the KOd tRNA
-temp <- master_dataset %>%
-  dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter)
-de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
-  rename(AA = Isotype_from_anticodon_1_letter)
+add_2_columns <- function(de_synthetases_df) {
+  # Amino acid carried by the KOd tRNA
+  temp <- master_dataset %>%
+    rename(Strain.Name = gene_name) %>%
+    dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter)
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
+    rename(AA = Isotype_from_anticodon_1_letter)
+  
+  temp <- amino_acids %>%
+    dplyr::select(AA, amino_acid_charge, amino_acid_type) %>%
+    rename(AA_charge_tRNA = amino_acid_charge,
+           AA_type_tRNA = amino_acid_type)
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "AA") %>%
+    rename(AA_carried_by_tRNA = AA)
+  
+  # Amino acid loaded by the synthetase
+  temp <- amino_acids %>%
+    dplyr::select(Amino_acid, AA, amino_acid_charge, amino_acid_type) %>%
+    rename(AA_loaded_by_synthetase = AA,
+           AA_charge_synth = amino_acid_charge,
+           AA_type_synth = amino_acid_type)
+  
+  temp_2 <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
+    dplyr::select(Gene.secondaryIdentifier, AA_charge_synth, AA_type_synth) %>%
+    rename(Synthetase = Gene.secondaryIdentifier)
+  
+  temp_3 <- temp_2 %>%
+    group_by(Synthetase) %>%
+    summarise(text=paste(AA_charge_synth, collapse = ",")) %>%
+    rename(AA_charge_synth = text,
+           Synthetase_systematic = Synthetase)
+  
+  temp_4 <- temp_2 %>%
+    group_by(Synthetase) %>%
+    summarise(text=paste(AA_type_synth, collapse = ",")) %>%
+    rename(AA_type_synth = text,
+           Synthetase_systematic = Synthetase)
+  
+  de_synthetases_df <- left_join(de_synthetases_df, temp_3, by = "Synthetase_systematic")
+  de_synthetases_df <- left_join(de_synthetases_df, temp_4, by = "Synthetase_systematic")
+  
+  temp <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
+    dplyr::select(Gene.secondaryIdentifier, AA_loaded_by_synthetase) %>%
+    rename(Synthetase = Gene.secondaryIdentifier) %>%
+    group_by(Synthetase) %>%
+    summarise(text=paste(AA_loaded_by_synthetase, collapse = ",")) %>%
+    rename(AA_loaded_by_synthetase = text,
+           Synthetase_systematic = Synthetase)
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Synthetase_systematic") %>%
+    rename()
+  
+  return(de_synthetases_df)
+}
 
-temp <- amino_acids %>%
-  dplyr::select(AA, amino_acid_charge, amino_acid_type) %>%
-  rename(AA_charge_tRNA = amino_acid_charge,
-         AA_type_tRNA = amino_acid_type)
-de_synthetases_df <- left_join(de_synthetases_df, temp, by = "AA") %>%
-  rename(AA_carried_by_tRNA = AA)
+amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) %>%
+  rename(Amino_acid = X3_letter_code, 
+         AA = X1_letter_code)
 
-# Amino acid loaded by the synthetase
-temp <- amino_acids %>%
-  dplyr::select(Amino_acid, AA, amino_acid_charge, amino_acid_type) %>%
-  rename(AA_loaded_by_synthetase = AA,
-         AA_charge_synth = amino_acid_charge,
-         AA_type_synth = amino_acid_type)
+de_synthetases_df_001 <- add_2_columns(de_synthetases_df_001)
+de_synthetases_df_005 <- add_2_columns(de_synthetases_df_005)
 
-temp_2 <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
-  dplyr::select(Gene.secondaryIdentifier, AA_charge_synth, AA_type_synth) %>%
-  rename(Synthetase = Gene.secondaryIdentifier)
 
-temp_3 <- temp_2 %>%
-  group_by(Synthetase) %>%
-  summarise(text=paste(AA_charge_synth, collapse = ",")) %>%
-  rename(AA_charge_synth = text)
-
-temp_4 <- temp_2 %>%
-  group_by(Synthetase) %>%
-  summarise(text=paste(AA_type_synth, collapse = ",")) %>%
-  rename(AA_type_synth = text)
-
-de_synthetases_df <- left_join(de_synthetases_df, temp_3, by = "Synthetase")
-de_synthetases_df <- left_join(de_synthetases_df, temp_4, by = "Synthetase")
-
-temp <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
-  dplyr::select(Gene.secondaryIdentifier, AA_loaded_by_synthetase) %>%
-  rename(Synthetase = Gene.secondaryIdentifier) %>%
-  group_by(Synthetase) %>%
-  summarise(text=paste(AA_loaded_by_synthetase, collapse = ",")) %>%
-  rename(AA_loaded_by_synthetase = text)
-de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Synthetase") %>%
-  rename()
+# Remove unnecessary variables
+rm(chu_synths, chu_synths_new, de_proteins_list_001, de_proteins_list_005, new_row, trna_ko, yeastmine,
+   std_name, std_names, i, j, check, detected_proteins, de_synthetases_001, de_synthetases_005,
+   grab_de_synthetases_dfs, da, amino_acids, add_2_columns, synths_detected)
 ```
+
+
+## 5.4. Check how many synthetases we have TS alleles for in the Boone library
+There are 11 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase
+```{r}
+if (working_from == "charite") {
+  ts_library <- as.data.frame(fread("C:/MyStuff/TSSc/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
+} else if (working_from == "home") {
+  ts_library <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
+}
+
+ts_library_synths <- ts_library[ts_library$Systematic_name %in% synthetases$Gene.secondaryIdentifier,]
+synths_in_ts_library_info <- synthetases[synthetases$Gene.secondaryIdentifier %in% ts_library$Systematic_name,] 
+```
+
+
+## 5.5. Save the dataframes with the information on the DE synthetases and remove everything
+```{r}
+# Save them
+fwrite(de_synthetases_df_001, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_001.tsv", sep=""))
+fwrite(de_synthetases_df_005, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_005.tsv", sep=""))
+
+# Remove everything
+rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_library_info, ts_library_synths, synthetases)
+```
+
+
 
 
 
