@@ -51,7 +51,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -123,8 +123,6 @@ sample_layout <- sample_layout %>%
                                  TRUE ~ "No"))
 
 # Merge with master dataframe
-colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
-
 sample_layout <- sample_layout %>% 
   dplyr::select(-Anticodon) %>%
   left_join(master_dataset, by = c("Strain.Name"))
@@ -189,7 +187,7 @@ fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics
 
 # Remove unnecessary objects
 rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
-   samples_in_wrong_batch, working_from, trna_ko)
+   samples_in_wrong_batch)
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
@@ -336,7 +334,7 @@ DE <- list(fit = fit,
 # Remove unnecesary variables
 rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, sample_layout, temp, trna_ko_log, 
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-   systematic_protein_names, trna_levels, unique_KOs)
+   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
 ```
 
 ## 1.5. Volcano plots for the differential expression
@@ -460,7 +458,7 @@ ggsave(
 rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_from_UCU_family", "trna", "plot_title", "UCU_major_minor", "UCU_responsiveness", "i", "UCU_family", "phenotypic_data", "output_location"))
 ```
 
-## 1.8. Check number of DE proteins vs. replicates per KO
+## 1.7. Check number of DE proteins vs. replicates per KO
 ```{r}
 ggplot(data = responsiveness, aes(x = as.factor(Replicate_num), y = nDEP, col = as.factor(Replicate_num))) +
   geom_boxplot() +
@@ -475,7 +473,7 @@ rm(replicate_num_vs_nDEP_cor)
 ```
 --> The point with this was that maybe a larger number of replicates causes more nDEP just because it's easier to achieve significance. However, there seems to be no correlation at all, I think that's actually good because it means that the nDEP will be only influenced by what is going on with the tRNA KOs? Even though that effect could be already confounding my results in this boxplot
 
-## 1.9. Number of DE proteins per family, coloring by number of tRNAs in the family
+## 1.8. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
 responsiveness <- responsiveness %>%
   group_by(anticodon) %>% 
@@ -499,7 +497,7 @@ rm(resp_summarized_by_family)
 --> The boxplot is not particularly illustrative, but the correlation is pretty meaningful I think? Looks like larger families show, on average over all tRNAs in them, less DE proteins, which makes sense with their hypothesis I think? If there are a couple major tRNA genes per family, larger families are going to have a lot of minor ones, while small families will be mostly major ones. Here I am also assuming that there are only a couple major copies per family, which I don't think they said at any point? But I guess makes sense with this. 
 
 
-## 1.10. Identify major and minor tRNA genes myself for all strains
+## 1.9. Identify major and minor tRNA genes myself for all strains
 ```{r}
 # Histogram of avg_nDEP for each KO strain
 ggplot(data = responsiveness, aes(x = nDEP)) +
@@ -1316,7 +1314,6 @@ Add 2 columns: one for the amino acid which the KOd tRNA carries, another for th
 add_2_columns <- function(de_synthetases_df) {
   # Amino acid carried by the KOd tRNA
   temp <- master_dataset %>%
-    rename(Strain.Name = gene_name) %>%
     dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter)
   de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
     rename(AA = Isotype_from_anticodon_1_letter)
@@ -1386,7 +1383,7 @@ rm(chu_synths, chu_synths_new, de_proteins_list_001, de_proteins_list_005, new_r
 There are 11 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase
 ```{r}
 if (working_from == "charite") {
-  ts_library <- as.data.frame(fread("C:/MyStuff/TSSc/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
+  ts_library <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
 } else if (working_from == "home") {
   ts_library <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
 }
@@ -1429,7 +1426,7 @@ responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv",
 
 
 ## 6.1. Get Jaccard index heatmaps - KOs with no DEPs are ignored here, not included in the plots!
-Heatmaps by anticodon
+Heatmaps by anticodon - without NAs
 ```{r}
 # Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
 de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
@@ -1467,7 +1464,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon_no_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -1476,10 +1473,10 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file)
 ```
 
-Heatmaps by amino acid
+Heatmaps by amino acid - without NAs
 ```{r}
 # Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
 de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
@@ -1518,7 +1515,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid_no_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -1527,7 +1524,108 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
+rm(jaccard_matrices_list, jaccard_matrix, plot_list, my_grobs, output_file)
+```
+
+Heatmaps by anticodon - with NAs
+```{r}
+# Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
+de_protein_list <- de_proteins_list_001
+anticodons <- unique(responsiveness$anticodon)
+jaccard_matrices_list <- list()
+
+# Iterate over the anticodons and get a Jaccard index matrix for each of them
+for (i in 1:length(anticodons)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the Jaccard index across them
+  anticodon <- anticodons[i]
+  KOs_with_anticodon <- names(de_protein_list)[grepl(anticodon, names(de_protein_list))]
+  
+  # This is so I don't end up with matrices with a single cell
+  if (length(KOs_with_anticodon) > 1) {
+    jaccard_matrix <- get_jaccad_index_matrix(de_protein_list, KOs_with_anticodon)
+    jaccard_matrices_list[[anticodon]] <- jaccard_matrix
+  }
+}
+
+# Iterate over the Jaccard index matrices and get a heatmap from each of them
+plot_list <- list()
+for (i in 1:length(jaccard_matrices_list)) {
+  anticodon <- names(jaccard_matrices_list)[i]
+  mat <- jaccard_matrices_list[[i]]
+  melt_mat <- melt(mat)
+  plot_list[[i]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                      geom_tile(aes(fill = value), colour = "white") +
+                      scale_fill_gradient(low = "white", high = "red") +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("Jaccard index heatmap - anticodon {anticodon}")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+}
+
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon_with_NAs.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
+   width = 15, height = 9
+)
+
+
+# Remove unnecessary variables
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file)
+```
+
+Heatmaps by amino acid - with NAs
+```{r}
+# Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
+de_protein_list <- de_proteins_list_001
+amino_acids <- unique(responsiveness$AA)
+jaccard_matrices_list <- list()
+
+# Iterate over the amino acids and get a Jaccard index matrix for each of them
+for (i in 1:length(amino_acids)) {
+  # For each amino acid, grab the tRNAs that carry it, and get a matrix with the Jaccard index across them
+  aa <- amino_acids[i]
+  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
+  KOs_with_amino_acid <- names(de_protein_list)[names(de_protein_list) %in% strain_names]
+  
+  # This is so I don't end up with matrices with a single cell
+  if (length(KOs_with_amino_acid) > 1) {
+    jaccard_matrix <- get_jaccad_index_matrix(de_protein_list, KOs_with_amino_acid)
+    jaccard_matrices_list[[aa]] <- jaccard_matrix
+  }
+}
+
+# Iterate over the Jaccard index matrices and get a heatmap from each of them
+plot_list <- list()
+for (i in 1:length(jaccard_matrices_list)) {
+  aa <- names(jaccard_matrices_list)[i]
+  mat <- jaccard_matrices_list[[i]]
+  melt_mat <- melt(mat)
+  plot_list[[i]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                      geom_tile(aes(fill = value), colour = "white") +
+                      scale_fill_gradient(low = "white", high = "red") +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("Jaccard index heatmap - amino acid: {aa}")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+}
+
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid_with_NAs.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
+   width = 15, height = 9
+)
+
+
+# Remove unnecessary variables
+rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
 ```
 
 

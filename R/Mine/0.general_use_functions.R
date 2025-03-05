@@ -234,22 +234,6 @@ anticodon_to_codon <- function(anticodon) {
 
 
 
-################################################################################
-# Functions to take log2 or log10 leaving 0 values as 0
-################################################################################
-
-#' log2 ignoring 0s - this one is not working or used anywhere, maybe delete it?
-#' 
-#' Literally just want to be able to take log2 of my data without generating -Inf 
-#' values, so when the value is 0 this function returns 0, when it is positive it
-#' returns its log2. 
-#' 
-#' @param value A number 
-log2_ignoring_zeros <- function(value) {
-  if (value == 0) {return(0)}
-  else {return(log2(value))}
-}
-
 
 
 
@@ -259,16 +243,21 @@ log2_ignoring_zeros <- function(value) {
 #' Jaccard similarity index
 #' This is a statistic used for evaluating the similarity or diversity of sample
 #' sets: it's just the intersection of 2 sets divided by their union. It takes in
-#' 2 vectors and returns a numeric value
+#' 2 vectors and if they both contain at least one observation, returns a numeric
+#' value. Otherwise, if at least one of them is empty, it returns an NA
 #' 
 #' @param a A vector containing the first set of values
 #' @param b A vector containing another set of values
 #' 
-#' @return A numeric value, the Jaccard index between the 2 provided vectors
+#' @return A numeric value, the Jaccard index between the 2 provided vectors, or
+#' NA
 jaccard <- function(a, b) {
-  intersection <- length(intersect(a, b))
-  union <- length(a) + length(b) - intersection
-  return(intersection/union)
+  if (length(a) > 0 & length(b) > 0) {
+    intersection <- length(intersect(a, b))
+    union <- length(a) + length(b) - intersection
+    return(intersection/union)
+  }
+  else {return(NA)}
 }
 
 

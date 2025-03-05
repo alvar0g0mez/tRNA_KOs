@@ -18,6 +18,8 @@ library(data.table)
 library(dplyr)
 library(fgsea)
 library(ggplot2)
+library(jsonlite)
+library(stringr)
 ```
 
 
@@ -44,11 +46,13 @@ if (working_from == "charite") {
 
 ## 1.1. Load data
 ```{r}
-# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
 de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
+de_proteins_list_001 <- Filter(function(x) length(x) > 0, de_proteins_list_001)
 
-# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05 - remove emtpy vectors
 de_proteins_list_005 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep=""))
+de_proteins_list_005 <- Filter(function(x) length(x) > 0, de_proteins_list_005)
 
 # Full Entrez ID dataframe, with all genes
 entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
@@ -58,6 +62,9 @@ master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
 phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+
+
+source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
 
@@ -89,25 +96,24 @@ de_prots_per_strain_001 <- data.frame(Strain.Name = names(de_proteins_list_001),
 ```
 
 
-## 2.3. Perform enrichment analysis
-### Biological process
+## 2.3. Perform GO enrichment analysis
 ```{r}
 # Come up with background (all proteins detected)
 my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
 
 # Create empty list for GO results, perform GO for each KO strain, and store them there
-go_results_list_001_bp <- list()
+go_results_list_001 <- list()
 for (i in 2:length(de_proteins_list_entrez_ID_001)) {
   proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
   if (length(proteins_detected) > 0) {
     go_results <- enrichGO(gene = proteins_detected, 
                            OrgDb = "org.Sc.sgd.db", 
                            keyType = "ENTREZID", 
-                           ont = "BP", 
+                           ont = "ALL", 
                            universe = my_universe)
     go_results <- as.data.frame(go_results)
     if (nrow(go_results) > 0) {
-      go_results_list_001_bp[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
+      go_results_list_001[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
     }
   }
 }
@@ -117,9 +123,9 @@ has_go_results <- c()
 number_of_go_terms <- c()
 for (i in 1:nrow(de_prots_per_strain_001)) {
   strain <- de_prots_per_strain_001$Strain.Name[i]
-  if (strain %in% names(go_results_list_001_bp)) {
+  if (strain %in% names(go_results_list_001)) {
     has_go_results <- c(has_go_results, "Yes")
-    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_bp[[strain]]))
+    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001[[strain]]))
   }
   else {
     has_go_results <- c(has_go_results, "No")
@@ -130,85 +136,7 @@ de_prots_per_strain_001$GO_results_bp <- has_go_results
 de_prots_per_strain_001$num_of_go_terms_bp <- number_of_go_terms
 ```
 
-### Molecular function
-```{r}
-# Come up with background (all proteins detected)
-my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
 
-# Create empty list for GO results, perform GO for each KO strain, and store them there
-go_results_list_001_mf <- list()
-for (i in 2:length(de_proteins_list_entrez_ID_001)) {
-  proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
-  if (length(proteins_detected) > 0) {
-    go_results <- enrichGO(gene = proteins_detected, 
-                           OrgDb = "org.Sc.sgd.db", 
-                           keyType = "ENTREZID", 
-                           ont = "MF", 
-                           universe = my_universe)
-    go_results <- as.data.frame(go_results)
-    if (nrow(go_results) > 0) {
-      go_results_list_001_mf[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
-    }
-  }
-}
-
-# Check how much correlation there is between strains having many DEPs and strains showing some GO enrichment results
-has_go_results <- c()
-number_of_go_terms <- c()
-for (i in 1:nrow(de_prots_per_strain_001)) {
-  strain <- de_prots_per_strain_001$Strain.Name[i]
-  if (strain %in% names(go_results_list_001_mf)) {
-    has_go_results <- c(has_go_results, "Yes")
-    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_mf[[strain]]))
-  }
-  else {
-    has_go_results <- c(has_go_results, "No")
-    number_of_go_terms <- c(number_of_go_terms, 0)
-  }
-}
-de_prots_per_strain_001$GO_results_mf <- has_go_results
-de_prots_per_strain_001$num_of_go_terms_mf <- number_of_go_terms
-```
-
-### Cellular compartment
-```{r}
-# Come up with background (all proteins detected)
-my_universe <- as.character(de_proteins_list_entrez_ID_001[["WT"]])
-
-# Create empty list for GO results, perform GO for each KO strain, and store them there
-go_results_list_001_cc <- list()
-for (i in 2:length(de_proteins_list_entrez_ID_001)) {
-  proteins_detected <- as.character(de_proteins_list_entrez_ID_001[[i]])
-  if (length(proteins_detected) > 0) {
-    go_results <- enrichGO(gene = proteins_detected, 
-                           OrgDb = "org.Sc.sgd.db", 
-                           keyType = "ENTREZID", 
-                           ont = "CC", 
-                           universe = my_universe)
-    go_results <- as.data.frame(go_results)
-    if (nrow(go_results) > 0) {
-      go_results_list_001_cc[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results
-    }
-  }
-}
-
-# Check how much correlation there is between strains having many DEPs and strains showing some GO enrichment results
-has_go_results <- c()
-number_of_go_terms <- c()
-for (i in 1:nrow(de_prots_per_strain_001)) {
-  strain <- de_prots_per_strain_001$Strain.Name[i]
-  if (strain %in% names(go_results_list_001_cc)) {
-    has_go_results <- c(has_go_results, "Yes")
-    number_of_go_terms <- c(number_of_go_terms, nrow(go_results_list_001_cc[[strain]]))
-  }
-  else {
-    has_go_results <- c(has_go_results, "No")
-    number_of_go_terms <- c(number_of_go_terms, 0)
-  }
-}
-de_prots_per_strain_001$GO_results_cc <- has_go_results
-de_prots_per_strain_001$num_of_go_terms_cc <- number_of_go_terms
-```
 
 
 ## 2.4. Add other informational columns to this dataset that might explain the success of the GO analysis for some strains
@@ -218,41 +146,17 @@ de_prots_per_strain_001 <- left_join(de_prots_per_strain_001, master_dataset, by
 
 
 ## 2.5. Check the enriched pathways for the KO strains that were checked for growth under DTT in the original article
-Biological process
 ```{r}
 ## Grew ~ as WT under DTT
-View(go_results_list_001_bp[["tR(UCU)M2"]])
-View(go_results_list_001_bp[["tH(GUG)G1"]])
+View(go_results_list_001[["tR(UCU)M2"]])
+View(go_results_list_001[["tH(GUG)G1"]])
 
 ## Grew better than WT under DTT
-View(go_results_list_001_bp[["tR(CCU)J"]])
-View(go_results_list_001_bp[["tL(GAG)G"]])
-View(go_results_list_001_bp[["tM(CAU)C"]])
+View(go_results_list_001[["tR(CCU)J"]])
+View(go_results_list_001[["tL(GAG)G"]])
+View(go_results_list_001[["tM(CAU)C"]])
 ```
 
-Cellular compartment
-```{r}
-## Grew ~ as WT under DTT
-View(go_results_list_001_cc[["tR(UCU)M2"]])
-View(go_results_list_001_cc[["tH(GUG)G1"]])
-
-## Grew better than WT under DTT
-View(go_results_list_001_cc[["tR(CCU)J"]])
-View(go_results_list_001_cc[["tL(GAG)G"]])
-View(go_results_list_001_cc[["tM(CAU)C"]])
-```
-
-Molecular function
-```{r}
-## Grew ~ as WT under DTT
-View(go_results_list_001_mf[["tR(UCU)M2"]])
-View(go_results_list_001_mf[["tH(GUG)G1"]])
-
-## Grew better than WT under DTT
-View(go_results_list_001_mf[["tR(CCU)J"]])
-View(go_results_list_001_mf[["tL(GAG)G"]])
-View(go_results_list_001_mf[["tM(CAU)C"]])
-```
 
 
 
@@ -283,7 +187,7 @@ de_prots_per_strain_005 <- data.frame(Strain.Name = names(de_proteins_list_005),
   filter(Strain.Name != "WT")
 ```
 
-## 3.3. Perform enrichment analysis
+## 3.3. Perform GO enrichment analysis
 ```{r}
 # Come up with background (all proteins detected)
 my_universe <- as.character(de_proteins_list_entrez_ID_005[["WT"]])
@@ -296,7 +200,7 @@ for (i in 2:length(de_proteins_list_entrez_ID_005)) {
     go_results <- enrichGO(gene = proteins_detected, 
                            OrgDb = "org.Sc.sgd.db", 
                            keyType = "ENTREZID", 
-                           ont = "BP", 
+                           ont = "ALL", 
                            universe = my_universe)
     go_results <- as.data.frame(go_results)
     if (nrow(go_results) > 0) {
@@ -390,10 +294,10 @@ ea_terms_ko <- ea$result %>%
 
 
 # 6. GSEA - try to imitate the results from the original article
-## 6.1. Prepare ranks
+## 6.1. Prepare ranked gene lists
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
-da <- readRDS(paste(base_dir, "Data/Other/enrichment_analysis/da.RData", sep=""))
+da <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), simplifyVector = T)
 da <- da[names(da) != "WT"]
 
 # Create empty list to put the named ranked gene lists in
@@ -403,13 +307,10 @@ ranked_genes <- list()
 for (i in 1:length(da)) {
   temp <- da[[i]]
   
-  # Since we are using all genes, not only DE ones, we need to rank them
+  # Using as score the -log10(p-value)*sign of the logFC
   rankings <- sign(temp$logFC)*(-log10(temp$adj.P.Val))
   names(rankings) <- rownames(temp)
   rankings <- sort(rankings, decreasing = TRUE)
-  
-  # Add them to the list where we are saving them
-  ranked_genes[[names(da)[i]]] <- rankings
   
   # Plot
   plot(rankings)
@@ -417,16 +318,96 @@ for (i in 1:length(da)) {
   # Check max and min - to see if there is a need to correct for -Inf and +Inf
   max(rankings)
   min(rankings)
+  
+  # Some genes have such low p values that the signed pval is +- inf, we need to change it to the maximum * constant to avoid problems with fgsea
+  # (this part is copy pasted from the link)
+  max_ranking <- max(rankings[is.finite(rankings)])
+  min_ranking <- min(rankings[is.finite(rankings)])
+  rankings <- replace(rankings, rankings > max_ranking, max_ranking * 10)
+  rankings <- replace(rankings, rankings < min_ranking, min_ranking * 10)
+  rankings <- sort(rankings, decreasing = TRUE) # sort genes by ranking
+  
+  # Add them to the list where we are saving them
+  ranked_genes[[names(da)[i]]] <- rankings
 }
-
 ```
 
-## 6.2. Perform GSEA
+## 6.2. Perform GSEA with KEGG annotation
+### Download KEGG gene lists (according to https://www.researchgate.net/post/How_i_can_get_a_list_of_KEGG_pathways_and_its_list_of_genes)
+DO NOT RUN AGAIN - I used this to download the file, I just need to load it, but I left this code here in case I want to know how I did it
 ```{r}
+BiocManager::install("KEGGREST")
+BiocManager::install("EnrichmentBrowser")
+library("KEGGREST")
+library("EnrichmentBrowser")
 
+#step2: check and obtain a list of entry identifiers (in this case: sce) and associated definition for a given database or a given set of database entries.
+MRSA252 <- keggList("sce")
+
+#step 3: download the pathways of that organism:
+sarpathway <- downloadPathways("sce")
+
+#step 4: retrieve gene sets for an organism from databases such as GO and KEGG:
+sar <- getGenesets(org = "sce", db = "kegg", cache = TRUE, return.type="list")
+
+#step5: Parse and write the gene sets to a flat text file in GMT format for other pathway enrichment analysis programs (e.g., GSEA):
+writeGMT(sar, gmt.file = paste(base_dir, "Data/Other/enrichment_analysis/20250305_kegg_sce_gmt", sep=""))
 ```
 
 
+### Now perform the GSEA as described by https://biostatsquid.com/fgsea-tutorial-gsea/
+Get a list of pathways, with each entry being a vector with the Entrez IDs for the genes involved in that pathway. Make it so that only proteins that we detect in our dataset are included here. 
+```{r}
+# Read in the .gmt file
+gmt <- read.gmt(paste(base_dir, "Data/Other/enrichment_analysis/20250305_kegg_sce_gmt", sep=""))
+gmt$term <- as.character(gmt$term)
+
+# Get a simple vector with the Entrez IDs of the proteins we detect
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+proteins_detected <- match_systematic_and_standard_protein_names(data = rownames(trna_ko),
+                                                                 yeastmine = yeastmine,
+                                                                 input = "standard",
+                                                                 simplify = T)
+proteins_detected <- entrez_db$`NCBI_gene_(formerly_Entrezgene)_ID`[entrez_db$Protein_stable_ID %in% proteins_detected]
+
+# Get our list of vectors, where each vector is a KEGG pathway and the terms in it are the genes related to it
+gmt <- gmt %>%
+  mutate(pathway_code = substr(term, 1, str_locate(term, "_")[1]-1), 
+         pathway_name = substr(term, str_locate(term, "_")[1]+1, nchar(term)))
+
+kegg_genes <- list()
+pathways <- unique(gmt$pathway_name)
+for (i in 1:length(pathways)) {
+  pathway <- pathways[i]
+  temp <- gmt %>%
+    filter(pathway_name == pathway)
+  kegg_genes[[pathway]] <- as.character(temp$gene)[as.character(temp$gene) %in% proteins_detected]
+}
+```
+
+Run GSEA
+The warning I get here refers to many proteins having exactly the same rank (these are the ones we see in a horizontal line in the plots produced in 6.1.) - this should be okay, since these are the genes that were not significantly differentially expressed at all - but tbh this makes it so that I cannot really get that much info from those anyway, right? So there isn't that much of a difference between this and doing the GSEA only with DE proteins, right?? Idk
+```{r}
+kegg_gsea_results <- list()
+
+for (i in 1:length(ranked_genes)) {
+  kegg_gsea_results[[names(ranked_genes)[i]]] <- fgsea(pathways = kegg_genes, # List of gene sets to check
+                 stats = ranked_genes[[i]],
+                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                 minSize = 1,
+                 maxSize = 1000,
+                 nproc = 1) # for parallelisation
+}
+```
+
+THE RESULTS JUST COME OUT TOTALLY EMPTY FOR ALL KOS :D - I GUESS I'LL HAVE TO LOOK INTO THIS AT SOME POINT
+
+
+
+
+
+## 6.3. Perform GSEA with Reactome annotation??
 
 
 
