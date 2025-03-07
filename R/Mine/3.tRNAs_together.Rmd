@@ -498,6 +498,7 @@ rm(resp_summarized_by_family)
 
 
 ## 1.9. Identify major and minor tRNA genes myself for all strains
+Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
 # Histogram of avg_nDEP for each KO strain
 ggplot(data = responsiveness, aes(x = nDEP)) +
@@ -594,6 +595,82 @@ ggsave(
 # Remove unnecessary variables
 rm(family_sizes_long, my_grobs, plot_list, temp, aa, aas, output_file, i)
 ```
+
+Histograms by anticodon, color by full sequence of the tRNA molecule (both DNA and mature sequences)
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp <- master_dataset %>%
+  dplyr::select(Strain.Name, DNA_sequence, mature_sequence)
+responsiveness <- left_join(responsiveness, temp, by = "Strain.Name")
+
+## Create empty list of plots
+plot_list_DNA_seq <- list()
+plot_list_mature_seq <- list()
+
+## Generate the plots and add them to the list
+anticodons <- unique(as.character(responsiveness$anticodon))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- responsiveness %>%
+    filter(anticodon == my_anticodon)
+  
+  # Color by DNA seq
+  plot_list_DNA_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = DNA_sequence, fill = DNA_sequence)) +
+    geom_histogram(binwidth = 1) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("Frequency of nDEP in tRNAs with {my_anticodon}")) + 
+    theme(legend.position = "none")
+  
+  # Color by mature seq
+  plot_list_mature_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = mature_sequence, fill = mature_sequence)) +
+    geom_histogram(binwidth = 1) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("Frequency of nDEP in tRNAs with {my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs_DNA <- lapply(plot_list_DNA_seq, ggplotGrob)
+my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+```
+
+
+
+## 1.10. Do all tRNAs with the same anticodon have exactly the same sequence throughout their whole structure?
+No, they do not! Look further into this elsewhere
+```{r}
+num_of_tRNA_versions_DNA <- c()
+num_of_tRNA_versions_mature <- c()
+anticodons <- unique(master_dataset$Anticodon)
+for (i in 1:length(anticodons)) {
+  anticodon <- anticodons[i]
+  temp <- master_dataset %>%
+    filter(Anticodon == anticodon)
+  num_of_tRNA_versions_DNA <- c(num_of_tRNA_versions_DNA, length(unique(temp$DNA_sequence)))
+  num_of_tRNA_versions_mature <- c(num_of_tRNA_versions_mature, length(unique(temp$mature_sequence)))
+}
+
+temp <- data.frame(anticodons, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature)
+```
+
 
 
 
@@ -805,7 +882,7 @@ ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y =
 
 
 
-## 2.3. Add information about anticodon frequency as well
+## 2.3. Add information about codon frequency as well
 Load and prepare data
 ```{r}
 # Get anticodon from codon and rename columns
@@ -827,49 +904,49 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP)) 
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. codon frequency") +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by tRNA abundance from Cozen et al.
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = mean_reads_per_tRNA)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by log2 tRNA synthetase abundance from Chu et al.
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = log2(synthetase_abundance))) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by family size
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = Family_count)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid type
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_type)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid charge
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_charge)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid weight
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = molecular_weight)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from Chu et al., 2011)") +
+  xlab("Codon frequency (from van der Haar, 2008)") +
   ylab("nDEP per tRNA KO")
 ```
 
@@ -1060,7 +1137,7 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj))) +
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = 1.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, (FC < 0.5 | FC > 1.5) & -log10(p.values.adj) > -log10(0.05)),
+  geom_text_repel(data = subset(test_codon_enrichment, (((FC < 0.5 | FC > 1.5) & -log10(p.values.adj) > -log10(0.05)))|-log10(p.values.adj) > -log10(0.05)),
                   aes(x = FC, y = -log10(p.values.adj), label = Strain.Name))
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
@@ -1105,6 +1182,16 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col =
   geom_vline(xintercept = 1.5, col = "red") +
   theme_light()
 ```
+
+What if I plot nDEP against the FC of the previous plot?
+```{r}
+ggplot(data = test_codon_enrichment, aes(x = num_de, y = FC)) +
+  geom_point() +
+  theme_light()
+
+hist(test_codon_enrichment$FC)
+```
+
 
 
 

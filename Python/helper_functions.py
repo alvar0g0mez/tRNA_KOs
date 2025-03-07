@@ -23,6 +23,7 @@ def transcribe_nucleotide(nt: str):
 
 def codon_to_anticodon(codon: str):
     anticodon = ""
+    codon = codon[::-1]
     for nt in codon:
         new_nt = transcribe_nucleotide(nt)
         anticodon += new_nt
@@ -31,6 +32,7 @@ def codon_to_anticodon(codon: str):
 
 def anticodon_to_codon(anticodon: str):
     codon = ""
+    anticodon = anticodon[::-1]
     for nt in anticodon:
         new_nt = reverse_transcribe_nucleotide(nt)
         codon += new_nt

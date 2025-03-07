@@ -4,6 +4,7 @@ library(dplyr)
 library(readODS)
 library(stringr)
 library(roxygen2)
+library(stringi)
 
 
 
@@ -192,7 +193,11 @@ reverse_transcribe_nucleotide <- function(nt) {
 #' 
 #' Provide a codon sequence as a 3-character string, and another 3-character
 #' string will be returned with the corresponding anticodon. Makes use of the 
-#' above defined function "transcribe_nucleotide".
+#' above defined function "transcribe_nucleotide". This function takes
+#' into account that codons and anticodons are both usually read in a 5'-to-3'
+#' fashion, although for their pairing, the anticodon is oriented in the opposite
+#' direction - so this function reverses the codon and then produces an anticodon
+#' that matches this one. 
 #' 
 #' @param codon A 3-character string composed only of valid nucleotide letters 
 #' (as defined by "transcribe_nucleotide()")
@@ -200,6 +205,7 @@ reverse_transcribe_nucleotide <- function(nt) {
 #' nucleotide-valid letters)
 codon_to_anticodon <- function(codon) {
   anticodon <- ""
+  codon <- stringi::stri_reverse(codon)
   for (i in 1:nchar(codon)) {
     nt <- substr(codon, i, i)
     new_nt <- transcribe_nucleotide(nt)
@@ -213,7 +219,11 @@ codon_to_anticodon <- function(codon) {
 #' 
 #' Provide an anticodon sequence as a 3-character string, and another 3-character
 #' string will be returned with the corresponding codon. Makes use of the 
-#' above defined function "reverse_transcribe_nucleotide".
+#' above defined function "reverse_transcribe_nucleotide". This function takes
+#' into account that codons and anticodons are both usually read in a 5'-to-3'
+#' fashion, although for their pairing, the anticodon is oriented in the opposite
+#' direction - so this function reverses the anticodon and then produces a 
+#' codon that matches this one. 
 #' 
 #' @param codon A 3-character string composed only of valid nucleotide letters 
 #' (as defined by "reverse_transcribe_nucleotide()")
@@ -221,6 +231,7 @@ codon_to_anticodon <- function(codon) {
 #' nucleotide-valid letters)
 anticodon_to_codon <- function(anticodon) {
   codon <- ""
+  anticodon <- stringi::stri_reverse(anticodon)
   for (i in 1:nchar(anticodon)) {
     nt <- substr(anticodon, i, i)
     new_nt <- reverse_transcribe_nucleotide(nt)
