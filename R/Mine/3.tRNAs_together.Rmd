@@ -1126,6 +1126,11 @@ temp <- master_dataset %>%
   dplyr::select(Strain.Name, Anticodon, Best_isotype_model_1_letter, Family_size) %>%
   rename(AA = Best_isotype_model_1_letter)
 test_codon_enrichment <- left_join(test_codon_enrichment, temp, by = "Strain.Name")
+
+temp <- resp_and_expression %>%
+  dplyr::select(Strain.Name, codon_frequency_chu_2011)
+test_codon_enrichment <- left_join(test_codon_enrichment, temp, by = "Strain.Name")
+rm(temp)
 ```
 
 "Volcano plot"
@@ -1176,6 +1181,14 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col =
 
 # Color by amino acid
 ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = AA)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = 1.5, col = "red") +
+  theme_light()
+
+# Color by codon frequency
+ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = codon_frequency_chu_2011)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +

@@ -203,6 +203,15 @@ master_dataset <- master_dataset %>%
   mutate(Perc_KOd_genes_per_anticodon = Number_of_KOd_genes_per_anticodon/Family_size,
          Perc_KOd_genes_per_amino_acid = Number_of_KOd_genes_per_aa/Number_of_tRNAs_loading_this_aa)
 
+## Column saying if there is a U in position 34 (the one that binds the last nucleotide in the codon), and a couple things more
+master_dataset <- master_dataset %>%
+  mutate(U_34 = case_when(grepl("\\(U", Strain.Name) ~ "Yes",
+                          TRUE ~ "No"),
+         A_34 = case_when(grepl("\\(A", Strain.Name) ~ "Yes",
+                          TRUE ~ "No"),
+         Nt_at_32 = substr(mature_sequence, 32, 32),
+         Nt_at_38 = substr(mature_sequence, 38, 38))
+
 
 
 #-----------------------------------------------------------------------------------------
@@ -210,7 +219,7 @@ master_dataset <- master_dataset %>%
 
 
 # 5. That's it for now, just save this resulting master dataframe
-fwrite(master_dataset, "C:/MyStuff/tRNAs/data/GtRNAdb/master_tRNA_dataset.csv")
+fwrite(master_dataset, "C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv")
 
 
 
