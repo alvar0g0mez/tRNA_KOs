@@ -28,12 +28,25 @@ library(stringr)
 
 #-----------------------------------------------------------------------------------------
 
+# Set directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+  if (working_from == "charite") {
+    base_dir = "C:/MyStuff/tRNA_KOs/"
+  }
+
+#-----------------------------------------------------------------------------------------
+
+
 
 
 # 1. Dealing with the database from GtRNAdb
 
 # Load data
-db <- read.xlsx("C:/MyStuff/tRNAs/data/GtRNAdb/GtRNAdb_gene_list.xlsx", 1)
+db <- read.xlsx(paste(base_dir, "Data/Other/GtRNAdb/GtRNAdb_gene_list.xlsx", sep=""), 1)
 
 
 # 1.1. Come up with Intron and Mismatch columns from the Features column
@@ -75,7 +88,7 @@ db <- db %>%
 
 # 1.2. Match 3-letter codes to 1-letter codes
 ## Load dataframe with amino acid information
-aas <- fread("C:/MyStuff/tRNAs/data/GtRNAdb/amino_acids.csv")
+aas <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv",sep=""))
 aas <- as.data.frame(aas)
 
 ## Add new columns
@@ -138,7 +151,7 @@ rm(og_name, new_name, i)
 
 
 # 2.0. Load phenotypic results dataset
-phenotypic_results <- fread("C:/MyStuff/tRNAs/data/bloom_ackermann_2014/phenotypic_results.tsv")
+phenotypic_results <- fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep=""))
 
 # 2.1. Add columns
 master_dataset <- db %>%
@@ -157,7 +170,7 @@ rm(phenotypic_results, db)
 
 
 # 3. Add genetic and mature tRNA sequences from the FASTA files
-trna_seqs <- read.csv("C:/MyStuff/tRNAs/Data/GtRNAdb/gene_and_mature_tRNA_seqs.csv")
+trna_seqs <- read.csv(paste(base_dir, "Data/Other/GtRNAdb/gene_and_mature_tRNA_seqs.csv", sep=""))
 master_dataset <- left_join(master_dataset, trna_seqs, by = "GtRNADB_name")
 
 ## Remove unnecessary variables
@@ -219,7 +232,7 @@ master_dataset <- master_dataset %>%
 
 
 # 5. That's it for now, just save this resulting master dataframe
-fwrite(master_dataset, "C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv")
+fwrite(master_dataset, paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep=""))
 
 
 
