@@ -47,6 +47,17 @@ match_systematic_and_standard_protein_names <- function(data,
                                                        input = "systematic",
                                                        simplify = FALSE,
                                                        add_extra_columns = FALSE) {
+  
+  # First of all, make sure all letters are in uppercase. Then turn data to a dataframe and proceed
+  if (class(data) == "data.frame") {
+    data$gene_names <- toupper(data$gene_names)
+  }
+  else {
+    data <- toupper(data)
+  }
+  
+  
+  
   # FOR SYSTEMATIC TO STANDARD
   if (input == "systematic") {
     
@@ -316,6 +327,47 @@ get_jaccad_index_matrix <- function(list_of_vectors, vectors_to_be_used) {
 
 
 
+
+
+
+
+# From https://stackoverflow.com/questions/57128090/remove-baseline-color-for-geom-histogram
+# modified version of StatBin2 inherits from StatBin, except for an
+# additional 2nd last line in compute_group() function
+StatBin2 <- ggproto(
+  "StatBin2", 
+  StatBin,
+  compute_group = function (data, scales, binwidth = NULL, bins = NULL, 
+                            center = NULL, boundary = NULL, 
+                            closed = c("right", "left"), pad = FALSE, 
+                            breaks = NULL, origin = NULL, right = NULL, 
+                            drop = NULL, width = NULL) {
+    if (!is.null(breaks)) {
+      if (!scales$x$is_discrete()) {
+        breaks <- scales$x$transform(breaks)
+      }
+      bins <- ggplot2:::bin_breaks(breaks, closed)
+    }
+    else if (!is.null(binwidth)) {
+      if (is.function(binwidth)) {
+        binwidth <- binwidth(data$x)
+      }
+      bins <- ggplot2:::bin_breaks_width(scales$x$dimension(), binwidth, 
+                                         center = center, boundary = boundary, 
+                                         closed = closed)
+    }
+    else {
+      bins <- ggplot2:::bin_breaks_bins(scales$x$dimension(), bins, 
+                                        center = center, boundary = boundary, 
+                                        closed = closed)
+    }
+    res <- ggplot2:::bin_vector(data$x, bins, weight = data$weight, pad = pad)
+    
+    # drop 0-count bins completely before returning the dataframe
+    res <- res[res$count > 0, ] 
+    
+    res
+})
 
 
 
