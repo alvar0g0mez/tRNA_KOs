@@ -686,6 +686,47 @@ temp <- data.frame(anticodons, num_of_tRNA_versions_DNA, num_of_tRNA_versions_ma
 ```
 
 
+## 1.11. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
+```{r}
+# Plots by anticodon
+master_by_anticodon <- master_dataset %>%
+  distinct(Anticodon, .keep_all = T)
+
+## Just the percentage of KOd genes per anticodon
+ggplot(data = master_by_anticodon, aes(x = Anticodon, y = Perc_KOd_genes_per_anticodon)) +
+  geom_point() +
+  theme_light() +
+  geom_text_repel(data = subset(master_by_anticodon, Perc_KOd_genes_per_anticodon < 0.7), aes(x = Anticodon, y = Perc_KOd_genes_per_anticodon, label = Anticodon)) +
+  theme(axis.text.x = element_blank()) +
+  labs(title = "% of tRNA-genes with each anticodon that were KOd") +
+  ylab("% of genes KOd")
+
+
+
+# Plots by amino acid - for some reason distinct() is not working???
+master_by_amino_acid <- master_dataset[!duplicated(master_dataset$Isotype_from_anticodon),]
+
+## Just the percentage of KOd genes per amino acid
+ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Perc_KOd_genes_per_amino_acid, col = Number_of_tRNAs_loading_this_aa)) +
+  geom_point() +
+  theme_light() +
+  geom_text_repel(data = subset(master_by_amino_acid, Perc_KOd_genes_per_amino_acid < 0.8), aes(x = Isotype_from_anticodon, y = Perc_KOd_genes_per_amino_acid, label = Isotype_from_anticodon)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Amino acid") +
+  ylab("% of genes KOd") +
+  labs(title = "% of tRNA-genes carrying each amino acid that were KOd",
+       col = "Number of tRNAs\nloading this aa")
+
+# How many tRNA genes are there for each amino acid?
+ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa)) +
+  geom_point() +
+  theme_light() +
+  theme(axis.text.x = element_blank()) +
+  labs(title = "Number of tRNA genes carrying each amino acid") +
+  xlab("Amino acid") +
+  ylab("Number of genes") +
+  geom_text_repel(data = subset(master_by_amino_acid, Number_of_tRNAs_loading_this_aa < 6 | Number_of_tRNAs_loading_this_aa > 20), aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa, label = Isotype_from_anticodon))
+```
 
 
 
@@ -1063,10 +1104,20 @@ check_overdispersion(fit)
 # Actually in the fit for the Poisson model we can already get an idea of if there is overdispersion or not: we do this by looking at the residual deviance and at the corresponding degrees of freedom, if the ratio between them is roughly 1, there is no overdispersion. If it is larger, there is overdispersion. So yeah, we see that we indeed have it here. 
 ```
 
-Negative binomial
+Negative binomial - with 3 variables
 ```{r}
 fit <- glm.nb(data = resp_and_expression, 
               formula = nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+```
+
+Negative binomial - with 4 variables
+```{r}
+fit <- glm.nb(data = resp_and_expression, 
+              formula = nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011*mean_reads_per_tRNA)
 summary(fit)
 
 # Check overdispersion
