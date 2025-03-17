@@ -1116,8 +1116,104 @@ check_overdispersion(fit)
 
 Negative binomial - with 4 variables
 ```{r}
-fit <- glm.nb(data = resp_and_expression, 
-              formula = nDEP ~ synthetase_abundance*k_cat_value*codon_frequency_chu_2011*mean_reads_per_tRNA)
+resp_and_expression_modelling <- resp_and_expression %>%
+  dplyr::rename(catalytic_constant = k_cat_value,
+         condon_frequency = codon_frequency_chu_2011,
+         tRNA_expression = mean_reads_per_tRNA)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+```
+
+Negative binomial - with 4 variables - remove strains below certain numbers of nDEPs
+```{r}
+resp_and_expression_modelling <- resp_and_expression %>%
+  dplyr::rename(catalytic_constant = k_cat_value,
+         condon_frequency = codon_frequency_chu_2011,
+         tRNA_expression = mean_reads_per_tRNA)
+
+# nDEP > 0
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 0)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 1
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 1)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 2
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 2)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 3
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 3)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 4
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 4)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 5
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 5)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
+summary(fit)
+
+# Check overdispersion
+check_overdispersion(fit)
+
+
+# nDEP > 10
+resp_and_expression_modelling <- resp_and_expression_modelling %>%
+  filter(nDEP > 10)
+
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance*catalytic_constant*condon_frequency*tRNA_expression)
 summary(fit)
 
 # Check overdispersion
