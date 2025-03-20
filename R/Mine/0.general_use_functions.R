@@ -376,3 +376,59 @@ StatBin2 <- ggproto(
 
 
 
+################################################################################
+# My version of reshape2::melt (not working anymore)
+################################################################################
+#' Take a correlation matrix and return its long format, where the first 2 columns
+#' are "Var1" and "Var2", with all the possible combinations that we have in the 
+#' correlation matrix, and the third column is "Value", with the corresponding 
+#' correlation, between the entries in the first 2 columns in that row. 
+#' 
+#' This is necessary because reshape2 doesn't exist anymore for some reason. 
+#' This is very easily done with dplyr::pivot_longer, which is what I am doing
+#' here, I'm just adding a couple things to make the usage exactly equal to the 
+#' old melt. 
+#' 
+#' @param df A correlation matrix or dataframe (i.e. colnames and rownames are 
+#' the same, and the cells only contain correlations).
+#' 
+#' @return A dataframe where the first 2 columns are "Var1" and "Var2", with all
+#' the possible combinations that we have in the correlation matrix, and the 
+#' third column is "Value", with the corresponding correlation, between the 
+#' entries in the first 2 columns in that row
+melt <- function(df) {
+  if (is.matrix(df))  {
+    df <- as.data.frame(df)
+  }
+  
+  df$Var1 <- as.factor(rownames(df))
+  out <- pivot_longer(df, cols = -Var1, names_to = "Var2", values_to = "value")
+  out$Var2 <- as.factor(out$Var2)
+  return(out)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -35,10 +35,7 @@ library(ggvenn)
 library(tidyr)
 ```
 
-
-
-# 1. Load data and initial analysis
-## 1.0. Set parameters
+Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
 alpha <- 0.01
@@ -46,7 +43,10 @@ alpha <- 0.01
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 1.5
 
-# Directories to be used
+# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included)
+threshold_major <- 2
+
+# Set directories to be used
 working_from = "charite"
 
 if (working_from == "home") {
@@ -55,86 +55,59 @@ if (working_from == "home") {
 if (working_from == "charite") {
   base_dir = "C:/MyStuff/tRNA_KOs/"
 }
+
+# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs
+dataset <- "batchcorrected_onWTs"
 ```
 
+
+# 1. Load data and initial analysis
 ## 1.1. Load data
 ```{r}
 if (working_from == "charite") {
-  # Our proteomics data 
-  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  if (dataset == "outlier_removed") {
+    # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv', header = T)
+  }
+  else if (dataset == "batchcorrected_onWTs") {
+    # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+  }
   
   # The sample layout
-  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv"))
   
   # The master tRNA dataset
   master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
-  # stats file
-  stats_file <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz', header = T)
-  
   # Import the functions I have created in another file
-  #source("C:/MyStuff/tRNA_KOs/Scripts/R/Mine/0.general_use_functions.R")
+  source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else 
 
 if (working_from == "home") {
-  # Proteomics data and sample layout - from the S drive
-  #proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  # Proteomics data - from the S drive
+  if (dataset == "outlier_removed") {
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  }
+  else if (dataset == "batchcorrected_onWTs") {
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+  }
   
-  proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-  
+  # Sample layout - from the S drive
   sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
   
-  # stats file
-  stats_file <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/report.stats.tsv', header = T)
   
   # My data - in the project folder - when I open the project, the directory is set to its location
   ## The master tRNA dataset
   master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
   ## Import the functions I have created in another file
-  #source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+  source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 }
 ```
 
-
-
-## 1.2. Add columns to sample_layout and merge it with master_dataframe
+## 1.2. Merge sample_layout with master_dataframe
 ```{r}
-# Fix the QC rows to say "QC" instead of "NA" in the columsn that don't apply
-sample_layout <- sample_layout %>%
-  mutate(Analysis.Plate.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                        TRUE ~ as.character(Analysis.Plate.384))),
-         Analysis.Row.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                      TRUE ~ as.character(Analysis.Row.384))),
-         Analysis.Column.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                      TRUE ~ as.character(Analysis.Column.384))),
-         Analysis.Plate.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                      TRUE ~ as.character(Analysis.Plate.96))),
-         Analysis.Row.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                      TRUE ~ as.character(Analysis.Row.96))),
-         Analysis.Column.96 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
-                                      TRUE ~ as.character(Analysis.Column.96))))
-
-# Extract the date for when each sample was run, as well as Date_Injection
-sample_layout <- sample_layout %>% 
-  mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)")) %>%
-  mutate(Date_Injection_Order = paste(str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"), str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"),
-                                      sep="_"))
-
-# Create a column that simply has the info of if each sample is a KO strain or a WT replicate
-sample_layout <- sample_layout %>% 
-  mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
-                                 TRUE ~ "KO"))
-
-# Add a column with the following format: Analysis.Plate.96_Replicate
-sample_layout <- sample_layout %>%
-  mutate(Analysis.Plate.96_Replicate = paste(Analysis.Plate.96, Replicate, sep="_"))
-
-# Add a column which identifies samples in Analysis.Plate.96 = 3, Replicate = 2
-sample_layout <- sample_layout %>%
-  mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
-                                 TRUE ~ "No"))
-
 # Merge with master dataframe
 colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
 
@@ -143,17 +116,30 @@ sample_layout <- sample_layout %>%
   left_join(master_dataset, by = c("Strain.Name"))
 ```
 
-## 1.3. Pre-process proteomics data - this is where I deal with the 2 duplicated strains and remove samples in the wrong subbatch
+## 1.3. Pre-process proteomics data - this is where I:
+  - Deal with the 2/3 duplicated strains
+  - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
+  - Generally do everything necessary to come up with trna_ko from proteomics_raw
 ```{r}
+# Remove annoying unnecessary (?) column (UniProt IDs)
+if (dataset == "outlier_removed") 
+  {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-sample) %>%
+    rename(genes = X) %>%
+    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
+    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
+
+if (dataset == "batchcorrected_onWTs")    
+    {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-Protein.Group) %>%
+      rename(genes = Genes) %>%
+      column_to_rownames(var = 'genes')}
+
+
 # Come up with new colnames
-new_names <- c("sample_group", "genes")
-for (i in 3:ncol(proteomics_raw)) {
-  strain_and_batch <- colnames(proteomics_raw)[i]
-  trna_name <- proteomics_raw[1, i]
-  batch_num <- str_extract(strain_and_batch, "(?<=\\.).*")
-  new_name <- paste(trna_name, "_", batch_num, sep = "")
-  new_names <- c(new_names, new_name)
-}
+new_names <- c()
+current_names <- colnames(proteomics_raw)
+new_names <- c(new_names, as.character(sample_layout$final_protemics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
 colnames(proteomics_raw) <- new_names
 
 
@@ -165,11 +151,10 @@ repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
 out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
 for (i in 1:length(repeated_samples)) {
   strain <- repeated_samples[i]
-  temp <- proteomics_raw[5:nrow(proteomics_raw), colnames(proteomics_raw) == strain]
+  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
   temp[,1] <- as.numeric(temp[,1])
   temp[,2] <- as.numeric(temp[,2])
-  first_rows <- proteomics_raw[1:4, colnames(proteomics_raw) == strain]
-  out <- c(first_rows[,1], apply(temp, 1, mean))
+  out <- c(apply(temp, 1, mean))
   out_temp[,i] <- out
 }
 colnames(out_temp) <- repeated_samples
@@ -181,25 +166,32 @@ proteomics_raw <- cbind(proteomics_raw, out_temp)
 
 # Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
 trna_ko <- proteomics_raw %>%                 
-  filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%         # Remove rows for which "genes" column is empty or has "Genes" as value
-  select(-sample_group & !contains('QC')) %>%                       # Remove UNIPROT IDs and QCs columns
-  column_to_rownames(var = 'genes')                                 # Convert gene name column to rownames
+  dplyr::select(!contains('QC'))                                 # Remove QCs columns
+                                
 
 # Convert to a numeric dataframe
 trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
 
-# Add sample_names to sample_layout so that we can filter out in the next line
-sample_layout <- sample_layout %>%
-  mutate(sample_names = case_when(Strain.ID == "WT" ~ paste(gsub("-", "_", Sample.ID), ".0", Replicate, sep=""),
-                                  TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) 
-
 # Remove the sub-batch that went wrong
-samples_in_wrong_batch <- sample_layout$sample_names[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+if (dataset == "outlier_removed") {
+  samples_in_wrong_batch <- sample_layout$final_protemics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
+}
+
+# ADD A STEP WHERE I TURN THE ROWNAMES TO ALL BE SYSTEMATIC GENE NAMES RATHER THAN STANDARD AND SYSTEMATIC MIXED?
+
+
+# Save this last dataset for later usage elsewhere
+if (dataset == "outlier_removed") {
+  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+}
+if (dataset == "batchcorrected_onWTs") {
+  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
+}
+
 
 # Remove unnecessary objects
-rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
-   samples_in_wrong_batch)
+rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names)
 ```
 
 
@@ -217,13 +209,6 @@ ggplot(data = sample_layout, aes(x = Replicate, y = date)) +
 # 3. PCA
 First look at the PCA plot colored by all variables possible (both metadata and biological), see if there is any variable that explains the weird outliers in Batch 2. 
 
-Match sample names to metadata
-```{r}
-sample_layout <- sample_layout %>%
-  mutate(sample_names = case_when(Strain.ID == "WT" ~ paste(gsub("-", "_", Sample.ID), ".0", Replicate, sep=""),
-                                  TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) 
-```
-
 Prepare PCA data
 ```{r}
 # Get data PCA-ready
@@ -234,15 +219,15 @@ get_PCA_tags <- function(PCA_data, sample_layout, type_of_tags) {
   out <- c()
   for (i in 1:nrow(PCA_data)) {
     rowname <- rownames(PCA_data)[i]
-    out <- c(out, sample_layout[sample_layout$sample_names == rowname, type_of_tags][1])
+    out <- c(out, sample_layout[sample_layout$final_protemics_colnames == rowname, type_of_tags][1])
   }
   return(out)
 }
 
 # FOR THESE ONES TO WORK AGAIN I WILL PROBABLY HAVE TO MERGE SAMPLE_LAYOUT AND MASTER_DATASET, PROBABLY EASY
-#PCA_tags_aa <- get_PCA_tags(PCA_data, sample_layout, "AA")
-#PCA_tags_chr <- get_PCA_tags(PCA_data, sample_layout, "chromosome")
-#PCA_tags_anticodon <- get_PCA_tags(PCA_data, sample_layout, "anticodon")
+PCA_tags_aa <- get_PCA_tags(PCA_data, sample_layout, "AA")
+PCA_tags_chr <- get_PCA_tags(PCA_data, sample_layout, "chromosome")
+PCA_tags_anticodon <- get_PCA_tags(PCA_data, sample_layout, "anticodon")
 ```
 
 Run PCA
@@ -270,7 +255,7 @@ ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
   geom_point() +
   xlab(glue("PC1 - {var_exp_PC1}%")) +
   ylab(glue("PC2 - {var_exp_PC2}%")) +
-  labs(title = "PCA plot - by batch - remove wrong sub-batch") +
+  labs(title = "PCA plot - by batch") +
   theme_light()
 
 # Label by date
@@ -589,35 +574,6 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
   theme_light()
 ```
 Nothing figured out from this yet :(
-
-
-
-
-
-
-# 5. Try to normalize each subbatch by its WT samples, see if that makes it all comparable
-```{r}
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 6. Obtain CV and make CV plot
 
 
 

@@ -1,9 +1,103 @@
-# 2. Correlation with the original article by Pizpel et al., 2014
-## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
+---
+title: "correlation_with_pilpel_2014"
+author: "Álvaro Gómez Pérez"
+date: "2024-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+############################### DISCLAIMER ############################### 
+This I just cut from the main file and pasted here quite some time ago, so it is not fixed to work at all. 
+Today (20.03.2025) I have tried to make it work to obtain the original correlation plots but for the newly pre-processed data (batch correction per subbatch) - I have only made it to 2.1. (included) - SHOULD COME BACK SOME TIME AND FIX THE REST? BUT NOT MY MAIN CONCERN I GUESS? IDK
+ 
+
+
+
+
+
+Packages
 ```{r}
+library(dplyr)
+library(data.table)
+library(limma)
+library(ggplot2)
+library(patchwork)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(gprofiler2)
+library(xlsx)
+library(stringr)
+library(gridExtra)
+library(grid)
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(circlize))
+library(factoextra)
+library(glue)
+library(dendextend)
+library(ggrepel)
+library(ggvenn)
+library(tidyr)
+library(interactions)
+library(performance)
+library(MASS)
+library(jsonlite)
+```
+
+Set parameters
+```{r}
+# Significance level to be used for all tests and plots in this file
+alpha <- 0.01
+
+# Log-fold change limit to be considered "biologically significant"
+lfc_threshold <- 1.5
+
+# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included)
+threshold_major <- 2
+
+# Set directories to be used
+working_from = "charite"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/tRNA_KOs/"
+}
+
+# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs
+dataset <- "batchcorrected_onWTs"
+```
+
+
+
+
+# 1. Load data
+```{r}
+# Our proteomics data
+resp <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep="")))
+
 # Load their phenotypic data: growth rate and growth yield for all KOs
 phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
 
+# Load trna_ko
+trna_ko <- as.data.frame(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep="")))
+```
+
+
+
+
+
+
+# 2. Correlation with the original article by Pizpel et al., 2014
+## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
+```{r}
 # Change "ko" colname to allow to merge datasets based on it
 colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
 test <- full_join(phenotypic_data, resp, by = "gene_name")
@@ -14,9 +108,14 @@ colnames(test) <- c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_
 test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(test_corrs)
 
+# MY MELT FUNCTION RETURNS THE ROWS IN THE DATAFRAME IN AN ORDER THAT MAKES SENSE TO ME, BUT SEEMINLGY GGPLOT2 DOESN'T LIKE IT BECAUSE IT PLOTS THEM IN ANOTHER ORDER XD
+# GOTTA FIX THAT FOR IT TO LOOK PRETTY
+melted_corrs$Var1 <- factor(melted_corrs$Var1, ordered = T, levels = c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP" ))
+melted_corrs$Var2 <- factor(melted_corrs$Var2, ordered = T, levels = c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP" ))
+
 ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
   geom_tile() +
-  geom_text(aes(Var2, Var1, label = value), size = 3) +
+  geom_text(aes(Var1, Var2, label = value), size = 3) +
   scale_fill_gradient2(low = "blue", high = "red",
                        limit = c(-1,1), name="Correlation") +
   theme(axis.title.x = element_blank(),

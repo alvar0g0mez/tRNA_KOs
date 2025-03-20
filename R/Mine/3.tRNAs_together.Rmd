@@ -51,7 +51,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -59,6 +59,9 @@ if (working_from == "home") {
 if (working_from == "charite") {
   base_dir = "C:/MyStuff/tRNA_KOs/"
 }
+
+# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs
+dataset <- "batchcorrected_onWTs"
 ```
 
 
@@ -71,11 +74,17 @@ if (working_from == "charite") {
 ## 1.1. Load data
 ```{r}
 if (working_from == "charite") {
-  # Our proteomics data 
-  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  if (dataset == "outlier_removed") {
+    # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv', header = T)
+  }
+  else if (dataset == "batchcorrected_onWTs") {
+    # Our proteomics data 
+  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+  }
   
   # The sample layout
-  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv"))
   
   # The master tRNA dataset
   master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
@@ -85,11 +94,15 @@ if (working_from == "charite") {
 } else 
 
 if (working_from == "home") {
-  # Proteomics data and sample layout - from the S drive
-  #proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  # Proteomics data - from the S drive
+  if (dataset == "outlier_removed") {
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+  }
+  else if (dataset == "batchcorrected_onWTs") {
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+  }
   
-  proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_complete.tsv', header = T)
-  
+  # Sample layout - from the S drive
   sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
   
   
@@ -102,43 +115,38 @@ if (working_from == "home") {
 }
 ```
 
-## 1.2. Add columns to sample_layout and merge it with master_dataframe
+## 1.2. Merge sample_layout with master_dataframe
 ```{r}
-# Extract the date for when each sample was run
-sample_layout <- sample_layout %>% 
-  mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"))
-
-# Create a column that simply has the info of if each sample is a KO strain or a WT replicate
-sample_layout <- sample_layout %>% 
-  mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
-                                 TRUE ~ "KO"))
-
-# Add a column with the following format: Analysis.Plate.96_Replicate
-sample_layout <- sample_layout %>%
-  mutate(Analysis.Plate.96_Replicate = paste(Analysis.Plate.96, Replicate, sep="_"))
-
-# Add a column which identifies samples in Analysis.Plate.96 = 3, Replicate = 2
-sample_layout <- sample_layout %>%
-  mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
-                                 TRUE ~ "No"))
-
 # Merge with master dataframe
 sample_layout <- sample_layout %>% 
   dplyr::select(-Anticodon) %>%
   left_join(master_dataset, by = c("Strain.Name"))
 ```
 
-## 1.3. Pre-process proteomics data - this is where I deal with the 2 duplicated strains and remove samples in the wrong subbatch
+## 1.3. Pre-process proteomics data - this is where I:
+  - Deal with the 2/3 duplicated strains
+  - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
+  - Generally do everything necessary to come up with trna_ko from proteomics_raw
 ```{r}
+# Remove annoying unnecessary (?) column (UniProt IDs)
+if (dataset == "outlier_removed") 
+  {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-sample) %>%
+    rename(genes = X) %>%
+    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
+    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
+
+if (dataset == "batchcorrected_onWTs")    
+    {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-Protein.Group) %>%
+      rename(genes = Genes) %>%
+      column_to_rownames(var = 'genes')}
+
+
 # Come up with new colnames
-new_names <- c("sample_group", "genes")
-for (i in 3:ncol(proteomics_raw)) {
-  strain_and_batch <- colnames(proteomics_raw)[i]
-  trna_name <- proteomics_raw[1, i]
-  batch_num <- str_extract(strain_and_batch, "(?<=\\.).*")
-  new_name <- paste(trna_name, "_", batch_num, sep = "")
-  new_names <- c(new_names, new_name)
-}
+new_names <- c()
+current_names <- colnames(proteomics_raw)
+new_names <- c(new_names, as.character(sample_layout$final_protemics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
 colnames(proteomics_raw) <- new_names
 
 
@@ -150,11 +158,10 @@ repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
 out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
 for (i in 1:length(repeated_samples)) {
   strain <- repeated_samples[i]
-  temp <- proteomics_raw[5:nrow(proteomics_raw), colnames(proteomics_raw) == strain]
+  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
   temp[,1] <- as.numeric(temp[,1])
   temp[,2] <- as.numeric(temp[,2])
-  first_rows <- proteomics_raw[1:4, colnames(proteomics_raw) == strain]
-  out <- c(first_rows[,1], apply(temp, 1, mean))
+  out <- c(apply(temp, 1, mean))
   out_temp[,i] <- out
 }
 colnames(out_temp) <- repeated_samples
@@ -166,28 +173,32 @@ proteomics_raw <- cbind(proteomics_raw, out_temp)
 
 # Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
 trna_ko <- proteomics_raw %>%                 
-  filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%             # Remove rows for which "genes" column is empty or has "Genes" as value
-  dplyr::select(-genes & !contains('QC')) %>%                                  # Remove UNIPROT IDs and QCs columns
-  column_to_rownames(var = 'sample_group')                              # Convert gene name column to rownames
+  dplyr::select(!contains('QC'))                                 # Remove QCs columns
+                                
 
 # Convert to a numeric dataframe
 trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
 
-# Add sample_names to sample_layout so that we can filter out in the next line
-sample_layout <- sample_layout %>%
-  mutate(sample_names = case_when(Strain.ID == "WT" ~ paste(gsub("-", "_", Sample.ID), ".0", Replicate, sep=""),
-                                  TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) 
-
 # Remove the sub-batch that went wrong
-samples_in_wrong_batch <- sample_layout$sample_names[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+if (dataset == "outlier_removed") {
+  samples_in_wrong_batch <- sample_layout$final_protemics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
+}
+
+# ADD A STEP WHERE I TURN THE ROWNAMES TO ALL BE SYSTEMATIC GENE NAMES RATHER THAN STANDARD AND SYSTEMATIC MIXED?
+
 
 # Save this last dataset for later usage elsewhere
-fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
+if (dataset == "outlier_removed") {
+  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+}
+if (dataset == "batchcorrected_onWTs") {
+  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
+}
+
 
 # Remove unnecessary objects
-rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, first_rows, out, batch_num, i, new_name, new_names, strain_and_batch, trna_name,
-   samples_in_wrong_batch)
+rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names)
 ```
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
@@ -197,7 +208,7 @@ Perform DE analysis
 trna_levels <- c()
 for (i in 1:ncol(trna_ko)) {
   sample_name <- colnames(trna_ko)[i]
-  strain_name <- sample_layout$Strain.Name[sample_layout$sample_names == sample_name]
+  strain_name <- sample_layout$Strain.Name[sample_layout$final_protemics_colnames == sample_name]
   if (length(strain_name) > 1) {
     strain_name <- strain_name[1]
   }
@@ -252,7 +263,7 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_001[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep="")
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001_batchcorrected_onWTs.json", sep="")
 write_json(de_proteins_list_001, path=output_file)
 
 
@@ -276,13 +287,13 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_005[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep="")
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005_batchcorrected_onWTs.json", sep="")
 write_json(de_proteins_list_005, path=output_file)
 ```
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), pretty = T)
+write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_batchcorrected_onWTs.json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -321,7 +332,7 @@ responsiveness <- da %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
 # Save responsiveness dataset
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep=""))
 
 # Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
 DE <- list(fit = fit,
@@ -359,7 +370,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together_batchcorrected_onWTs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -391,7 +402,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together_batchcorrected_onWTs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -446,7 +457,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together.pdf", sep="")
+output_location <- paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together_batchcorrected_onWTs.pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -477,18 +488,19 @@ rm(replicate_num_vs_nDEP_cor)
 ```{r}
 responsiveness <- responsiveness %>%
   group_by(anticodon) %>% 
-  mutate(n= n())
+  summarize(Family_count = n(), across()) %>%
+  ungroup()
 
-ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = n)) +
+ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
   geom_boxplot()
 
 # Correlation between nDEP and tRNA family size
 resp_summarized_by_family <- aggregate(responsiveness$nDEP, list(responsiveness$anticodon), mean)
 colnames(resp_summarized_by_family) <- c("anticodon", "nDEP")
-resp_summarized_by_family <- merge(resp_summarized_by_family, responsiveness[, c("anticodon", "n")], by = "anticodon", all.x = T)
+resp_summarized_by_family <- merge(resp_summarized_by_family, responsiveness[, c("anticodon", "Family_count")], by = "anticodon", all.x = T)
 resp_summarized_by_family <- resp_summarized_by_family %>%
   distinct(anticodon, .keep_all = T)
-cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$n)
+cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$Family_count)
 
 
 # Remove unnecessary variables
@@ -517,13 +529,6 @@ responsiveness<- responsiveness%>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
   ungroup()
-
-# Also need to count the total number of KOs I have from each family in the experiment
-responsiveness<- responsiveness %>%
-  group_by(anticodon) %>%
-  summarize(Family_count = n(), across()) %>%
-  ungroup()
-
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
@@ -582,15 +587,14 @@ for (i in 1:length(aas)) {
     theme_light() +
     xlab("nDEP") +
     ylab("Count") +
-    labs(title = glue("{aa}")) +
-    coord_cartesian(xlim = c(0, 230))
+    labs(title = glue("{aa}"))
 }
 
 ## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_batchcorrected_onWTs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -644,13 +648,13 @@ my_grobs_DNA <- lapply(plot_list_DNA_seq, ggplotGrob)
 my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_batchcorrected_onWTs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_batchcorrected_onWTs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
@@ -659,7 +663,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep=""))
 ```
 
 
@@ -724,6 +728,75 @@ ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Number_o
 ```
 
 
+## 1.12. Replicate Alexis' original plots - kind of my own version
+```{r}
+ggplot(data = responsiveness, aes(x = Strain.Name, y = nDEP, fill = Amino_acid_1_letter)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm')) +
+  xlab("KO strain") +
+  labs(fill = "Amino acid")
+
+ggplot(data = responsiveness, aes(x = nDEP)) +
+  geom_density(fill="#77bd89",
+               color="#1f6e34",
+               alpha=0.8,
+               linewidth = 1) +
+  theme_light()
+
+ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amino_acid_1_letter)) +
+  geom_boxplot() +
+  theme_light() +
+  labs(fill = "Amino acid",
+       title = 'tRNA KOs Responsiveness per AA', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs)') +
+  xlab("Amino acid") +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm'))
+
+ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amino_acid_1_letter)) +
+  geom_boxplot(outliers = F) +
+  geom_jitter() +
+  theme_light() +
+  labs(fill = "Amino acid",
+       title = 'tRNA KOs Responsiveness per AA', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 250 nDEP') +
+  xlab("Amino acid") +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm')) +
+  coord_cartesian(ylim = c(0, 250))
+
+ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromosome_letter)) +
+  geom_boxplot() +
+  theme_light() +
+  labs(fill = "Chromosome",
+       title = 'tRNA KOs Responsiveness per Chromosome', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs)') +
+  xlab("Chromosome") +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm'))
+
+ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromosome_letter)) +
+  geom_boxplot(outliers = F) +
+  geom_jitter() +
+  theme_light() +
+  labs(fill = "Chromosome",
+       title = 'tRNA KOs Responsiveness per Chromosome', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 250 nDEP') +
+  xlab("Chromosome") +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm')) +
+  coord_cartesian(ylim = c(0, 250))
+
+
+# NEXT ONE IS P5 IN ALEXIS' ORIGINAL CODE!
+```
+
 
 
 
@@ -750,7 +823,7 @@ cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen
   filter(read.mapping..genomic.sequence.or.mature.tRNA. == "genomic")
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
+responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep="")))
 ```
 
 Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
@@ -1683,13 +1756,6 @@ hist(test_codon_enrichment$FC)
 ################################################################################
 # 5. Look for the expression of the tRNA synthetases in my proteomics data
 ################################################################################
-
-NEW - I THINK I DID THIS AT CHARITÉ ONCE BUT DIDN'T PUSH IT OR SOMETHING? I DON'T REMEMBER EXACTLY :(
-```{r}
-
-```
-
-
 ## 5.0. Load data
 ```{r}
 # Processed KO proteomics dataframe
@@ -2331,7 +2397,6 @@ ggsave(
    width = 15, height = 9
 )
 ```
-
 
 
 
