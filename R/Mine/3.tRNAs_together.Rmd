@@ -115,6 +115,7 @@ if (working_from == "home") {
 }
 ```
 
+
 ## 1.2. Merge sample_layout with master_dataframe
 ```{r}
 # Merge with master dataframe
@@ -122,6 +123,7 @@ sample_layout <- sample_layout %>%
   dplyr::select(-Anticodon) %>%
   left_join(master_dataset, by = c("Strain.Name"))
 ```
+
 
 ## 1.3. Pre-process proteomics data - this is where I:
   - Deal with the 2/3 duplicated strains
@@ -185,21 +187,28 @@ if (dataset == "outlier_removed") {
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 }
 
-# ADD A STEP WHERE I TURN THE ROWNAMES TO ALL BE SYSTEMATIC GENE NAMES RATHER THAN STANDARD AND SYSTEMATIC MIXED?
-
+# Turn the rownames to all be systematic gene names rather than standard and systematic mixed
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+old_rownames <- rownames(trna_ko)
+new_rownames <- match_systematic_and_standard_protein_names(data = old_rownames,
+                                                            yeastmine = yeastmine,
+                                                            input = "standard",
+                                                            simplify = T)
+rownames(trna_ko) <- new_rownames
 
 # Save this last dataset for later usage elsewhere
-if (dataset == "outlier_removed") {
-  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
-}
-if (dataset == "batchcorrected_onWTs") {
-  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
-}
-
+#if (dataset == "outlier_removed") {
+#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+#}
+#if (dataset == "batchcorrected_onWTs") {
+#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
+#}
+fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
 
 # Remove unnecessary objects
-rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names)
+rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, yeastmine)
 ```
+
 
 ## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
 Perform DE analysis
@@ -263,7 +272,7 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_001[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001_batchcorrected_onWTs.json", sep="")
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep="")
 write_json(de_proteins_list_001, path=output_file)
 
 
@@ -287,13 +296,13 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list_005[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005_batchcorrected_onWTs.json", sep="")
+output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep="")
 write_json(de_proteins_list_005, path=output_file)
 ```
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_batchcorrected_onWTs.json", sep=""), pretty = T)
+write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -309,7 +318,7 @@ da <- bind_rows(da) %>%
                                    logFC < -lfc_threshold & adj.P.Val < alpha ~ "Down_regulated",
                                    TRUE ~ "Not_significant"))
 
-# Add a column to da with the number of replicates per KO - by me - THIS DOESN'T REALLY MAKE SENSE INSIDE THIS FUNCTION BUT WHEN DOING DE FOR ALL PLATES AT ONCE IT WAS, SO I'LL KEEP IT JUST IN CASE
+# Add a column to da with the number of replicates per KO - by me
 unique_KOs <- unique(da$Strain.Name)
 replicates <- c()
 for (i in 1:length(unique_KOs)) {
@@ -323,7 +332,7 @@ da <- merge(da, KOs_replicates, by = "Strain.Name")
 # Responsiveness
 responsiveness <- da %>%
   group_by(Strain.Name) %>%
-  summarise(nDEP = sum(abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= 0.01, na.rm = T),
+  summarise(nDEP = sum(abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha, na.rm = T),
             Replicate_num = mean(Replicate_num)) %>%
   mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
          chromosome_letter = substr(Strain.Name, 8, 8),
@@ -332,7 +341,7 @@ responsiveness <- da %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
 # Save responsiveness dataset
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
 
 # Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
 DE <- list(fit = fit,
@@ -343,10 +352,11 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, sample_layout, temp, trna_ko_log, 
+rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
    systematic_protein_names, trna_levels, unique_KOs, trna_ko)
 ```
+
 
 ## 1.5. Volcano plots for the differential expression
 ```{r}
@@ -370,7 +380,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together_batchcorrected_onWTs.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -402,7 +412,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together_batchcorrected_onWTs.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -414,6 +424,7 @@ ggsave(
 rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i", "output_file"))
 ```
 --> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
+
 
 ## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
@@ -457,7 +468,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together_batchcorrected_onWTs.pdf", sep="")
+output_location <- paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together.pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -469,11 +480,13 @@ ggsave(
 rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_from_UCU_family", "trna", "plot_title", "UCU_major_minor", "UCU_responsiveness", "i", "UCU_family", "phenotypic_data", "output_location"))
 ```
 
+
 ## 1.7. Check number of DE proteins vs. replicates per KO
 ```{r}
 ggplot(data = responsiveness, aes(x = as.factor(Replicate_num), y = nDEP, col = as.factor(Replicate_num))) +
   geom_boxplot() +
   geom_jitter(position=position_jitter(0.2)) +
+  theme_light() +
   xlab("Number of replicates")
 
 replicate_num_vs_nDEP_cor <- cor(responsiveness$nDEP, responsiveness$Replicate_num)
@@ -484,6 +497,7 @@ rm(replicate_num_vs_nDEP_cor)
 ```
 --> The point with this was that maybe a larger number of replicates causes more nDEP just because it's easier to achieve significance. However, there seems to be no correlation at all, I think that's actually good because it means that the nDEP will be only influenced by what is going on with the tRNA KOs? Even though that effect could be already confounding my results in this boxplot
 
+
 ## 1.8. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
 responsiveness <- responsiveness %>%
@@ -492,7 +506,24 @@ responsiveness <- responsiveness %>%
   ungroup()
 
 ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
-  geom_boxplot()
+  geom_boxplot() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Genes in\nfamily",
+       title = "Number of DE proteins per family",
+       subtitle = "Colored by number of tRNA genes in the family") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Genes in\nfamily",
+       title = "Number of DE proteins per family",
+       subtitle = "Colored by number of tRNA genes in the family - nDEP < 350") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  coord_cartesian(ylim = c(0, 350))
+
 
 # Correlation between nDEP and tRNA family size
 resp_summarized_by_family <- aggregate(responsiveness$nDEP, list(responsiveness$anticodon), mean)
@@ -507,6 +538,7 @@ cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$Family_count)
 rm(resp_summarized_by_family)
 ```
 --> The boxplot is not particularly illustrative, but the correlation is pretty meaningful I think? Looks like larger families show, on average over all tRNAs in them, less DE proteins, which makes sense with their hypothesis I think? If there are a couple major tRNA genes per family, larger families are going to have a lot of minor ones, while small families will be mostly major ones. Here I am also assuming that there are only a couple major copies per family, which I don't think they said at any point? But I guess makes sense with this. 
+
 
 
 ## 1.9. Identify major and minor tRNA genes myself for all strains
@@ -539,7 +571,7 @@ family_sizes <- family_sizes %>%
   distinct(anticodon, .keep_all = T)
 
 
-# Get long version to plot, and re-order the anticodons by family size, in order to keep that order for the x axis of the plot
+# Get long version to plot, and re-order the anticodons by family size, in order to keep that order for the x axis of the plot - I think I could have avoided this by using geom_col()? But I didn't know it yet
 family_sizes <- family_sizes[order(-family_sizes$Family_size), ]
 family_sizes_long <- family_sizes %>% pivot_longer(!anticodon, names_to = "Type", values_to = "Count")
 family_sizes_long$anticodon <- factor(family_sizes_long$anticodon, levels = family_sizes$anticodon)
@@ -580,7 +612,7 @@ plot_list <- list()
 aas <- sort(levels(as.factor(responsiveness$Amino_acid_name)))
 for (i in 1:length(aas)) {
   aa <- aas[i]
-  temp <- responsiveness%>%
+  temp <- responsiveness %>%
     filter(Amino_acid_name == aa)
   plot_list[[aa]] <- ggplot(data = temp, aes(x = nDEP, fill = anticodon)) +
     geom_histogram(binwidth = 1, stat = StatBin2) +
@@ -594,7 +626,7 @@ for (i in 1:length(aas)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_batchcorrected_onWTs.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -648,13 +680,13 @@ my_grobs_DNA <- lapply(plot_list_DNA_seq, ggplotGrob)
 my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_batchcorrected_onWTs.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_batchcorrected_onWTs.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
@@ -663,7 +695,61 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
+
+
+# Remove unnecessary variables
+rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grobs_mature, plot_list_DNA_seq, plot_list_mature_seq, temp,
+   anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file)
+```
+
+This used to be in section 2, but I think it's better here: - NEED TO MAKE SURE THIS WORKS! HAVEN'T RUN IT YET SINCE I MOVED IT HERE
+```{r}
+# Just need to load resp_and_expression first
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
+
+# Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
+temp <- resp_and_expression %>%
+  dplyr::select(anticodon, Amino_acid_1_letter)
+temp_2 <- left_join(family_sizes, temp, by = "anticodon") %>%
+  distinct(anticodon, .keep_all = T)
+
+ggplot(data = temp_2, aes(x = Family_count, y = Major_count, col = Amino_acid_1_letter)) +
+  geom_point() +
+  geom_abline() +
+  theme_light() +
+  xlab("Genes in this family in the experiment") +
+  ylab("Major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count == 1 | Major_count/Family_count < 0.3),
+                  aes(x = Family_count, y = Major_count, label = anticodon),
+                  size = 4, 
+                  max.overlaps = 100)
+
+# Same, but use in the y axis the % of major tRNAs instead of the count
+ggplot(data = temp_2, aes(x = Family_count, y = Major_count/Family_count)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  theme_light() +
+  xlab("Genes in this family in the study") +
+  ylab("% of major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3| anticodon == "CAA"),
+                  aes(x = Family_count, y = Major_count/Family_count, label = anticodon, col = Amino_acid_1_letter),
+                  size = 4)
+
+# Same, but use in the y axis the % of major tRNAs instead of the count, and color by aa
+ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  theme_light() +
+  xlab("Genes in this family in total") +
+  ylab("% of major genes detected in the family") +
+  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3 | anticodon == "CAA"),
+                  aes(x = Family_size, y = Major_count/Family_count, label = anticodon, col = Amino_acid_1_letter),
+                  size = 4)
+
+
+# Remove unnecessary variables
+rm(family_sizes, resp_and_expression)
 ```
 
 
@@ -682,6 +768,10 @@ for (i in 1:length(anticodons)) {
 }
 
 temp <- data.frame(anticodons, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature)
+
+
+# Remove unnecessary variables
+rm(temp, anticodon, anticodons, i, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature)
 ```
 
 
@@ -725,6 +815,10 @@ ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Number_o
   xlab("Amino acid") +
   ylab("Number of genes") +
   geom_text_repel(data = subset(master_by_amino_acid, Number_of_tRNAs_loading_this_aa < 6 | Number_of_tRNAs_loading_this_aa > 20), aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa, label = Isotype_from_anticodon))
+
+
+# Remove unnecessary variables
+rm(master_by_amino_acid, master_by_anticodon)
 ```
 
 
@@ -793,8 +887,34 @@ ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromo
         legend.key.size = unit(0.5, 'cm')) +
   coord_cartesian(ylim = c(0, 250))
 
+ggplot(responsiveness, aes(x = anticodon, y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Amino acid") +
+  labs(title = 'tRNA KOs Responsiveness per Anticodon', subtitle = 'Number of Differentially Expressed Proteins (DEPs)') +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm'),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
-# NEXT ONE IS P5 IN ALEXIS' ORIGINAL CODE!
+ggplot(responsiveness, aes(x = anticodon, y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
+  geom_boxplot(outliers = F) +
+  geom_jitter() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Amino acid") +
+  coord_cartesian(ylim = c(0, 350)) +
+  labs(title = 'tRNA KOs Responsiveness per Anticodon', subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 350 nDEP') +
+  theme(legend.title = element_text(size=9),
+        legend.key.size = unit(0.5, 'cm'),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+
+## 1.13. Clean up environment
+Next section loads all the data it needs, so I can delete everything except the system/set up parameters
+```{r}
+rm(da, master_dataset, responsiveness, sample_layout)
 ```
 
 
@@ -823,7 +943,7 @@ cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen
   filter(read.mapping..genomic.sequence.or.mature.tRNA. == "genomic")
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep="")))
+responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
 ```
 
 Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
@@ -840,6 +960,10 @@ cozen_to_merge <- cozen %>%
 
 ## Merge with resp
 resp_and_expression <- left_join(responsiveness, cozen_to_merge, by = "Strain.Name")
+
+
+# Remove unnecessary variables
+rm(cozen, cozen_to_merge)
 ```
 
 Plots - nDEP vs. tRNA expression from Cozen et al., 2015
@@ -894,6 +1018,10 @@ for (i in 1:length(aas)) {
 }
 
 resp_and_expression <- left_join(resp_and_expression, synthetases_to_merge, by = "Amino_acid_1_letter")
+
+
+# Remove unnecessary variables
+rm(chu_synths, chu_trnas, synthetases, temp, temp_2, synthetases_to_merge, aa, aas, i)
 ```
 
 Plots - nDEP vs. tRNA expression from Cozen et al., 2015 (coloring by amino acid characteristics)
@@ -996,9 +1124,18 @@ ggplot(data = resp_and_expression, aes(x = synthetase_abundance, y = nDEP)) +
 ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP)) +
   geom_point() +
   theme_light() +
-  labs(title = "nDEP vs. tRNA-synthetase abundance") +
-  xlab("log2-tRNA synthetase abundance (from von der Haar, 2008)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (from von der Haar, 2008)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
+
+ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (from von der Haar, 2008)",
+       subtitle = "Truncated nDEP < 250") +
+  xlab("log2-tRNA synthetase abundance") +
+  ylab("nDEP per tRNA KO") +
+  coord_cartesian(ylim = c(0, 250))
 
 # nDEP vs. log2-synthetase abundance - color by family size
 ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = Family_count)) +
@@ -1040,49 +1177,68 @@ Plots - nDEP vs. synthetase abundance - from our WTs
 ```{r}
 # nDEP vs. synthetase abundance
 ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
-  geom_point()
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("tRNA synthetase abundance") +
+  ylab("nDEP per tRNA KO")
+
+ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)",
+       subtitle = "Truncated nDEP < 250") +
+  xlab("tRNA synthetase abundance") +
+  ylab("nDEP per tRNA KO") +
+  coord_cartesian(ylim = c(0, 250))
+  
 
 # nDEP vs. log2-synthetase abundance
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by family size
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = Family_count)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by chromosome
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = chromosome_letter)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid type
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_type)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid charge
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_charge)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid weight
 ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = molecular_weight_Da)) +
   geom_point() +
   theme_light() +
-  xlab("log2-tRNA synthetase abundance (measured in WTs)") +
+  labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
+  xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 ```
 
@@ -1092,19 +1248,34 @@ Plots - nDEP vs. synthetase k_cat - from van der Haar, 2008
 ggplot(data = resp_and_expression, aes(x = log2(k_cat_value), y = nDEP)) +
   geom_point() +
   theme_light() +
-  labs(title = "nDEP vs. log2(synthetase catalytic constant)") +
+  labs(title = "nDEP vs. log2(synthetase catalytic constant) - from van der Haar, 2008") +
   xlab(bquote(log2-k["cat"]))
 
 # The synthetases for W seem to have a k_cat more than 10x those of other amino acids, so I am going to get rid of that one then repeat the plot
 ggplot(data = resp_and_expression, aes(x = k_cat_value, y = nDEP)) +
   geom_point() +
   theme_light() +
+  labs(title = "nDEP vs. synthetase catalytic constant - from van der Haar, 2008")
+
+ggplot(data = resp_and_expression, aes(x = k_cat_value, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. synthetase catalytic constant - from van der Haar, 2008",
+       subtitle = "Truncated at catalytic constant < 150") +
   coord_cartesian(xlim = c(0, 150))
+
+ggplot(data = resp_and_expression, aes(x = k_cat_value, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. synthetase catalytic constant - from van der Haar, 2008",
+       subtitle = "Truncated at catalytic constant < 40") +
+  coord_cartesian(xlim = c(0, 40))
 
 # Not really a pattern I think, let's try synthetase abundance*k_cat
 ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y = nDEP)) +
   geom_point() +
   theme_light() +
+  labs(title = "nDEP vs. synthetase catalytic constant * synthetase abundance - from van der Haar, 2008") +
   coord_cartesian(xlim = c(0, 500000))
 ```
 
@@ -1131,105 +1302,73 @@ Plots - nDEP vs. codon frequency (from van der Haar, 2008)
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP)) +
   geom_point() +
   theme_light() +
-  labs(title = "nDEP vs. codon frequency") +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
+
+ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)",
+       subtitle = "Truncated nDEP < 250") +
+  xlab("Codon frequency") +
+  ylab("nDEP per tRNA KO") +
+  coord_cartesian(ylim = c(0, 250))
 
 # Codon frequency vs. nDEP - color by tRNA abundance from Cozen et al.
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = mean_reads_per_tRNA)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by log2 tRNA synthetase abundance from Chu et al.
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = log2(synthetase_abundance))) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by family size
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = Family_count)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid type
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_type)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid charge
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = amino_acid_charge)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 
 # Codon frequency vs. nDEP - color by amino acid weight
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = molecular_weight_Da)) +
   geom_point() +
   theme_light() +
-  xlab("Codon frequency (from van der Haar, 2008)") +
+  labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)") +
+  xlab("Codon frequency") +
   ylab("nDEP per tRNA KO")
 ```
 
 
-## 2.4. Plots regarding family size and so on, from 1.11., but I want to color by variables only introduced here
+## 2.4. Save the resp_and_expression dataset as it is at this point, and clean up the environment
 ```{r}
-# Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
-temp <- resp_and_expression %>%
-  dplyr::select(anticodon, Amino_acid_1_letter)
-temp_2 <- left_join(family_sizes, temp, by = "anticodon") %>%
-  distinct(anticodon, .keep_all = T)
-
-ggplot(data = temp_2, aes(x = Family_count, y = Major_count, col = Amino_acid_1_letter)) +
-  geom_point() +
-  geom_abline() +
-  theme_light() +
-  xlab("Genes in this family in the experiment") +
-  ylab("Major genes detected in the family") +
-  geom_text_repel(data = subset(temp_2, Major_count/Family_count == 1 | Major_count/Family_count < 0.3),
-                  aes(x = Family_count, y = Major_count, label = anticodon),
-                  size = 4, 
-                  max.overlaps = 100)
-
-# Same, but use in the y axis the % of major tRNAs instead of the count
-ggplot(data = temp_2, aes(x = Family_count, y = Major_count/Family_count)) +
-  geom_point() +
-  geom_smooth(method='lm') +
-  theme_light() +
-  xlab("Genes in this family in the study") +
-  ylab("% of major genes detected in the family") +
-  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3| anticodon == "CAA"),
-                  aes(x = Family_count, y = Major_count/Family_count, label = anticodon, col = Amino_acid_1_letter),
-                  size = 4)
-
-# Same, but use in the y axis the % of major tRNAs instead of the count, and color by aa
-ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
-  geom_point() +
-  geom_smooth(method='lm') +
-  theme_light() +
-  xlab("Genes in this family in total") +
-  ylab("% of major genes detected in the family") +
-  geom_text_repel(data = subset(temp_2, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3 | anticodon == "CAA"),
-                  aes(x = Family_size, y = Major_count/Family_count, label = anticodon, col = Amino_acid_1_letter),
-                  size = 4)
-```
-
-
-## 2.5. Save the resp_and_expression dataset as it is at this point, can be useful later in other files
-```{r}
-# Been trying to figure out where the "n" column shows up for a bit, but haven't succeeded - just going to delete it and move on
-resp_and_expression <- resp_and_expression %>%
-  dplyr::select(-n)
-
-# Save 
 fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=""))
+rm(anticodon_freq, resp_and_expression, responsiveness)
 ```
 
 
@@ -1241,6 +1380,14 @@ fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=
 ## 3.0. Load data - so I don't have to run everything above
 ```{r}
 resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
+
+# Create a new version of the dataset with prettier names for the columns so the model summary is more readable
+resp_and_expression_modelling <- resp_and_expression %>%
+  dplyr::rename(catalytic_constant = k_cat_value,
+                codon_frequency = codon_frequency_chu_2011,
+                tRNA_expression = mean_reads_per_tRNA,
+                synthetase_abundance_literature = synthetase_abundance,
+                synthetase_abundance_our_WTs = measured_proteomics_WT)
 ```
 
 
@@ -1262,25 +1409,68 @@ ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) +
         axis.title.y = element_blank(),
         panel.background = element_blank(),
         axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+
+# Remove unnecessary variables
+rm(cor_mat, melted_corrs)
+```
+
+
+## 3.2. Evaluate missingness before model fitting
+Methods to fit GLMs use na.omit() before fitting the model! So they are getting rid of all rows with a NA anywhere, which will strongly affect my model
+
+How many rows do we end up with after na.omit() in each case?
+```{r}
+# Without tRNA expression
+check_lit <- resp_and_expression_modelling %>%
+  dplyr::select(nDEP, synthetase_abundance_literature, catalytic_constant, codon_frequency) %>%
+  na.omit()
+nrow(check_lit)
+(nrow(check_lit)/nrow(resp_and_expression_modelling))*100
+check_WTs <- resp_and_expression_modelling %>%
+  dplyr::select(nDEP, synthetase_abundance_our_WTs, catalytic_constant, codon_frequency) %>%
+  na.omit()
+nrow(check_WTs)
+(nrow(check_WTs)/nrow(resp_and_expression_modelling))*100
+
+# With tRNA expression
+check_lit <- resp_and_expression_modelling %>%
+  dplyr::select(nDEP, tRNA_expression, synthetase_abundance_literature, catalytic_constant, codon_frequency) %>%
+  na.omit()
+nrow(check_lit)
+(nrow(check_lit)/nrow(resp_and_expression_modelling))*100
+check_WTs <- resp_and_expression_modelling %>%
+  dplyr::select(nDEP, tRNA_expression, synthetase_abundance_our_WTs, catalytic_constant, codon_frequency) %>%
+  na.omit()
+nrow(check_WTs)
+(nrow(check_WTs)/nrow(resp_and_expression_modelling))*100
+```
+
+Which are the columns introducing these NAs?
+```{r}
+sum(is.na(resp_and_expression_modelling$nDEP))
+sum(is.na(resp_and_expression_modelling$tRNA_expression))
+sum(is.na(resp_and_expression_modelling$synthetase_abundance_literature))
+sum(is.na(resp_and_expression_modelling$catalytic_constant))
+sum(is.na(resp_and_expression_modelling$codon_frequency))
+sum(is.na(resp_and_expression_modelling$synthetase_abundance_our_WTs))
+```
+
+Can we fix this in any way? Input the NAs in our measurements for synthetase abundance? - Tbh I don't think that's a great idea 
+```{r}
+ggplot(data = resp_and_expression_modelling, aes(x = synthetase_abundance_literature, y = synthetase_abundance_our_WTs)) +
+  geom_point() +
+  geom_abline(col = "red", slope = 0.1) +
+  theme_light()
 ```
 
 
 ## 3.2. Model the data with a GLM instead
-Create a new version of the dataset with prettier names for the columns so the model summary is more readable
-```{r}
-resp_and_expression_modelling <- resp_and_expression %>%
-  dplyr::rename(catalytic_constant = k_cat_value,
-                condon_frequency = codon_frequency_chu_2011,
-                tRNA_expression = mean_reads_per_tRNA,
-                synthetase_abundance_literature = synthetase_abundance,
-                synthetase_abundance_our_WTs = measured_proteomics_WT)
-```
-
-Poisson
+Poisson - way too much overdispersion
 ```{r}
 # Poisson model
 fit <- glm(data = resp_and_expression_modelling,
-           formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression,
+           formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
            family = poisson)
 summary(fit)
 
@@ -1294,33 +1484,65 @@ Negative binomial - with 3 variables
 ```{r}
 # With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
-# With synthetase abundance from our WTs
-fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+# I get a weird error here, which I think I got already at some point in my masters - it doesn't say it, but it is likely due to a convergence error? Last time, using this other package to fit the model worked. Got it from here in both cases: https://stats.stackexchange.com/questions/93352/error-in-fitting-negative-binomial-regression-model-in-r-when-replicating-publis
+library(glmmADMB)
+fit <- glmmadmb(data = resp_and_expression_modelling,
+                formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+                family = "nbinom")
 summary(fit)
 check_overdispersion(fit)
+
+
+
+
+# With synthetase abundance from our WTs
+fit <- glm.nb(data = resp_and_expression_modelling, 
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
+summary(fit)
+check_overdispersion(fit)
+
+# What if I fit this model with the same function as above?
+fit <- glmmadmb(data = resp_and_expression_modelling,
+                formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+                family = "nbinom")
+summary(fit)
 ```
 
 Negative binomial - with 4 variables
 ```{r}
 # With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
+
+# I get a weird error here, which I think I got already at some point in my masters - it doesn't say it, but it is likely due to a convergence error? Last time, using this other package to fit the model worked. Got it from here in both cases: https://stats.stackexchange.com/questions/93352/error-in-fitting-negative-binomial-regression-model-in-r-when-replicating-publis
+library(glmmADMB)
+fit <- glmmadmb(data = resp_and_expression_modelling,
+                formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+                family = "nbinom")
+summary(fit)
+
+
+
+
 
 # With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 ```
 
-Negative binomial - with 3 variables - remove strains below certain numbers of nDEPs
+Negative binomial - with 3 variables - remove strains below certain numbers of nDEPs - NOT USING THIS ANYMORE
 ```{r}
 # nDEP > 0
 resp_and_expression_modelling <- resp_and_expression_modelling %>%
@@ -1328,13 +1550,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1346,13 +1570,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1364,13 +1590,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1382,13 +1610,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1400,13 +1630,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1418,13 +1650,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1436,18 +1670,20 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 ```
 
-Negative binomial - with 4 variables - remove strains below certain numbers of nDEPs
+Negative binomial - with 4 variables - remove strains below certain numbers of nDEPs - NOT USING THIS ANYMORE
 ```{r}
 # nDEP > 0
 resp_and_expression_modelling <- resp_and_expression_modelling %>%
@@ -1455,13 +1691,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1473,13 +1711,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1491,13 +1731,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1509,13 +1751,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1527,13 +1771,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1545,13 +1791,15 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
@@ -1563,17 +1811,24 @@ resp_and_expression_modelling <- resp_and_expression_modelling %>%
 
 ## With synthetase abundance from van der Haar, 2008
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 
 ## With synthetase abundance from our WTs
 fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*condon_frequency*tRNA_expression)
+              formula = nDEP ~ synthetase_abundance_our_WTs*catalytic_constant*codon_frequency*tRNA_expression,
+              link = log)
 summary(fit)
 check_overdispersion(fit)
 ```
 
+
+Remove unnecessary variables
+```{r}
+rm(check_lit, check_WTs, fit, resp_and_expression, resp_and_expression_modelling, resp_measure_corrs, measured_proteomics)
+```
 
 
 
@@ -1597,6 +1852,13 @@ for (i in 1:length(codon_ratios_list)) {
   bool <- c(bool, length(codon_ratios_list[[i]][["DE"]]) > 4)
 }
 codon_ratios_list <- codon_ratios_list[bool]
+
+
+# Load master dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+
+# Load resp_and_expression dataset
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
 ```
 
 Iterate over the strains and perform a test for each, testing the mean counts of DE vs. that of non_DE
@@ -1740,14 +2002,12 @@ ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col =
   theme_light()
 ```
 
-What if I plot nDEP against the FC of the previous plot?
+Remove unnecessary variables
 ```{r}
-ggplot(data = test_codon_enrichment, aes(x = num_de, y = FC)) +
-  geom_point() +
-  theme_light()
-
-hist(test_codon_enrichment$FC)
+rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, test_codon_enrichment, de, i, non_de, strain_name)
 ```
+
+
 
 
 
@@ -1839,27 +2099,27 @@ check <- left_join(synthetases, chu_synths_new, by = "Gene.secondaryIdentifier")
 
 # Try to get a column with the amino acid that is loaded by each synthetase based on chu_synths_new
 temp <- chu_synths_new %>%
-  dplyr::select(Amino_acid, Gene.secondaryIdentifier)
+  dplyr::select(Amino_acid_3_letter, Gene.secondaryIdentifier)
 synthetases <- left_join(synthetases, temp, by = "Gene.secondaryIdentifier")
 
 # Some of them need to be added manually because they are not included in chu_synths_new (got them from SGD myself)
-synthetases$Amino_acid[synthetases$Gene.symbol == "GRS2"] <- "Gly"
-synthetases$Amino_acid[synthetases$Gene.symbol == "ISM1"] <- "Ile"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSR1"] <- "Arg"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MST1"] <- "Thr"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSW1"] <- "Trp"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSM1"] <- "Met"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSK1"] <- "Lys"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSE1"] <- "Glu"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSY1"] <- "Tyr"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSD1"] <- "Asp"
-synthetases$Amino_acid[synthetases$Gene.symbol == "MSF1"] <- "Phe"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "GRS2"] <- "Gly"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "ISM1"] <- "Ile"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSR1"] <- "Arg"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MST1"] <- "Thr"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSW1"] <- "Trp"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSM1"] <- "Met"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSK1"] <- "Lys"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSE1"] <- "Glu"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSY1"] <- "Tyr"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSD1"] <- "Asp"
+synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSF1"] <- "Phe"
 
 synthetases <- synthetases %>%
   dplyr::select(-Gene.briefDescription)
 ```
 
-Check how many synthetases there are
+Check how many synthetases exist in Sc
 ```{r}
 # How many tRNA synthases
 sum(grepl("trna synthase", synthetases$Gene.name, ignore.case = T))
@@ -1915,11 +2175,9 @@ for (i in 1:nrow(synthetases)) {
 synthetases$measured_proteomics_WT <- measured_proteomics
 
 
-# Fix the names of the amino acid columns
-synthetases <- synthetases %>%
-  rename(Amino_acid_3_letter = Amino_acid)
+# Add columns with all other amino acid information
 temp <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")) %>%
-  dplyr::select(-molecular_weight)
+  dplyr::select(-molecular_weight_Da)
 synthetases <- left_join(synthetases, temp, by = "Amino_acid_3_letter")
 
 
@@ -2019,23 +2277,23 @@ add_2_columns <- function(de_synthetases_df) {
   temp <- master_dataset %>%
     dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter)
   de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
-    rename(AA = Isotype_from_anticodon_1_letter)
+    rename(Amino_acid_1_letter = Isotype_from_anticodon_1_letter)
   
   temp <- amino_acids %>%
-    dplyr::select(AA, amino_acid_charge, amino_acid_type) %>%
+    dplyr::select(Amino_acid_1_letter, amino_acid_charge, amino_acid_type) %>%
     rename(AA_charge_tRNA = amino_acid_charge,
            AA_type_tRNA = amino_acid_type)
-  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "AA") %>%
-    rename(AA_carried_by_tRNA = AA)
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Amino_acid_1_letter") %>%
+    rename(AA_carried_by_tRNA = Amino_acid_1_letter)
   
   # Amino acid loaded by the synthetase
   temp <- amino_acids %>%
-    dplyr::select(Amino_acid, AA, amino_acid_charge, amino_acid_type) %>%
-    rename(AA_loaded_by_synthetase = AA,
+    dplyr::select(Amino_acid_name, Amino_acid_1_letter, Amino_acid_3_letter, amino_acid_charge, amino_acid_type) %>%
+    rename(AA_loaded_by_synthetase = Amino_acid_1_letter,
            AA_charge_synth = amino_acid_charge,
            AA_type_synth = amino_acid_type)
   
-  temp_2 <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
+  temp_2 <- left_join(chu_synths_new, temp, by = "Amino_acid_3_letter") %>%
     dplyr::select(Gene.secondaryIdentifier, AA_charge_synth, AA_type_synth) %>%
     rename(Synthetase = Gene.secondaryIdentifier)
   
@@ -2054,7 +2312,7 @@ add_2_columns <- function(de_synthetases_df) {
   de_synthetases_df <- left_join(de_synthetases_df, temp_3, by = "Synthetase_systematic")
   de_synthetases_df <- left_join(de_synthetases_df, temp_4, by = "Synthetase_systematic")
   
-  temp <- left_join(chu_synths_new, temp, by = "Amino_acid") %>%
+  temp <- left_join(chu_synths_new, temp, by = "Amino_acid_3_letter") %>%
     dplyr::select(Gene.secondaryIdentifier, AA_loaded_by_synthetase) %>%
     rename(Synthetase = Gene.secondaryIdentifier) %>%
     group_by(Synthetase) %>%
@@ -2067,9 +2325,8 @@ add_2_columns <- function(de_synthetases_df) {
   return(de_synthetases_df)
 }
 
-amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) %>%
-  rename(Amino_acid = X3_letter_code, 
-         AA = X1_letter_code)
+amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) 
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 
 de_synthetases_df_001 <- add_2_columns(de_synthetases_df_001)
 de_synthetases_df_005 <- add_2_columns(de_synthetases_df_005)
@@ -2086,9 +2343,9 @@ rm(chu_synths, chu_synths_new, de_proteins_list_001, de_proteins_list_005, new_r
 There are 11 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase
 ```{r}
 if (working_from == "charite") {
-  ts_library <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
+  ts_library <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
 } else if (working_from == "home") {
-  ts_library <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
+  ts_library <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
 }
 
 ts_library_synths <- ts_library[ts_library$Systematic_name %in% synthetases$Gene.secondaryIdentifier,]
@@ -2103,7 +2360,7 @@ fwrite(de_synthetases_df_001, paste(base_dir, "Data/Other/synthetases/de_synthet
 fwrite(de_synthetases_df_005, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_005.tsv", sep=""))
 
 # Remove everything
-rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_library_info, ts_library_synths, synthetases)
+rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_library_info, ts_library_synths, synthetases, WTs, master_dataset, synth, measured_proteins)
 ```
 
 
