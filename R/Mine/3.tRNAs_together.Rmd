@@ -51,7 +51,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -96,14 +96,14 @@ if (working_from == "charite") {
 if (working_from == "home") {
   # Proteomics data - from the S drive
   if (dataset == "outlier_removed") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
   }
   else if (dataset == "batchcorrected_onWTs") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
   }
   
   # Sample layout - from the S drive
-  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv"))
   
   
   # My data - in the project folder - when I open the project, the directory is set to its location
@@ -1483,11 +1483,11 @@ check_overdispersion(fit)
 Negative binomial - with 3 variables
 ```{r}
 # With synthetase abundance from van der Haar, 2008
-fit <- glm.nb(data = resp_and_expression_modelling, 
-              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
-              link = log)
-summary(fit)
-check_overdispersion(fit)
+#fit <- glm.nb(data = resp_and_expression_modelling, 
+#              formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
+#              link = log)
+#summary(fit)
+#check_overdispersion(fit)
 
 # I get a weird error here, which I think I got already at some point in my masters - it doesn't say it, but it is likely due to a convergence error? Last time, using this other package to fit the model worked. Got it from here in both cases: https://stats.stackexchange.com/questions/93352/error-in-fitting-negative-binomial-regression-model-in-r-when-replicating-publis
 library(glmmADMB)
@@ -1844,7 +1844,7 @@ SHOULD I CONSIDER SOME GROUPING BY CODON HERE? LIKE, THE DIFFERENT TRNAS THAT HA
 Load data (generated in Python script "check_codon_enrichment_in_DEPs_sequences.py")
 ```{r}
 # Load list
-codon_ratios_list <- fromJSON(paste(base_dir, "Data/Other/check_codon_enrichment_in_protein_sequences/codon_counts.json", sep=""))
+codon_ratios_list <- fromJSON(txt = paste(base_dir, "Data/Other/check_codon_enrichment_in_protein_sequences/codon_counts.json", sep=""))
 
 # Remove from the list those strains where there aren't at least 4 DE proteins
 bool <- c()

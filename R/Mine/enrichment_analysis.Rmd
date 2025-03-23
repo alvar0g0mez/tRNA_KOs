@@ -20,6 +20,7 @@ library(fgsea)
 library(ggplot2)
 library(jsonlite)
 library(stringr)
+library(forcats)
 ```
 
 
@@ -34,7 +35,7 @@ alpha <- 0.01
 lfc_threshold <- 1.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -137,24 +138,55 @@ de_prots_per_strain_001$num_of_go_terms_bp <- number_of_go_terms
 ```
 
 
-
-
 ## 2.4. Add other informational columns to this dataset that might explain the success of the GO analysis for some strains
 ```{r}
 de_prots_per_strain_001 <- left_join(de_prots_per_strain_001, master_dataset, by = "Strain.Name")
 ```
 
-
-## 2.5. Check the enriched pathways for the KO strains that were checked for growth under DTT in the original article
+## 2.5. Plot most frequent EA terms across all strains
 ```{r}
-## Grew ~ as WT under DTT
-View(go_results_list_001[["tR(UCU)M2"]])
-View(go_results_list_001[["tH(GUG)G1"]])
+# Prepare dataframe
+## Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
+}
+go_results_list_001 <- mapply(FUN = add_strain_tag, df = go_results_list_001, strain = names(go_results_list_001), SIMPLIFY = F)
 
-## Grew better than WT under DTT
-View(go_results_list_001[["tR(CCU)J"]])
-View(go_results_list_001[["tL(GAG)G"]])
-View(go_results_list_001[["tM(CAU)C"]])
+## Collapse list of dataframes into single dataframe and add a column with the count of Description
+go_terms_df_full <- bind_rows(go_results_list_001) %>%
+  summarize_mine(column_name = "Description", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+
+
+# Plot
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_full %>%
+  distinct(Description, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_count, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_percentage, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain percentage") +
+  xlab("EA term")
 ```
 
 
@@ -239,53 +271,179 @@ strains_worse_or_equal_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT <
 ```
 
 ## 4.2. Compare EA results to these strain classification
-Biological process
 ```{r}
 go_list_better_dtt <- list()
 go_list_worse_dtt <- list()
 
-for (i in 1:length(go_results_list_001_bp)) {
-  strain_name <- names(go_results_list_001_bp)[i]
+for (i in 1:length(go_results_list_001)) {
+  strain_name <- names(go_results_list_001)[i]
   if (strain_name %in% strains_better_in_DTT) {
-    go_list_better_dtt[[strain_name]] <- go_results_list_001_bp[[i]]
+    go_list_better_dtt[[strain_name]] <- go_results_list_001[[i]]
   }
   else if (strain_name %in% strains_worse_or_equal_in_DTT) {
-    go_list_worse_dtt[[strain_name]] <- go_results_list_001_bp[[i]]
+    go_list_worse_dtt[[strain_name]] <- go_results_list_001[[i]]
   }
 }
 ```
 
-
-
-
-
-
-# 5. The one Alexis did
+## 4.3. Come up with a count of the enriched pathways throughout each set of strains
+Get dataframes
 ```{r}
-# Load data
-da_full <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""))
-
-# Alexis' code: EA for GO, KEGG and TF all at once, and summarize which gene sets are enriched in the most tRNA KOs
-ea <- list()
-for (i in unique(da_full$Strain.Name)) {
-  ea[[i]] <- pull(filter(da_full, Strain.Name %in% i & abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha), protein)
+# For strains growing worse in DTT
+## Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
 }
-rm(i)
+go_list_worse_dtt <- mapply(FUN = add_strain_tag, df = go_list_worse_dtt, strain = names(go_list_worse_dtt), SIMPLIFY = F)
 
-ea <- gost(ea, organism = 'scerevisiae', correction_method = 'fdr', domain_scope = 'custom', custom_bg = unique(da_full$protein), sources = c('GO', 'KEGG', 'TF'))
+## Collapse list of dataframes into single dataframe and add a column with the count of Description
+go_terms_df_worse_dtt <- bind_rows(go_list_worse_dtt) %>%
+  summarize_mine(column_name = "Description", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+  
 
-ea_terms <- ea$result %>%
-  group_by(query) %>%
-  summarise(n_terms = n()) %>%
-  mutate(AA = str_sub(query, 2, 2),
-         chromosome = str_extract(str_remove(query, '[:digit:]$'), '[:alpha:]$'),
-         anticodon = str_extract(query, '(?<=\\.)[:alpha:]{3}'))
+# For strains growing better in DTT
+## Add strain tag to each dataframe before collapsing
+go_list_better_dtt <- mapply(FUN = add_strain_tag, df = go_list_better_dtt, strain = names(go_list_better_dtt), SIMPLIFY = F)
 
-ea_terms_ko <- ea$result %>%
-  group_by(term_name) %>%
-  summarise(n_kos = n(), source = unique(source)) %>%
-  ungroup() %>%
-  filter(n_kos > 25)
+## Collapse list of dataframes into single dataframe and add a column with the count of Description
+go_terms_df_better_dtt <- bind_rows(go_list_better_dtt) %>%
+  summarize_mine(column_name = "Description", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+```
+
+Plot
+```{r}
+# For strains growing worse in DTT
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_worse_dtt %>%
+  distinct(Description, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_count, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_percentage, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+
+
+
+
+# For strains growing better in DTT
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_better_dtt %>%
+  distinct(Description, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_count, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_percentage, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+```
+
+--> Pretty much the same in both subsets, let's see what is actually different between them
+```{r}
+# Filter the dataframes
+ea_only_worse_df <- go_terms_df_worse_dtt[!(go_terms_df_worse_dtt$Description %in% go_terms_df_better_dtt$Description),]
+ea_only_better <- go_terms_df_better_dtt[!(go_terms_df_better_dtt$Description %in% go_terms_df_worse_dtt$Description),]
+
+
+
+# Plot
+# For strains growing worse in DTT
+## Grab only top 10 most common EA terms
+temp <- ea_only_worse_df %>%
+  distinct(Description, .keep_all = T) %>%
+  slice(1:15)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_count, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_percentage, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+
+
+
+
+# For strains growing better in DTT
+## Grab only top 10 most common EA terms
+temp <- ea_only_better %>%
+  distinct(Description, .keep_all = T) %>%
+  slice(1:15)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_count, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term_percentage, fill = ONTOLOGY)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT",
+       fill = "Ontology") +
+  ylab("Strain percentage") +
+  xlab("EA term")
 ```
 
 
@@ -293,8 +451,12 @@ ea_terms_ko <- ea$result %>%
 
 
 
-# 6. GSEA - try to imitate the results from the original article
-## 6.1. Prepare ranked gene lists
+
+
+
+
+# 5. GSEA - try to imitate the results from the original article
+## 5.1. Prepare ranked gene lists
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
 da <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), simplifyVector = T)
@@ -332,7 +494,7 @@ for (i in 1:length(da)) {
 }
 ```
 
-## 6.2. Perform GSEA with KEGG annotation
+## 5.2. Perform GSEA with KEGG annotation
 ### Download KEGG gene lists (according to https://www.researchgate.net/post/How_i_can_get_a_list_of_KEGG_pathways_and_its_list_of_genes)
 DO NOT RUN AGAIN - I used this to download the file, I just need to load it, but I left this code here in case I want to know how I did it
 ```{r}
@@ -387,7 +549,7 @@ for (i in 1:length(pathways)) {
 ```
 
 Run GSEA
-The warning I get here refers to many proteins having exactly the same rank (these are the ones we see in a horizontal line in the plots produced in 6.1.) - this should be okay, since these are the genes that were not significantly differentially expressed at all - but tbh this makes it so that I cannot really get that much info from those anyway, right? So there isn't that much of a difference between this and doing the GSEA only with DE proteins, right?? Idk
+The warning I get here refers to many proteins having exactly the same rank (these are the ones we see in a horizontal line in the plots produced in 5.1.) - this should be okay, since these are the genes that were not significantly differentially expressed at all - but tbh this makes it so that I cannot really get that much info from those anyway, right? So there isn't that much of a difference between this and doing the GSEA only with DE proteins, right?? Idk
 ```{r}
 kegg_gsea_results <- list()
 
@@ -407,7 +569,7 @@ THE RESULTS JUST COME OUT TOTALLY EMPTY FOR ALL KOS :D - I GUESS I'LL HAVE TO LO
 
 
 
-## 6.3. Perform GSEA with Reactome annotation??
+## 5.3. Perform GSEA with Reactome annotation??
 
 
 
