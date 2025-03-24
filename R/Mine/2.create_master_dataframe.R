@@ -76,7 +76,7 @@ for (i in 1:nrow(db)) {
 db <- subset(db, !is.na(Anticodon))
 
 ## Remove Features column
-db <- db %>% select(-Features)
+db <- db %>% dplyr::select(-Features)
 
 ## Turn NAs in these 2 columns into 0s
 db <- db %>%
@@ -92,7 +92,7 @@ aas <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv",sep=""))
 aas <- as.data.frame(aas)
 
 ## Add new columns
-aas_temp <- aas %>% select(X3_letter_code, X1_letter_code)
+aas_temp <- aas %>% dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter)
 colnames(aas_temp) <- c("Isotype_from_anticodon", "Isotype_from_anticodon_1_letter")
 db <- left_join(db, aas_temp, by = "Isotype_from_anticodon")
 

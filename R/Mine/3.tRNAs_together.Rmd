@@ -37,6 +37,8 @@ library(interactions)
 library(performance)
 library(MASS)
 library(jsonlite)
+library(UpSetR)
+library(ComplexUpset)
 ```
 
 Set parameters
@@ -2417,14 +2419,14 @@ for (i in 1:length(jaccard_matrices_list)) {
                       scale_fill_gradient(low = "white", high = "red") +
                       xlab("") +
                       ylab("") +
-                      labs(title = glue("Jaccard index heatmap - anticodon {anticodon}")) +
+                      labs(title = glue("{anticodon}")) +
                       theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 }
 
-my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon_no_NAs.pdf", sep = "")
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_no_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -2433,21 +2435,21 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file)
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file, melt_mat, mat, i)
 ```
 
 Heatmaps by amino acid - without NAs
 ```{r}
 # Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
 de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
-amino_acids <- unique(responsiveness$AA)
+amino_acids <- unique(responsiveness$Amino_acid_1_letter)
 jaccard_matrices_list <- list()
 
 # Iterate over the amino acids and get a Jaccard index matrix for each of them
 for (i in 1:length(amino_acids)) {
   # For each amino acid, grab the tRNAs that carry it, and get a matrix with the Jaccard index across them
   aa <- amino_acids[i]
-  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
+  strain_names <- unique(responsiveness$Strain.Name[responsiveness$Amino_acid_1_letter == aa])
   KOs_with_amino_acid <- names(de_protein_list)[names(de_protein_list) %in% strain_names]
   
   # This is so I don't end up with matrices with a single cell
@@ -2468,14 +2470,14 @@ for (i in 1:length(jaccard_matrices_list)) {
                       scale_fill_gradient(low = "white", high = "red") +
                       xlab("") +
                       ylab("") +
-                      labs(title = glue("Jaccard index heatmap - amino acid: {aa}")) +
+                      labs(title = glue("{aa}")) +
                       theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 }
 
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid_no_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_no_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -2484,7 +2486,7 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(jaccard_matrices_list, jaccard_matrix, plot_list, my_grobs, output_file)
+rm(jaccard_matrices_list, jaccard_matrix, plot_list, my_grobs, output_file, mat, melt_mat, aa, amino_acids, i, KOs_with_amino_acid, strain_names)
 ```
 
 Heatmaps by anticodon - with NAs
@@ -2518,14 +2520,14 @@ for (i in 1:length(jaccard_matrices_list)) {
                       scale_fill_gradient(low = "white", high = "red") +
                       xlab("") +
                       ylab("") +
-                      labs(title = glue("Jaccard index heatmap - anticodon {anticodon}")) +
+                      labs(title = glue("{anticodon}")) +
                       theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 }
 
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_anticodon_with_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_with_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -2534,21 +2536,21 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file)
+rm(anticodons, jaccard_matrices_list, anticodon, KOs_with_anticodon, jaccard_matrix, plot_list, my_grobs, output_file, mat, melt_mat, i)
 ```
 
 Heatmaps by amino acid - with NAs
 ```{r}
 # Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
 de_protein_list <- de_proteins_list_001
-amino_acids <- unique(responsiveness$AA)
+amino_acids <- unique(responsiveness$Amino_acid_1_letter)
 jaccard_matrices_list <- list()
 
 # Iterate over the amino acids and get a Jaccard index matrix for each of them
 for (i in 1:length(amino_acids)) {
   # For each amino acid, grab the tRNAs that carry it, and get a matrix with the Jaccard index across them
   aa <- amino_acids[i]
-  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
+  strain_names <- unique(responsiveness$Strain.Name[responsiveness$Amino_acid_1_letter == aa])
   KOs_with_amino_acid <- names(de_protein_list)[names(de_protein_list) %in% strain_names]
   
   # This is so I don't end up with matrices with a single cell
@@ -2569,14 +2571,14 @@ for (i in 1:length(jaccard_matrices_list)) {
                       scale_fill_gradient(low = "white", high = "red") +
                       xlab("") +
                       ylab("") +
-                      labs(title = glue("Jaccard index heatmap - amino acid: {aa}")) +
+                      labs(title = glue("{aa}")) +
                       theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 }
 
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/Jaccard_index_heatmaps_per_amino_acid_with_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_with_NAs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -2585,73 +2587,87 @@ ggsave(
 
 
 # Remove unnecessary variables
-rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file)
+rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grobs, output_file, mat, melt_mat, i, aa, amino_acids, KOs_with_amino_acid, strain_names)
 ```
 
 
-## 6.2. Check how frequent each DEP is - provided pretty much the same information as the Jaccard index heatmaps above I think
-By anticodon
+## 6.2. Get some upset plots for this
+Example - to be deleted
 ```{r}
-# Preparations: grab anticodon names, create empty list to put the plots there
+library(ggplot2movies)
+movies = as.data.frame(ggplot2movies::movies)
+head(movies, 3)
+
+genres = colnames(movies)[18:24]
+genres
+
+movies[genres] = movies[genres] == 1
+t(head(movies[genres], 3))
+
+movies[movies$mpaa == '', 'mpaa'] = NA
+movies = na.omit(movies)
+
+upset(movies, genres, name='genre', width_ratio=0.1)
+```
+
+Per anticodon
+```{r}
+# Preparations: 
+#   - Remove KOs with 0 DE proteins from list, 
+#   - Grab anticodon names
+#   - Create empty list to put data matrices for Upset plots there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
 anticodons <- unique(responsiveness$anticodon)
-plot_list <- list()
+upset_plots_list <- list()
 
-# Iterate over anticodons
+
+pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
+par(mfrow = c(2,2))
+
+# Iterate over the anticodons and get an Upset plot for each of them
 for (i in 1:length(anticodons)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
   anticodon <- anticodons[i]
+  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
+  KOs_with_anticodon_names <- names(KOs_with_anticodon)
   
-  # For this anticodon, get a count of the appearances of the DEPs, and a barplot
-  all_de_proteins <- data.frame(table(unlist(de_proteins_list_001[grepl(anticodon, names(de_proteins_list_001))])))
-  all_de_proteins$Freq <- as.factor(all_de_proteins$Freq)
-  plot_list[[i]] <- ggplot(data = all_de_proteins, aes(x = Freq)) +
-                      geom_bar() +
-                      theme_light() +
-                      xlab("Number of KOs in which proteins where DE") +
-                      ylab("Number of DE proteins") +
-                      labs(title = glue("Anticodon {anticodon} - {sum(grepl(anticodon, names(de_proteins_list_001)))} total KOs"))
+  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
+  if (length(KOs_with_anticodon) > 1) {
+    # Create the matrix where I will add one-hot encoded columns for each KO
+    all_proteins_anticodon <- unlist(KOs_with_anticodon)
+    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
+    
+    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
+    for (j in 1:length(KOs_with_anticodon_names)) {
+      KO <- KOs_with_anticodon_names[j]
+      proteins <- KOs_with_anticodon[[KO]]
+      df_to_upset[,KO] <- as.numeric(all_proteins_anticodon %in% proteins)
+    }
+    
+    # Now that we have the dataframe, get the Upset plot and save it to the list
+    p <- ComplexUpset::upset(data = df_to_upset,
+                                                 intersect = KOs_with_anticodon_names,
+                                                 name='KO strain', 
+                                                 width_ratio=0.1)
+    print(p)
+  }
 }
 
-my_grobs <- lapply(plot_list, ggplotGrob)
+
+dev.off()
+
+
+# Something wrong in that for-loop, I shouldn't end up with NULL elements in that list, we should not be generating anything and adding it to the list when length(KOs_with_anticodon) <= 1 -- there is a very clear "if" statement there to prevent that xd, no idea why it is not working
+upset_plots_list <- upset_plots_list[!(sapply(upset_plots_list, is.null))]
+
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/barplots_DE_counts_per_anticodon.pdf", sep = "")
+my_grobs <- lapply(upset_plots_list, ggplotGrob)
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = "")
 ggsave(
    filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
-   width = 15, height = 9
-)
-```
-
-By amino acid
-```{r}
-# Preparations: grab amino acid names, create empty list to put the plots there
-amino_acids <- unique(responsiveness$AA)
-plot_list <- list()
-
-# Iterate over amino acids
-for (i in 1:length(amino_acids)) {
-  aa <- amino_acids[i]
-  strain_names <- unique(responsiveness$Strain.Name[responsiveness$AA == aa])
-  
-  # For this anticodon, get a count of the appearances of the DEPs, and a barplot
-  all_de_proteins <- data.frame(table(unlist(de_proteins_list_001[names(de_proteins_list_001) %in% strain_names])))
-  all_de_proteins$Freq <- as.factor(all_de_proteins$Freq)
-  plot_list[[i]] <- ggplot(data = all_de_proteins, aes(x = Freq)) +
-                      geom_bar() +
-                      theme_light() +
-                      xlab("Number of KOs in which proteins where DE") +
-                      ylab("Number of DE proteins") +
-                      labs(title = glue("Amino acid {aa} - {sum(names(de_proteins_list_001) %in% strain_names)} total KOs"))
-}
-
-my_grobs <- lapply(plot_list, ggplotGrob)
-
-## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/barplots_DE_counts_per_amino_acid.pdf", sep = "")
-ggsave(
-   filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
-   width = 15, height = 9
+   plot = marrangeGrob(my_grobs, nrow=1, ncol=1), 
+   width = 5, height = 3
 )
 ```
 
