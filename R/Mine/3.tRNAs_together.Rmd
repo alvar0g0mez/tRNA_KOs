@@ -53,7 +53,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -861,7 +861,7 @@ ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amin
   theme_light() +
   labs(fill = "Amino acid",
        title = 'tRNA KOs Responsiveness per AA', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 250 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
   xlab("Amino acid") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
@@ -883,30 +883,34 @@ ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromo
   theme_light() +
   labs(fill = "Chromosome",
        title = 'tRNA KOs Responsiveness per Chromosome', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 250 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
   xlab("Chromosome") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
   coord_cartesian(ylim = c(0, 250))
 
-ggplot(responsiveness, aes(x = anticodon, y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
+
+myLetters <- letters[1:26]              # Need this to be able to re-order anticodons by amino acid
+ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1_letter), myLetters)), y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
   geom_boxplot() +
   theme_light() +
   xlab("Anticodon") +
   labs(fill = "Amino acid") +
-  labs(title = 'tRNA KOs Responsiveness per Anticodon', subtitle = 'Number of Differentially Expressed Proteins (DEPs)') +
+  labs(title = 'tRNA KOs Responsiveness per Anticodon', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs)') +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm'),
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
-ggplot(responsiveness, aes(x = anticodon, y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
+ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1_letter), myLetters)), y = nDEP, groupping = Amino_acid_1_letter, fill = Amino_acid_1_letter)) +
   geom_boxplot(outliers = F) +
   geom_jitter() +
   theme_light() +
   xlab("Anticodon") +
   labs(fill = "Amino acid") +
   coord_cartesian(ylim = c(0, 350)) +
-  labs(title = 'tRNA KOs Responsiveness per Anticodon', subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated > 350 nDEP') +
+  labs(title = 'tRNA KOs Responsiveness per Anticodon', 
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 350 nDEP') +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm'),
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -1390,12 +1394,19 @@ resp_and_expression_modelling <- resp_and_expression %>%
                 tRNA_expression = mean_reads_per_tRNA,
                 synthetase_abundance_literature = synthetase_abundance,
                 synthetase_abundance_our_WTs = measured_proteomics_WT)
+
+# Add info on U_34, A_34 from master_dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep=""))) %>%
+  dplyr::select(Strain.Name, A_34, U_34) %>%
+  mutate(A_34 = as.numeric(A_34),
+         U_34 = as.numeric(A_34))
+resp_and_expression_modelling <- left_join(resp_and_expression_modelling, master_dataset, by = "Strain.Name")
 ```
 
 
 ## 3.1. Get correlations between all the possible numerical variables used for modelling, and represent them in a heatmap
 ```{r}
-resp_measure_corrs <- resp_and_expression %>%
+resp_measure_corrs <- resp_and_expression_modelling %>%
   dplyr::select_if(is.numeric)
 
 cor_mat <- round(cor(resp_measure_corrs, use = "pairwise.complete.obs"), 2)
@@ -1467,7 +1478,7 @@ ggplot(data = resp_and_expression_modelling, aes(x = synthetase_abundance_litera
 ```
 
 
-## 3.2. Model the data with a GLM instead
+## 3.3. Model the data with a GLM 
 Poisson - way too much overdispersion
 ```{r}
 # Poisson model
@@ -1825,6 +1836,24 @@ fit <- glm.nb(data = resp_and_expression_modelling,
 summary(fit)
 check_overdispersion(fit)
 ```
+
+
+## 3.4. Log-transform nDEP and use a Gaussian model - HONESTLY NOT SURE IF THIS IS WORTH IT
+Prepare data
+```{r}
+gaussian_modelling_df <- resp_and_expression_modelling %>%
+  mutate(nDEP = ifelse(nDEP == 0, 0, log2(nDEP)))
+```
+
+Very simple linear model
+```{r}
+fit <- lm(data = gaussian_modelling_df, nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency)
+summary(fit)
+```
+
+
+
+
 
 
 Remove unnecessary variables
@@ -2618,11 +2647,9 @@ Per anticodon
 #   - Create empty list to put data matrices for Upset plots there
 de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
 anticodons <- unique(responsiveness$anticodon)
-upset_plots_list <- list()
 
 
-pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
-par(mfrow = c(2,2))
+#pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
 
 # Iterate over the anticodons and get an Upset plot for each of them
 for (i in 1:length(anticodons)) {
@@ -2634,41 +2661,79 @@ for (i in 1:length(anticodons)) {
   # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
   if (length(KOs_with_anticodon) > 1) {
     # Create the matrix where I will add one-hot encoded columns for each KO
-    all_proteins_anticodon <- unlist(KOs_with_anticodon)
+    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
     df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
     
     # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
     for (j in 1:length(KOs_with_anticodon_names)) {
       KO <- KOs_with_anticodon_names[j]
       proteins <- KOs_with_anticodon[[KO]]
-      df_to_upset[,KO] <- as.numeric(all_proteins_anticodon %in% proteins)
+      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
     }
     
     # Now that we have the dataframe, get the Upset plot and save it to the list
+    ## Using ComplexUpset
+    ComplexUpset::upset(data = df_to_upset,
+                        intersect = KOs_with_anticodon_names,
+                        name='KO strain', 
+                        width_ratio=0.1,
+                        mode = "intersect") +
+      ggtitle(label = "Intersection in DE proteins",
+              subtitle = glue("Across KOs for tRNAs with {anticodon}"))
+    
+    
+    image_name <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_", anticodon, ".png", sep="")
+    ggsave(filename = image_name, width = 8, height = 5)
+  }
+}
+
+#dev.off()
+```
+
+Per amino acid
+```{r}
+# Preparations: 
+#   - Remove KOs with 0 DE proteins from list, 
+#   - Grab anticodon names
+#   - Create empty list to put data matrices for Upset plots there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+aas <- unique(responsiveness$Amino_acid_1_letter)
+
+
+pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_amino_acid.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
+
+# Iterate over the anticodons and get an Upset plot for each of them
+for (i in 1:length(aas)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
+  aa <- aas[i]
+  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
+  KOs_with_anticodon_names <- names(KOs_with_anticodon)
+  
+  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
+  if (length(KOs_with_anticodon) > 1) {
+    # Create the matrix where I will add one-hot encoded columns for each KO
+    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
+    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
+    
+    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
+    for (j in 1:length(KOs_with_anticodon_names)) {
+      KO <- KOs_with_anticodon_names[j]
+      proteins <- KOs_with_anticodon[[KO]]
+      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
+    }
+    
+    # Now that we have the dataframe, get the Upset plot and save it to the list
+    ## Using ComplexUpset
     p <- ComplexUpset::upset(data = df_to_upset,
-                                                 intersect = KOs_with_anticodon_names,
-                                                 name='KO strain', 
-                                                 width_ratio=0.1)
+                             intersect = KOs_with_anticodon_names,
+                             name='KO strain', 
+                             width_ratio=0.1,
+                             mode = "intersect")
     print(p)
   }
 }
 
-
 dev.off()
-
-
-# Something wrong in that for-loop, I shouldn't end up with NULL elements in that list, we should not be generating anything and adding it to the list when length(KOs_with_anticodon) <= 1 -- there is a very clear "if" statement there to prevent that xd, no idea why it is not working
-upset_plots_list <- upset_plots_list[!(sapply(upset_plots_list, is.null))]
-
-
-## Print to PDF
-my_grobs <- lapply(upset_plots_list, ggplotGrob)
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = "")
-ggsave(
-   filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=1, ncol=1), 
-   width = 5, height = 3
-)
 ```
 
 

@@ -218,10 +218,10 @@ master_dataset <- master_dataset %>%
 
 ## Column saying if there is a U in position 34 (the one that binds the last nucleotide in the codon), and a couple things more
 master_dataset <- master_dataset %>%
-  mutate(U_34 = case_when(grepl("\\(U", Strain.Name) ~ "Yes",
-                          TRUE ~ "No"),
-         A_34 = case_when(grepl("\\(A", Strain.Name) ~ "Yes",
-                          TRUE ~ "No"),
+  mutate(U_34 = case_when(grepl("\\(U", Strain.Name) ~ T,
+                          TRUE ~ F),
+         A_34 = case_when(grepl("\\(A", Strain.Name) ~ T,
+                          TRUE ~ F),
          Nt_at_32 = substr(mature_sequence, 32, 32),
          Nt_at_38 = substr(mature_sequence, 38, 38))
 
