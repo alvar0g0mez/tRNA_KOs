@@ -39,6 +39,8 @@ library(MASS)
 library(jsonlite)
 library(UpSetR)
 library(ComplexUpset)
+library(wesanderson)
+library(forcats)
 ```
 
 Set parameters
@@ -53,7 +55,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -2682,7 +2684,7 @@ for (i in 1:length(anticodons)) {
               subtitle = glue("Across KOs for tRNAs with {anticodon}"))
     
     
-    image_name <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_", anticodon, ".png", sep="")
+    image_name <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/per_anticodon/upset_", anticodon, ".png", sep="")
     ggsave(filename = image_name, width = 8, height = 5)
   }
 }
@@ -2690,7 +2692,7 @@ for (i in 1:length(anticodons)) {
 #dev.off()
 ```
 
-Per amino acid
+Per amino acid - TO DO
 ```{r}
 # Preparations: 
 #   - Remove KOs with 0 DE proteins from list, 
@@ -2737,13 +2739,459 @@ dev.off()
 ```
 
 
+## 6.3. Create a dataframe where I look at the overlaps between all KOs, collecting all possible information in the columns 
+### 6.3.1. Create dataframe
+Do this for the DE proteins at 0.01 or 0.05?
+```{r}
+if (alpha == 0.01) {
+  de_protein_list <- de_proteins_list_001
+}
+if (alpha == 0.05) {
+  de_protein_list <- de_proteins_list_005
+}
+```
+
+Create dataframe - only basic columns that are obtained through iteration
+```{r}
+# Prepare for iterations, create empty vectors to which I will save the information (and from which I'll create a dataframe afterwards)
+observed_pairs <- c()
+strains <- names(de_protein_list)
+strains_1 <- c()
+strains_2 <- c()
+protein_number_1 <- c()
+protein_number_2 <- c()
+protein_names_1 <- c()
+protein_names_2 <- c()
+overlap <- c()
+overlap_size <- c()
+
+
+# First iteration through the strains
+for (i in 1:length(strains)) {
+  strain_1 <- strains[i]
+  proteins_strain_1 <- de_protein_list[[strain_1]]
+  
+  # Second iteration through the strains
+  for (j in 1:length(strains)) {
+    strain_2 <- strains[j]
+    proteins_strain_2 <- de_protein_list[[strain_2]]
+    
+    # Make sure we are not comparing a strain to itself
+    condition_1 = strain_1 != strain_2
+    
+    # Also make sure that we haven't added this pair of strains before already
+    strain_pair <- paste(sort(c(strain_1, strain_2)), collapse = ",")
+    condition_2 = !(strain_pair %in% observed_pairs)
+    
+    # If both these conditions are covered, analyze the pair of strains and add their characteristics to the output vectors
+    if (condition_1 & condition_2) {
+      strains_1 <- c(strains_1, strain_1)
+      strains_2 <- c(strains_2, strain_2)
+      protein_number_1 <- c(protein_number_1, length(proteins_strain_1))
+      protein_number_2 <- c(protein_number_2, length(proteins_strain_2))
+      protein_names_1 <- c(protein_names_1, paste(proteins_strain_1, collapse = ","))
+      protein_names_2 <- c(protein_names_2, paste(proteins_strain_2, collapse = ","))
+      overlap <- c(overlap, paste(intersect(proteins_strain_1, proteins_strain_2), collapse = ","))
+      overlap_size <- c(overlap_size, length(intersect(proteins_strain_1, proteins_strain_2)))
+      
+      observed_pairs <- c(observed_pairs, paste(sort(c(strain_1, strain_2)), collapse = ","))
+    }
+  }
+}
+
+DE_protein_overlaps <- data.frame(strains_1, strains_2, protein_number_1, protein_number_2, overlap_size, protein_names_1, protein_names_2, overlap)
+```
+
+Add all other columns (calculations or matching to master or responsiveness datasets) - I am not using all variables from these dataset, only the most basic ones for now - I'll explore those and then I can always come back and add more
+```{r}
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  mutate(overlap_over_strain_1 = overlap_size/protein_number_1,
+         overlap_over_strain_2 = overlap_size/protein_number_2,
+         overlap_over_union = overlap_size/(protein_number_1+protein_number_2),
+         overlap_over_log_union = overlap_size/log2(protein_number_1+protein_number_2),
+         Jaccard_index = overlap_size/(protein_number_1+protein_number_2-overlap_size))
+
+# Match to strain_1
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  rename(Strain.Name = strains_1)
+temp <- responsiveness %>%
+  dplyr::select(Strain.Name, anticodon, Amino_acid_1_letter, chromosome_letter, amino_acid_type, amino_acid_charge)
+
+DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
+  rename(strains_1 = Strain.Name,
+         anticodon_1 = anticodon,
+         Amino_acid_1 = Amino_acid_1_letter,
+         chr_1 = chromosome_letter,
+         aa_type_1 = amino_acid_type,
+         aa_charge_1 = amino_acid_charge,
+         Strain.Name = strains_2)
+
+# Match to strain_2
+DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
+  rename(strains_2 = Strain.Name,
+         anticodon_2 = anticodon,
+         Amino_acid_2 = Amino_acid_1_letter,
+         aa_type_2 = amino_acid_type,
+         aa_charge_2 = amino_acid_charge,
+         chr_2 = chromosome_letter)
+
+# Come up with columns that require matching between these 2 sets of them
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  mutate(same_family = anticodon_1 == anticodon_2,
+         same_amino_acid = Amino_acid_1 == Amino_acid_2,
+         same_chromosome = chr_1 == chr_2,
+         same_family_and_chr = same_family&same_chromosome,
+         same_amino_acid_and_chr = same_amino_acid&same_chromosome,
+         same_aa_type = aa_type_1 == aa_type_2,
+         same_aa_charge = aa_charge_1 == aa_charge_2)
+
+# Get columns based on strain_1 and strain_2, but which reorganize this: the one with more DEPs to one column, the one with less DEPs to the other
+# Just so that I can check the overlap_size/amount of DEPs in the KO strain with less out of the pair. Not sure if too important but oh well
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  rowwise() %>%
+  mutate(Strain_more_DEPs = max(protein_number_1, protein_number_2),
+         Strain_less_DEPs = min(protein_number_1, protein_number_2),
+         Ratio_more_to_less_DEPs = Strain_more_DEPs/Strain_less_DEPs)
+
+# Add columns where I combine the strings for the anticodons and amino acids for the 2 strains (always using sort() before so that they are unique)
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  rowwise() %>%
+  mutate(both_anticodons = paste(sort(c(anticodon_1, anticodon_2)), collapse = "-"),
+         both_amino_acids = paste(sort(c(Amino_acid_1, Amino_acid_2)), collapse = "-"),
+         both_aa_types = paste(sort(c(aa_type_1, aa_type_2)), collapse = "-"),
+         both_aa_charges = paste(sort(c(aa_charge_1, aa_charge_2)), collapse = "-"))
+
+# Put columns with protein names as the last ones
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  relocate(protein_names_1, .after = last_col()) %>%
+  relocate(protein_names_2, .after = last_col()) %>%
+  relocate(overlap, .after = last_col())
+```
+
+Save this dataset as of now 
+```{r}
+if (alpha == 0.01) {
+  fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep=""))
+}
+if (alpha == 0.05) {
+  fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep=""))
+}
+```
+
+
+### 6.3.2. Exploratory plots
+Load dataset so I don't have to create it from scratch
+```{r}
+if (alpha == 0.01) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
+}
+if (alpha == 0.05) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
+}
+```
+
+Want to filter out some observations before the plots?
+```{r}
+#DE_protein_overlaps <- DE_protein_overlaps %>%
+#  filter(protein_number_1 < 1000,
+#         protein_number_2 < 1000)
+```
+
+Plots - histograms - color by family, amino acid, chromosome
+```{r}
+ggplot(data = DE_protein_overlaps, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains") 
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index))) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains") 
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same family?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same amino acid?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_chromosome)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same chromosome?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family_and_chr)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same family and\nchromosome?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid_and_chr)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same amino acid and\nchromosome?") +
+  scale_fill_viridis_d()
+```
+
+Plots - histograms - by both aa charges and both aa types
+```{r}
+ggplot(data = DE_protein_overlaps, aes(x = both_aa_types, y = log2(Jaccard_index), fill = both_aa_types)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Amino acid types") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by the type of the amino acids carried by the KOd tRNAs") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+
+ggplot(data = DE_protein_overlaps, aes(x = both_aa_charges, y = log2(Jaccard_index), fill = both_aa_charges)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Amino acid charges") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by the charges of the amino acids carried by the KOd tRNAs") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 
 
 
+ggplot(data = DE_protein_overlaps, aes(x = as.character(same_aa_charge), y = log2(Jaccard_index), fill = as.character(same_aa_charge))) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Same amino acid charge?") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by whether carried amino acids have the same charge") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+ggplot(data = DE_protein_overlaps, aes(x = as.character(same_aa_type), y = log2(Jaccard_index), fill = as.character(same_aa_type))) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Same amino acid type?") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by whether the carried amino acids are of the same type") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+Plots - histograms - try to explain the larger overlaps
+```{r}
+ggplot(data = subset(DE_protein_overlaps, overlap_size > 0), aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard_index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard_index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains") 
 
 
 
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_more_DEPs, group = Strain_more_DEPs)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "DEPs in strain\nwith more DEPs") +
+  scale_fill_viridis_c()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_less_DEPs, group = Strain_less_DEPs)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "DEPs in strain\nwith less DEPs") +
+  scale_fill_viridis_c()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = log2(Ratio_more_to_less_DEPs), group = log2(Ratio_more_to_less_DEPs))) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "nDEP ratio -\nlarger/smaller") +
+  scale_fill_viridis_c()
+```
+
+Plots - histograms - separate histogram for each anticodon - don't think this is too useful
+```{r}
+plot_list <- list()
+anticodons <- unique(responsiveness$anticodon)
+for (i in 1:length(anticodons)) {
+  anticodon <- anticodons[i]
+  temp <- DE_protein_overlaps %>%
+    filter(anticodon_1 == anticodon & anticodon_2 == anticodon)
+  
+  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 1) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = glue("For strains with {anticodon} anticodon")) +
+  scale_fill_viridis_d()
+}
+
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_family.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+```
+
+Plots - histograms - separate histogram for each amino acid - don't think this is too useful
+```{r}
+plot_list <- list()
+aas <- unique(responsiveness$Amino_acid_1_letter)
+for (i in 1:length(aas)) {
+  aa <- aas[i]
+  temp <- DE_protein_overlaps %>%
+    filter(Amino_acid_1 == aa & Amino_acid_2 == aa)
+  
+  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 1) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = glue("For strains carrying {aa}")) +
+  scale_fill_viridis_d()
+}
+
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_amino_acid.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+```
+
+
+### 6.3.3. Further analysis
+Look at pairs with Jaccard index over 0.5 - there are only 42 such pairs out of 19,306 combinations
+```{r}
+# Subset the dataframe
+high_jaccard_df <- DE_protein_overlaps %>%
+  filter(Jaccard_index >= 0.5) %>%
+  mutate(same_family = case_when(same_family == T ~ "Yes",
+                                 TRUE ~ "No"),
+         same_amino_acid = case_when(same_amino_acid == T ~ "Yes",
+                                 TRUE ~ "No"))
+
+# Look at the strains in this subset of the data
+sort(table(high_jaccard_df$strains_1))
+sort(table(high_jaccard_df$strains_2))
+
+# Look at the anticodons and amino acids in this subset of the data
+sort(table(high_jaccard_df$both_anticodons))
+sort(table(high_jaccard_df$both_amino_acids))
+
+# Look at the amino acid types and charges in this subset of the data
+sort(table(high_jaccard_df$both_aa_types))
+sort(table(high_jaccard_df$both_aa_charges))
+```
+
+Plot
+```{r}
+# Barplot of these strains by amino acid types
+ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(both_aa_types)))) +
+  geom_bar() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Distribution of the KO strain pairs with a Jaccard Index > 0.5",
+       subtitle = "Classified based on amino acid types of the 2 KOs") +
+  xlab("Amino acid types") +
+  ylab("Count")
+
+# Barplot of these strains by amino acid charges
+ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(both_aa_charges)))) +
+  geom_bar() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Distribution of the KO strain pairs with a Jaccard Index > 0.5",
+       subtitle = "Classified based on amino acid charges of the 2 KOs") +
+  xlab("Amino acid charges") +
+  ylab("Count")
+
+# Barplot of these strains by whether they have the same anticodon
+ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(same_family)))) +
+  geom_bar() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Distribution of the KO strain pairs with a Jaccard Index > 0.5",
+       subtitle = "Classified based on whether the 2 KOs were for the same anticodon") +
+  xlab("Same family?") +
+  ylab("Count")
+
+# Barplot of these strains by whether they carry the same amino acid
+ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(same_amino_acid)))) +
+  geom_bar() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Distribution of the KO strain pairs with a Jaccard Index > 0.5",
+       subtitle = "Classified based on whether the 2 KOs were for tRNAs carrying the same amino acid") +
+  xlab("Same amino acid?") +
+  ylab("Count")
+```
 
 
 
