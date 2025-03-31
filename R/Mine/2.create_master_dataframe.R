@@ -223,6 +223,11 @@ master_dataset <- master_dataset %>%
          A_34 = case_when(grepl("\\(A", Strain.Name) ~ T,
                           TRUE ~ F),
          Nt_at_32 = substr(mature_sequence, 32, 32),
+         Nt_at_33 = substr(mature_sequence, 33, 33),
+         Nt_at_34 = substr(mature_sequence, 34, 34),
+         Nt_at_35 = substr(mature_sequence, 35, 35),
+         Nt_at_36 = substr(mature_sequence, 36, 36),
+         Nt_at_37 = substr(mature_sequence, 37, 37),
          Nt_at_38 = substr(mature_sequence, 38, 38))
 
 

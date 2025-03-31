@@ -2820,22 +2820,49 @@ temp <- responsiveness %>%
   dplyr::select(Strain.Name, anticodon, Amino_acid_1_letter, chromosome_letter, amino_acid_type, amino_acid_charge)
 
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(strains_1 = Strain.Name,
-         anticodon_1 = anticodon,
+  rename(anticodon_1 = anticodon,
          Amino_acid_1 = Amino_acid_1_letter,
          chr_1 = chromosome_letter,
          aa_type_1 = amino_acid_type,
-         aa_charge_1 = amino_acid_charge,
+         aa_charge_1 = amino_acid_charge)
+
+## Repeat this for the columns only in master_dataset (U_34 and A_34)
+temp <- master_dataset %>%
+  dplyr::select(Strain.Name, contains("Nt_at"))
+DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
+  rename(strains_1 = Strain.Name,
+         Nt_at_32_1 = Nt_at_32,
+         Nt_at_33_1 = Nt_at_33,
+         Nt_at_34_1 = Nt_at_34,
+         Nt_at_35_1 = Nt_at_35,
+         Nt_at_36_1 = Nt_at_36,
+         Nt_at_37_1 = Nt_at_37,
+         Nt_at_38_1 = Nt_at_38,
          Strain.Name = strains_2)
 
+
 # Match to strain_2
+temp <- responsiveness %>%
+  dplyr::select(Strain.Name, anticodon, Amino_acid_1_letter, chromosome_letter, amino_acid_type, amino_acid_charge)
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(strains_2 = Strain.Name,
-         anticodon_2 = anticodon,
+  rename(anticodon_2 = anticodon,
          Amino_acid_2 = Amino_acid_1_letter,
          aa_type_2 = amino_acid_type,
          aa_charge_2 = amino_acid_charge,
          chr_2 = chromosome_letter)
+
+## Repeat this for the columns only in master_dataset (U_34 and A_34)
+temp <- master_dataset %>%
+  dplyr::select(Strain.Name, contains("Nt_at"))
+DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
+  rename(strains_2 = Strain.Name,
+         Nt_at_32_2 = Nt_at_32,
+         Nt_at_33_2 = Nt_at_33,
+         Nt_at_34_2 = Nt_at_34,
+         Nt_at_35_2 = Nt_at_35,
+         Nt_at_36_2 = Nt_at_36,
+         Nt_at_37_2 = Nt_at_37,
+         Nt_at_38_2 = Nt_at_38)
 
 # Come up with columns that require matching between these 2 sets of them
 DE_protein_overlaps <- DE_protein_overlaps %>%
@@ -2845,7 +2872,16 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
          same_family_and_chr = same_family&same_chromosome,
          same_amino_acid_and_chr = same_amino_acid&same_chromosome,
          same_aa_type = aa_type_1 == aa_type_2,
-         same_aa_charge = aa_charge_1 == aa_charge_2)
+         same_aa_charge = aa_charge_1 == aa_charge_2,
+         Nt_at_32 = Nt_at_32_1 == Nt_at_32_2,
+         Nt_at_33 = Nt_at_33_1 == Nt_at_33_2,
+         Nt_at_34 = Nt_at_34_1 == Nt_at_34_2,
+         Nt_at_35 = Nt_at_35_1 == Nt_at_35_2,
+         Nt_at_36 = Nt_at_36_1 == Nt_at_36_2,
+         Nt_at_37 = Nt_at_37_1 == Nt_at_37_2,
+         Nt_at_38 = Nt_at_38_1 == Nt_at_38_2) %>%
+  dplyr::select(-c(Nt_at_32_1, Nt_at_33_1, Nt_at_34_1, Nt_at_35_1, Nt_at_36_1, Nt_at_37_1, Nt_at_38_1,
+                   Nt_at_32_2, Nt_at_33_2, Nt_at_34_2, Nt_at_35_2, Nt_at_36_2, Nt_at_37_2, Nt_at_38_2))
 
 # Get columns based on strain_1 and strain_2, but which reorganize this: the one with more DEPs to one column, the one with less DEPs to the other
 # Just so that I can check the overlap_size/amount of DEPs in the KO strain with less out of the pair. Not sure if too important but oh well
@@ -2884,12 +2920,16 @@ if (alpha == 0.05) {
 ### 6.3.2. Exploratory plots
 Load dataset so I don't have to create it from scratch
 ```{r}
+# Protein overlaps
 if (alpha == 0.01) {
   DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
 }
 if (alpha == 0.05) {
   DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
 }
+
+# Master dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
 ```
 
 Want to filter out some observations before the plots?
@@ -3182,25 +3222,31 @@ ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(same_amino_acid)))) +
 
 
 
-### 6.3.4. Test and plot for Jaccard Index across different variables (same amino acid, same anticodon, same chromosome, same amino acid charge, same amino acid type...)
+### 6.3.4. Test and plot for Jaccard Index across different variables (same amino acid, same anticodon, same chromosome, same amino acid charge, same amino acid type...) - variables with 2 levels
 ```{r}
 # Create some vectors to collect the p-values
 variables <- c()
 p_vals_chi_square <- c()
-effect_size_directions_chi_square <- c()
+true_to_false_ratio_chi_square <- c()
 p_vals_wmw <- c()
 effect_size_directions_wmw <- c()
 
 
 
 # Same amino acid
-variables <- c(variables, "Amino acid")
+variables <- c(variables, "Amino acid carried")
 
 ## Chi-square test for the proportion of 0s in each group
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_amino_acid)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
-a <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == T] == 0)/length(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == T])
-b <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == F] == 0)/length(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == F])
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_amino_acid == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_amino_acid == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
 
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
@@ -3208,16 +3254,27 @@ temp <- DE_protein_overlaps %>%
 x <- temp$Jaccard_index[temp$same_amino_acid == T]
 y <- temp$Jaccard_index[temp$same_amino_acid == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
 # Same family (anticodon)
-variables <- c(variables, "Family")
+variables <- c(variables, "Anticodon")
 
 ## Chi-square test for the proportion of 0s in each group
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_family)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_family == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_family == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_family == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_family == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
 
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
@@ -3225,7 +3282,10 @@ temp <- DE_protein_overlaps %>%
 x <- temp$Jaccard_index[temp$same_family == T]
 y <- temp$Jaccard_index[temp$same_family == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
@@ -3236,22 +3296,41 @@ variables <- c(variables, "Chromosome")
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_chromosome)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
 
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_chromosome == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_chromosome == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_chromosome == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_chromosome == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
   filter(Jaccard_index != 0)
 x <- temp$Jaccard_index[temp$same_chromosome == T]
 y <- temp$Jaccard_index[temp$same_chromosome == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
 # Same family and chromosome
-variables <- c(variables, "Family and chromosome")
+variables <- c(variables, "Anticodon and chromosome")
 
 ## Chi-square test for the proportion of 0s in each group
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_family_and_chr)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_family_and_chr == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_family_and_chr == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_family_and_chr == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_family_and_chr == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
 
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
@@ -3259,16 +3338,27 @@ temp <- DE_protein_overlaps %>%
 x <- temp$Jaccard_index[temp$same_family_and_chr == T]
 y <- temp$Jaccard_index[temp$same_family_and_chr == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
 # Same family and chromosome
-variables <- c(variables, "Amino acid and chromosome")
+variables <- c(variables, "Amino acid carried and chromosome")
 
 ## Chi-square test for the proportion of 0s in each group
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_amino_acid_and_chr)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid_and_chr == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_amino_acid_and_chr == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_amino_acid_and_chr == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_amino_acid_and_chr == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
 
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
@@ -3276,7 +3366,11 @@ temp <- DE_protein_overlaps %>%
 x <- temp$Jaccard_index[temp$same_amino_acid_and_chr == T]
 y <- temp$Jaccard_index[temp$same_amino_acid_and_chr == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
+
 
 
 # Same amino acicd charge
@@ -3286,13 +3380,24 @@ variables <- c(variables, "Amino acid charge")
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_aa_charge)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
 
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_aa_charge == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_aa_charge == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_aa_charge == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_aa_charge == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
   filter(Jaccard_index != 0)
 x <- temp$Jaccard_index[temp$same_aa_charge == T]
 y <- temp$Jaccard_index[temp$same_aa_charge == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
@@ -3303,24 +3408,227 @@ variables <- c(variables, "Amino acid type")
 data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$same_aa_type)
 p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
 
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_aa_type == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_aa_type == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$same_aa_type == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$same_aa_type == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
 ## Wilcoxon-Mann Whitney test for the non-zero values
 temp <- DE_protein_overlaps %>%
   filter(Jaccard_index != 0)
 x <- temp$Jaccard_index[temp$same_aa_type == T]
 y <- temp$Jaccard_index[temp$same_aa_type == F]
 p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
-effect_size_directions_wmw <- c(effect_size_directions_wmw, ifelse(mean(x) > mean(y), "Larger when true", "Smaller when true"))
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
+
+
+# Same Nt at 32
+variables <- c(variables, "Nt at 32")
+
+## Chi-square test for the proportion of 0s in each group
+data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$Nt_at_32)
+p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_32 == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_32 == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_32 == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_32 == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
+## Wilcoxon-Mann Whitney test for the non-zero values
+temp <- DE_protein_overlaps %>%
+  filter(Jaccard_index != 0)
+x <- temp$Jaccard_index[temp$Nt_at_32 == T]
+y <- temp$Jaccard_index[temp$Nt_at_32 == F]
+p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
+
+
+# Same Nt at 33
+variables <- c(variables, "Nt at 33")
+
+## Chi-square test for the proportion of 0s in each group
+data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$Nt_at_33)
+p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_33 == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_33 == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_33 == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_33 == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
+## Wilcoxon-Mann Whitney test for the non-zero values
+temp <- DE_protein_overlaps %>%
+  filter(Jaccard_index != 0)
+x <- temp$Jaccard_index[temp$Nt_at_33 == T]
+y <- temp$Jaccard_index[temp$Nt_at_33 == F]
+p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
+
+
+# Same Nt at 34
+variables <- c(variables, "Nt at 34")
+
+## Chi-square test for the proportion of 0s in each group
+data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$Nt_at_34)
+p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_34 == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_34 == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_34 == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_34 == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
+## Wilcoxon-Mann Whitney test for the non-zero values
+temp <- DE_protein_overlaps %>%
+  filter(Jaccard_index != 0)
+x <- temp$Jaccard_index[temp$Nt_at_34 == T]
+y <- temp$Jaccard_index[temp$Nt_at_34 == F]
+p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
+
+
+
+# Same Nt at 35
+variables <- c(variables, "Nt at 35")
+
+## Chi-square test for the proportion of 0s in each group
+data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), DE_protein_overlaps$Nt_at_35)
+p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+
+## Proportion of 0s in each group
+true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_35 == T] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_35 == T)
+false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Nt_at_35 == F] == 0, na.rm = T)/
+  sum(DE_protein_overlaps$Nt_at_35 == F)
+true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+
+## Wilcoxon-Mann Whitney test for the non-zero values
+temp <- DE_protein_overlaps %>%
+  filter(Jaccard_index != 0)
+x <- temp$Jaccard_index[temp$Nt_at_35 == T]
+y <- temp$Jaccard_index[temp$Nt_at_35 == F]
+p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
+
+# Wilcoxon-Mann Whitney effect size
+effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+
 
 
 
 # Bring the dataset with the p-values together
-p_values_chisq_and_wmw <- data.frame(variables, p_vals_chi_square, p_vals_wmw, effect_size_directions_wmw)
+p_values_chisq_and_wmw <- data.frame(variables, p_vals_chi_square, true_to_false_ratio_chi_square, p_vals_wmw, effect_size_directions_wmw)
 
 # Print this to LaTex
 print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)))
 ```
 
+Code to substitute the above chunk with a function
+```{r}
+#' This functions needs to receive as input a dataframe where we want to perform the test for all the columns! Except for one column which is the one containing the Jaccard Index, and which needs to be called "Jaccard_index"
+#' 
+perform_chi_square_and_wmw_return_pvalues_and_effect_sizes <- function(DE_protein_overlaps) {
+  # Create some vectors to collect the outcome
+  variables <- c()
+  p_vals_chi_square <- c()
+  true_to_false_ratio_chi_square <- c()
+  p_vals_wmw <- c()
+  effect_size_directions_wmw <- c()
+  
+  
+  # Iterate over the columns of the dataframe, performing the tests for each of them
+  columns <- colnames(DE_protein_overlaps)
+  columns <- columns[!columns %in% c("Jaccard_index")]
+  for (i in 1:length(columns)) {
+    # Save the name of the variable we are testing for
+    variable <- columns[i]
+    variables <- c(variables, variable)
+    
+    ## Chi-square test for the proportion of 0s in each group
+    data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), as.factor(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable][,1]))
+    p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
+    
+    ## Proportion of 0s in each group
+    true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == T] == 0, na.rm = T)/
+      sum(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == T)
+    false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == F] == 0, na.rm = T)/
+      sum(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == F)
+    true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
+    true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+    
+    ## Wilcoxon-Mann Whitney test for the non-zero values
+    temp <- DE_protein_overlaps %>%
+      filter(Jaccard_index != 0)
+    x <- temp$Jaccard_index[temp[colnames(temp) == variable] == T]
+    y <- temp$Jaccard_index[temp[colnames(temp) == variable] == F]
+    p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
+    
+    # Wilcoxon-Mann Whitney effect size
+    effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+  }
+  
+  # Put it all together and return it
+  p_values_chisq_and_wmw <- data.frame(variables, p_vals_chi_square, true_to_false_ratio_chi_square, p_vals_wmw, effect_size_directions_wmw)
+  return(p_values_chisq_and_wmw)
+}
 
+
+df <- DE_protein_overlaps %>%
+  dplyr::select(Jaccard_index,
+                same_amino_acid,
+                same_family, 
+                same_chromosome,
+                same_amino_acid_and_chr, 
+                same_family_and_chr,
+                same_aa_charge,
+                same_aa_type,
+                Nt_at_32,
+                Nt_at_33,
+                Nt_at_34,
+                Nt_at_35,
+                Nt_at_36,
+                Nt_at_37,
+                Nt_at_38)
+test <- perform_chi_square_and_wmw_return_pvalues_and_effect_sizes(df)
+
+print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)))
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+NO IDEA WHAT THIS IS TBH
 ```{r}
 # Same amino acid charge
 temp <- DE_protein_overlaps %>%
