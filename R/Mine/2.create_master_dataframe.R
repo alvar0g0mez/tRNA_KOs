@@ -281,6 +281,7 @@ master_dataset <- master_dataset %>%
          Nt_at_57 = substr(mature_sequence, 57, 57),
          Nt_at_58 = substr(mature_sequence, 58, 58),
          Nt_at_59 = substr(mature_sequence, 59, 59),
+         Nt_at_60 = substr(mature_sequence, 60, 60),
          Nt_at_61 = substr(mature_sequence, 61, 61),
          Nt_at_62 = substr(mature_sequence, 62, 62),
          Nt_at_63 = substr(mature_sequence, 63, 63),

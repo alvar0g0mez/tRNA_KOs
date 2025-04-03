@@ -2988,7 +2988,7 @@ DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") 
          Nt_at_67_2 = Nt_at_67,
          Nt_at_68_2 = Nt_at_68,
          Nt_at_69_2 = Nt_at_69,
-         Nt_at_70_2 = Nt_at_70,)
+         Nt_at_70_2 = Nt_at_70)
 
 # Come up with columns that require matching between these 2 sets of them
 DE_protein_overlaps <- DE_protein_overlaps %>%
@@ -3069,8 +3069,7 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
          Nt_at_68 = Nt_at_68_1 == Nt_at_68_2,
          Nt_at_69 = Nt_at_69_1 == Nt_at_69_2,
          Nt_at_70 = Nt_at_70_1 == Nt_at_70_2) %>%
-  dplyr::select(-c(Nt_at_30_1, Nt_at_31_1, Nt_at_32_1, Nt_at_33_1, Nt_at_34_1, Nt_at_35_1, Nt_at_36_1, Nt_at_37_1, Nt_at_38_1, Nt_at_39_1, Nt_at_40_1,
-                   Nt_at_30_2, Nt_at_31_2, Nt_at_32_2, Nt_at_33_2, Nt_at_34_2, Nt_at_35_2, Nt_at_36_2, Nt_at_37_2, Nt_at_38_2, Nt_at_39_2, Nt_at_40_2))
+  dplyr::select(-c(Nt_at_1_1, Nt_at_1_2, Nt_at_2_1, Nt_at_2_2, Nt_at_3_1, Nt_at_3_2, Nt_at_4_1, Nt_at_4_2, Nt_at_5_1, Nt_at_5_2, Nt_at_6_1, Nt_at_6_2, Nt_at_7_1, Nt_at_7_2, Nt_at_8_1, Nt_at_8_2, Nt_at_9_1, Nt_at_9_2, Nt_at_10_1, Nt_at_10_2, Nt_at_11_1, Nt_at_11_2, Nt_at_12_1, Nt_at_12_2, Nt_at_13_1, Nt_at_13_2, Nt_at_14_1, Nt_at_14_2, Nt_at_15_1, Nt_at_15_2, Nt_at_16_1, Nt_at_16_2, Nt_at_17_1, Nt_at_17_2, Nt_at_18_1, Nt_at_18_2, Nt_at_19_1, Nt_at_19_2, Nt_at_20_1, Nt_at_20_2, Nt_at_21_1, Nt_at_21_2, Nt_at_22_1, Nt_at_22_2, Nt_at_23_1, Nt_at_23_2, Nt_at_24_1, Nt_at_24_2, Nt_at_25_1, Nt_at_25_2, Nt_at_26_1, Nt_at_26_2, Nt_at_27_1, Nt_at_27_2, Nt_at_28_1, Nt_at_28_2, Nt_at_29_1, Nt_at_29_2, Nt_at_30_1, Nt_at_30_2, Nt_at_31_1, Nt_at_31_2, Nt_at_32_1, Nt_at_32_2, Nt_at_33_1, Nt_at_33_2, Nt_at_34_1, Nt_at_34_2, Nt_at_35_1, Nt_at_35_2, Nt_at_36_1, Nt_at_36_2, Nt_at_37_1, Nt_at_37_2, Nt_at_38_1, Nt_at_38_2, Nt_at_39_1, Nt_at_39_2, Nt_at_40_1, Nt_at_40_2, Nt_at_41_1, Nt_at_41_2, Nt_at_42_1, Nt_at_42_2, Nt_at_43_1, Nt_at_43_2, Nt_at_44_1, Nt_at_44_2, Nt_at_45_1, Nt_at_45_2, Nt_at_46_1, Nt_at_46_2, Nt_at_47_1, Nt_at_47_2, Nt_at_48_1, Nt_at_48_2, Nt_at_49_1, Nt_at_49_2, Nt_at_50_1, Nt_at_50_2, Nt_at_51_1, Nt_at_51_2, Nt_at_52_1, Nt_at_52_2, Nt_at_53_1, Nt_at_53_2, Nt_at_54_1, Nt_at_54_2, Nt_at_55_1, Nt_at_55_2, Nt_at_56_1, Nt_at_56_2, Nt_at_57_1, Nt_at_57_2, Nt_at_58_1, Nt_at_58_2, Nt_at_59_1, Nt_at_59_2, Nt_at_60_1, Nt_at_60_2, Nt_at_61_1, Nt_at_61_2, Nt_at_62_1, Nt_at_62_2, Nt_at_63_1, Nt_at_63_2, Nt_at_64_1, Nt_at_64_2, Nt_at_65_1, Nt_at_65_2, Nt_at_66_1, Nt_at_66_2, Nt_at_67_1, Nt_at_67_2, Nt_at_68_1, Nt_at_68_2, Nt_at_69_1, Nt_at_69_2, Nt_at_70_1, Nt_at_70_2))
 
 # Get columns based on strain_1 and strain_2, but which reorganize this: the one with more DEPs to one column, the one with less DEPs to the other
 # Just so that I can check the overlap_size/amount of DEPs in the KO strain with less out of the pair. Not sure if too important but oh well
@@ -3094,6 +3093,7 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
   relocate(protein_names_2, .after = last_col()) %>%
   relocate(overlap, .after = last_col())
 ```
+
 
 Save this dataset as of now 
 ```{r}
@@ -3422,6 +3422,7 @@ perform_chi_square_and_wmw_return_pvalues_and_effect_sizes <- function(DE_protei
   true_to_false_ratio_chi_square <- c()
   p_vals_wmw <- c()
   effect_size_directions_wmw <- c()
+  perc_same_across_all_pairs <- c()
   
   
   # Iterate over the columns of the dataframe, performing the tests for each of them
@@ -3433,16 +3434,22 @@ perform_chi_square_and_wmw_return_pvalues_and_effect_sizes <- function(DE_protei
     variables <- c(variables, variable)
     
     ## Chi-square test for the proportion of 0s in each group
-    data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), as.factor(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable][,1]))
+    data <- table(as.numeric(!(DE_protein_overlaps$Jaccard_index == 0)), as.factor(DE_protein_overlaps[[variable]]))
     p_vals_chi_square <- c(p_vals_chi_square, chisq.test(data)$p.value)
     
     ## Proportion of 0s in each group
-    true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == T] == 0, na.rm = T)/
-      sum(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == T)
-    false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == F] == 0, na.rm = T)/
-      sum(DE_protein_overlaps[colnames(DE_protein_overlaps) == variable] == F)
-    true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                         # This means the proportion of 0s in the False group is almost double that in the True group???
-    true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, true_to_false_ratio)
+    true_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[[variable]] == T] == 0, na.rm = T)/
+      sum(DE_protein_overlaps[[variable]] == T)
+    false_group_zero_prop <- sum(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps[[variable]] == F] == 0, na.rm = T)/
+      sum(DE_protein_overlaps[[variable]] == F)
+    true_to_false_ratio <- true_group_zero_prop/false_group_zero_prop                 
+    # Changed this, now it represents the % increase (or decrease) in the proportion of 0s in the TRUE group w.r.t. the FALSE group
+    if (true_to_false_ratio > 1) {
+      true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, (true_to_false_ratio-1)*100)
+    } else {
+      true_to_false_ratio_chi_square <- c(true_to_false_ratio_chi_square, (1-true_to_false_ratio)*100)
+    }
+    
     
     ## Wilcoxon-Mann Whitney test for the non-zero values
     temp <- DE_protein_overlaps %>%
@@ -3451,12 +3458,16 @@ perform_chi_square_and_wmw_return_pvalues_and_effect_sizes <- function(DE_protei
     y <- temp$Jaccard_index[temp[colnames(temp) == variable] == F]
     p_vals_wmw <- c(p_vals_wmw, wilcox.test(x, y)$p.value)
     
-    # Wilcoxon-Mann Whitney effect size
-    effect_size_directions_wmw <- c(effect_size_directions_wmw, mean(x)-mean(y))
+    ## Wilcoxon-Mann Whitney effect size - TURNED THIS INTO "PERCENTAGE" EFFECT SIZE BY DIVIDING BY THE MEAN JACCARD INDEX IN THE GROUP WHERE THE PAIRS OF KOS DO NOT SHARE THE CHARACTERISTIC ("FALSE" GROUP) SO AS TO TRY TO MAKE THIS MORE INTERPRETABLE
+    effect_size_directions_wmw <- c(effect_size_directions_wmw, ((mean(x)-mean(y))/mean(y))*100)
+    
+    # Grab a value which shows the percentage of pairs across which each variable was TRUE
+    perc_same_across_all_pairs <- c(perc_same_across_all_pairs, sum(DE_protein_overlaps[[variable]] == T)/nrow(DE_protein_overlaps))
   }
   
   # Put it all together and return it
-  p_values_chisq_and_wmw <- data.frame(variables, p_vals_chi_square, true_to_false_ratio_chi_square, p_vals_wmw, effect_size_directions_wmw)
+  p_values_chisq_and_wmw <- data.frame(variables, p_vals_chi_square, true_to_false_ratio_chi_square, p_vals_wmw, effect_size_directions_wmw,
+                                       perc_same_across_all_pairs)
   return(p_values_chisq_and_wmw)
 }
 
@@ -3471,6 +3482,35 @@ df <- DE_protein_overlaps %>%
                 same_family_and_chr,
                 same_aa_charge,
                 same_aa_type,
+                Nt_at_1,
+                Nt_at_2,
+                Nt_at_3,
+                Nt_at_4,
+                Nt_at_5,
+                Nt_at_6,
+                Nt_at_7,
+                Nt_at_8,
+                Nt_at_9,
+                Nt_at_10,
+                Nt_at_11,
+                Nt_at_12,
+                Nt_at_13,
+                Nt_at_14,
+                Nt_at_15,
+                Nt_at_16,
+                Nt_at_17,
+                Nt_at_18,
+                Nt_at_19,
+                Nt_at_20,
+                Nt_at_21,
+                Nt_at_22,
+                Nt_at_23,
+                Nt_at_24,
+                Nt_at_25,
+                Nt_at_26,
+                Nt_at_27,
+                Nt_at_28,
+                Nt_at_29,
                 Nt_at_30,
                 Nt_at_31,
                 Nt_at_32,
@@ -3481,23 +3521,104 @@ df <- DE_protein_overlaps %>%
                 Nt_at_37,
                 Nt_at_38,
                 Nt_at_39,
-                Nt_at_40)
+                Nt_at_40,
+                Nt_at_41,
+                Nt_at_42,
+                Nt_at_43,
+                Nt_at_44,
+                Nt_at_45,
+                Nt_at_46,
+                Nt_at_47,
+                Nt_at_48,
+                Nt_at_49,
+                Nt_at_40,
+                Nt_at_51,
+                Nt_at_52,
+                Nt_at_53,
+                Nt_at_54,
+                Nt_at_55,
+                Nt_at_56,
+                Nt_at_57,
+                Nt_at_58,
+                Nt_at_59,
+                Nt_at_60,
+                Nt_at_61,
+                Nt_at_62,
+                Nt_at_63,
+                Nt_at_64,
+                Nt_at_65,
+                Nt_at_66,
+                Nt_at_67,
+                Nt_at_68,
+                Nt_at_69,
+                Nt_at_70)
 
 # Perform testing and save p-values and effect sizes
 p_values_chisq_and_wmw <- perform_chi_square_and_wmw_return_pvalues_and_effect_sizes(df)
 
-# Make the row descriptions a bit prettier - colnames I need to fix directly in LaTex
-p_values_chisq_and_wmw$variables <- c("Carried amino acid", "Anticodon", "Chromosome", "Carried amino acid and chromosome", "Anticodon and chromosome",
-                                      "Amino acid charge", "Amino acid type", "Nucleotide at 30", "Nucleotide at 31", "Nucleotide at 32", "Nucleotide at 33",
-                                      "Nucleotide at 34", "Nucleotide at 35", "Nucleotide at 36", "Nucleotide at 37", "Nucleotide at 38", "Nucleotide at 39",
-                                      "Nucleotide at 40")
+
+
+# WHEN USING ALL NUCLEOTIDE POSITIONS
+# Correct the p-values with BH
+p_values_chisq_and_wmw$p_vals_chi_square_adj <- p.adjust(p_values_chisq_and_wmw$p_vals_chi_square, method = "BH")
+p_values_chisq_and_wmw$p_vals_wmw_adj <- p.adjust(p_values_chisq_and_wmw$p_vals_wmw, method = "BH")
+
+# Keep only significant rows
+p_values_large <- p_values_chisq_and_wmw %>%
+  filter(p_vals_chi_square_adj < alpha | p_vals_wmw_adj < alpha) %>%
+  dplyr::select(-c(p_vals_chi_square, p_vals_wmw)) %>%
+  arrange(p_vals_chi_square_adj)
+
+# Print the resulting table to LaTex
+print(xtable(p_values_large, label = "p_values_table_with_Nts", digits = c(9)), include.rownames = F)
+
+
+
+
+
+
+
+
+# WHEN NOT USING ALL NUCLEOTIDE POSITIONS
+
+## Make the row descriptions a bit prettier - colnames I need to fix directly in LaTex - this only functions when I am not using all nucleotide #positions
+#p_values_chisq_and_wmw$variables <- c("Carried amino acid", "Anticodon", "Chromosome", "Carried amino acid and chromosome", "Anticodon and #chromosome",
+#                                      "Amino acid charge", "Amino acid type", "Nucleotide at 30", "Nucleotide at 31", "Nucleotide at 32", #"Nucleotide at 33",
+#                                      "Nucleotide at 34", "Nucleotide at 35", "Nucleotide at 36", "Nucleotide at 37", "Nucleotide at 38", #"Nucleotide at 39",
+#                                      "Nucleotide at 40")
 
 # Print it to take it to LaTex
-print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)), include.rownames=FALSE)
+#print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)), include.rownames=FALSE)
+```
+
+Manually check the effect of Nt_at_21, looking at what happens exactly for each Nt that can be there
+```{r}
+D
 ```
 
 
+Relate effect of Nt_at_whatever on Jaccard Index by conservation of that Nt position
+```{r}
+# Look at correlation first of all
+temp <- p_values_large 
+rownames(temp) <- temp[,1]
+temp <- temp[,-1]
+cor_mat <- round(cor(temp, use = "pairwise.complete"), 2)
 
+
+# Look at how common each nucleotide is in each of some of the most interesting positions
+table(master_dataset$Nt_at_21)
+table(master_dataset$Nt_at_1)
+table(master_dataset$Nt_at_33)
+
+
+# Plots
+ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_size_directions_wmw)) +
+  geom_point() +
+  theme_light() +
+  geom_text_repel(data = subset(p_values_large, effect_size_directions_wmw > 20 | perc_same_across_all_pairs > 0.45), 
+                  aes(x = perc_same_across_all_pairs, y = effect_size_directions_wmw, label = variables))
+```
 
 
 
