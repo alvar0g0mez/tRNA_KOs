@@ -43,6 +43,9 @@ library(wesanderson)
 library(forcats)
 library(ggpubr)
 library(xtable)
+library(clusterProfiler)
+library(org.Sc.sgd.db)
+library(fgsea)
 ```
 
 Set parameters
@@ -147,7 +150,7 @@ if (dataset == "outlier_removed")
 if (dataset == "batchcorrected_onWTs")    
     {proteomics_raw <- proteomics_raw %>%
     dplyr::select(-Protein.Group) %>%
-      rename(genes = Genes) %>%
+      dplyr::rename(genes = Genes) %>%
       column_to_rownames(var = 'genes')}
 
 
@@ -386,7 +389,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_all_KOs_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_together.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -418,7 +421,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -441,7 +444,7 @@ phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloo
 UCU_major_minor <- phenotypic_data %>% 
   filter(UCU_family != "No") %>%
   dplyr::select(gene_name, UCU_family) %>%
-  rename(Strain.Name = gene_name)
+  dplyr::rename(Strain.Name = gene_name)
 
 UCU_responsiveness <- responsiveness%>% filter(anticodon == "UCU")
 
@@ -474,7 +477,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/DE_together/volcano_plots_per_KO_UCU_family_together.pdf", sep="")
+output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_together.pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -558,15 +561,20 @@ ggplot(data = responsiveness, aes(x = nDEP)) +
   ylab("Count") +
   labs(title = "Frequency of nDEP across all tRNA KO strains")
 
-# Given this histogram, I define the threshold to make out major and minor tRNA genes - for now I have it at 2
+# Given this histogram, I used to define the threshold to make out major and minor tRNA genes - I had it at 2 - now I do this in a bit of a more complex way (below)
 
-# Define a column with "minor"-"major" based on this so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
-responsiveness<- responsiveness%>%
-  mutate(Gene_type = case_when(nDEP < threshold_major ~ "Minor",
-                               TRUE ~ "Major")) %>%
+# Define a column with "minor"-"major", so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
+responsiveness <- responsiveness %>%
+  group_by(anticodon) %>%
+  mutate(family_max = max(nDEP)) %>%
+  ungroup() %>%
+  mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",
+                               nDEP > 20 & nDEP < 0.75*family_max ~ "Minor",
+                               nDEP > 0.75*family_max ~ "Major")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
-  ungroup()
+  ungroup() %>%
+  dplyr::select(-family_max)
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
@@ -615,11 +623,11 @@ responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_lett
 plot_list <- list()
 
 ## Generate the plots and add them to the list
-aas <- sort(levels(as.factor(responsiveness$Amino_acid_name)))
+aas <- sort(levels(as.factor(responsiveness$Amino_acid_1_letter)))
 for (i in 1:length(aas)) {
   aa <- aas[i]
   temp <- responsiveness %>%
-    filter(Amino_acid_name == aa)
+    filter(Amino_acid_1_letter == aa)
   plot_list[[aa]] <- ggplot(data = temp, aes(x = nDEP, fill = anticodon)) +
     geom_histogram(binwidth = 1, stat = StatBin2) +
     theme_light() +
@@ -664,7 +672,7 @@ for (i in 1:length(anticodons)) {
   
   # Color by DNA seq
   plot_list_DNA_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = DNA_sequence, fill = DNA_sequence)) +
-    geom_histogram(binwidth = 1) +
+    geom_histogram(binwidth = 1, stat = StatBin2) +
     theme_light() +
     xlab("nDEP") +
     ylab("Count") +
@@ -673,7 +681,7 @@ for (i in 1:length(anticodons)) {
   
   # Color by mature seq
   plot_list_mature_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = mature_sequence, fill = mature_sequence)) +
-    geom_histogram(binwidth = 1) +
+    geom_histogram(binwidth = 1, stat = StatBin2) +
     theme_light() +
     xlab("nDEP") +
     ylab("Count") +
@@ -2420,6 +2428,9 @@ responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv",
 ```
 
 
+
+
+
 ## 6.1. Get Jaccard index heatmaps - KOs with no DEPs are ignored here, not included in the plots!
 Heatmaps by anticodon - without NAs
 ```{r}
@@ -2624,6 +2635,9 @@ rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grob
 ```
 
 
+
+
+
 ## 6.2. Get some upset plots for this
 Example - to be deleted
 ```{r}
@@ -2739,6 +2753,9 @@ for (i in 1:length(aas)) {
 
 dev.off()
 ```
+
+
+
 
 
 ## 6.3. Create a dataframe where I look at the overlaps between all KOs, collecting all possible information in the columns 
@@ -3094,7 +3111,6 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
   relocate(overlap, .after = last_col())
 ```
 
-
 Save this dataset as of now 
 ```{r}
 if (alpha == 0.01) {
@@ -3104,6 +3120,7 @@ if (alpha == 0.05) {
   fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep=""))
 }
 ```
+
 
 
 ### 6.3.2. Exploratory plots
@@ -3145,6 +3162,13 @@ ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_in
   ylab("Count") +
   labs(title = "Histogram of Jaccard index of the DE proteins - after removing all 0 values",
        subtitle = "For all possible pairs of KO strains") 
+
+ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_index, fill = same_amino_acid)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(fill = "Did the 2 KOs carry\nthe same amino acid?") 
 
 ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index))) +
   geom_histogram(alpha = 0.7) +
@@ -3340,7 +3364,8 @@ ggsave(
 ```
 
 
-### 6.3.3. Look at pairs with Jaccard index over 0.5
+
+### 6.3.3. Explore large intersections
 There are only 42 such pairs out of 19,306 combinations
 ```{r}
 # Subset the dataframe
@@ -3407,6 +3432,82 @@ ggplot(data = high_jaccard_df, aes(x = fct_rev(fct_infreq(same_amino_acid)))) +
   ylab("Count")
 ```
 
+Go into the top pairs with the largest JIs and look at what are the proteins in them - does it have a biological meaning or is it just random stuff/survival stuff/whatever?
+```{r}
+# Since I want to do enrichment analysis below, I need to load some stuff beforehand - based on the enrichment analysis file
+## List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
+de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
+de_proteins_list_001 <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+
+# Full Entrez ID dataframe, with all genes
+entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
+
+## Define background
+temp <- data.frame("Protein_stable_ID" = de_proteins_list_001[["WT"]])
+temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
+my_universe <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
+
+# Load YeastMine dataset
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+
+
+
+
+# Prepare for iteration
+N <- 10                                       # This sets the limit at JI > 0.65, fair enough I guess?
+high_jaccard_ea_list <- list()
+high_jaccard_protein_names <- list()
+high_jaccard_protein_description <- list()
+high_jaccard_df <- high_jaccard_df %>%
+  arrange(desc(Jaccard_index))
+
+
+for (i in 1:N) {
+  strain_1 <- high_jaccard_df$strains_1[i]
+  strain_2 <- high_jaccard_df$strains_2[i]
+  
+  # Grab the names of the proteins in the intersection
+  proteins <- intersect(de_proteins_list_001[[strain_1]], de_proteins_list_001[[strain_2]])
+  
+  # Do an enrichment analysis
+  proteins_detected <- data.frame("Protein_stable_ID" = proteins)
+  proteins_detected <- left_join(proteins_detected, entrez_db, by = "Protein_stable_ID")
+  proteins_detected <- proteins_detected$`NCBI_gene_(formerly_Entrezgene)_ID`
+  
+  go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "ALL", 
+                           universe = my_universe,
+                           maxGSSize = 200)
+  high_jaccard_ea_list[[i]] <- as.data.frame(go_results)
+  
+  
+  # Save the full names of the proteins (normal ones and descriptive ones)
+  temp <- data.frame("Gene.secondaryIdentifier" = proteins)
+  temp <- left_join(temp, yeastmine, by = "Gene.secondaryIdentifier")
+  high_jaccard_protein_description[[i]] <- temp[["Gene.name"]]
+  
+  high_jaccard_protein_names[[i]] <- proteins
+}
+
+
+# Summary of the proteins across the N intersections
+sort(table(unlist(high_jaccard_protein_description)))
+
+# Get a summary dataframe with the protein names and the description, for a slide
+temp <- data.frame(table(unlist(high_jaccard_protein_names)))
+colnames(temp) <- c("Gene.secondaryIdentifier", "Freq")
+temp <- left_join(temp, yeastmine, by = "Gene.secondaryIdentifier") %>%
+  dplyr::select(Gene.secondaryIdentifier, Freq, Gene.name)
+
+# Summarize the pathways found in the EA
+temp_list <- c()
+for (i in 1:length(high_jaccard_ea_list)) {
+  temp_list[[i]] <- as.character(high_jaccard_ea_list[[i]]$Description)
+}
+sort(table(unlist(temp_list)))
+```
 
 
 
@@ -3556,17 +3657,21 @@ df <- DE_protein_overlaps %>%
 # Perform testing and save p-values and effect sizes
 p_values_chisq_and_wmw <- perform_chi_square_and_wmw_return_pvalues_and_effect_sizes(df)
 
-
-
-# WHEN USING ALL NUCLEOTIDE POSITIONS
 # Correct the p-values with BH
 p_values_chisq_and_wmw$p_vals_chi_square_adj <- p.adjust(p_values_chisq_and_wmw$p_vals_chi_square, method = "BH")
 p_values_chisq_and_wmw$p_vals_wmw_adj <- p.adjust(p_values_chisq_and_wmw$p_vals_wmw, method = "BH")
 
+
+
+
+
+
+# WHEN USING ALL NUCLEOTIDE POSITIONS
+
 # Keep only significant rows
 p_values_large <- p_values_chisq_and_wmw %>%
-  filter(p_vals_chi_square_adj < alpha | p_vals_wmw_adj < alpha) %>%
-  dplyr::select(-c(p_vals_chi_square, p_vals_wmw)) %>%
+  filter(p_vals_chi_square_adj < alpha & p_vals_wmw_adj < alpha) %>%
+  dplyr::select(-c(p_vals_chi_square, p_vals_wmw, perc_same_across_all_pairs)) %>%
   arrange(p_vals_chi_square_adj)
 
 # Print the resulting table to LaTex
@@ -3581,13 +3686,16 @@ print(xtable(p_values_large, label = "p_values_table_with_Nts", digits = c(9)), 
 
 # WHEN NOT USING ALL NUCLEOTIDE POSITIONS
 
+## Filter out all rows referring to the nucleotides
+#p_values_chisq_and_wmw <- p_values_chisq_and_wmw %>%
+#  filter(!(grepl("Nt_at", variables))) %>%
+#  dplyr::select(-c(p_vals_chi_square, p_vals_wmw, perc_same_across_all_pairs))
+#
 ## Make the row descriptions a bit prettier - colnames I need to fix directly in LaTex - this only functions when I am not using all nucleotide #positions
-#p_values_chisq_and_wmw$variables <- c("Carried amino acid", "Anticodon", "Chromosome", "Carried amino acid and chromosome", "Anticodon and #chromosome",
-#                                      "Amino acid charge", "Amino acid type", "Nucleotide at 30", "Nucleotide at 31", "Nucleotide at 32", #"Nucleotide at 33",
-#                                      "Nucleotide at 34", "Nucleotide at 35", "Nucleotide at 36", "Nucleotide at 37", "Nucleotide at 38", #"Nucleotide at 39",
-#                                      "Nucleotide at 40")
-
-# Print it to take it to LaTex
+#p_values_chisq_and_wmw$variables <- c("Carried amino acid", "Anticodon", "Chromosome", "Carried amino acid and chromosome", "Anticodon and chromosome",
+#                                      "Amino acid charge", "Amino acid type")
+#
+## Print it to take it to LaTex
 #print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)), include.rownames=FALSE)
 ```
 
@@ -3625,43 +3733,6 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 
 
 
-
-NO IDEA WHAT THIS IS TBH
-```{r}
-# Same amino acid charge
-temp <- DE_protein_overlaps %>%
-  mutate(y_var = case_when(Jaccard_index == 0 ~ log2(min(DE_protein_overlaps$Jaccard_index[DE_protein_overlaps$Jaccard_index > 0], na.rm = T)), 
-                           TRUE ~ log2(Jaccard_index)),
-         x_var = as.character(same_aa_charge))
-compare_means(data = temp, y_var ~ x_var)
-
-my_comparisons <- list(c("TRUE", "FALSE"))
-ggplot(data = temp, aes(x = x_var, y = y_var, fill = as.character(same_aa_charge))) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Same amino acid charge?") +
-  ylab("log2(Jaccard index)") +
-  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
-       subtitle = "Classified by whether carried amino acids have the same charge") +
-  scale_fill_viridis_d() +
-  theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  stat_compare_means(comparisons = my_comparisons)
-
-
-
-# Same amino acid type
-ggplot(data = DE_protein_overlaps, aes(x = as.character(same_aa_type), y = log2(Jaccard_index), fill = as.character(same_aa_type))) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Same amino acid type?") +
-  ylab("log2(Jaccard index)") +
-  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
-       subtitle = "Classified by whether the carried amino acids are of the same type") +
-  scale_fill_viridis_d() +
-  theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-```
 
 
 
