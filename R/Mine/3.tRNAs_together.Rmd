@@ -60,7 +60,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -2431,7 +2431,7 @@ responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv",
 
 
 
-## 6.1. Get Jaccard index heatmaps - KOs with no DEPs are ignored here, not included in the plots!
+## 6.1. Jaccard index heatmaps - KOs with no DEPs are ignored here, not included in the plots!
 Heatmaps by anticodon - without NAs
 ```{r}
 # Preparations: remove KOs with 0 DE proteins from list, grab anticodon names, create empty list to put Jaccard index matrices there
@@ -2638,7 +2638,7 @@ rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grob
 
 
 
-## 6.2. Get some upset plots for this
+## 6.2. Upset plots
 Example - to be deleted
 ```{r}
 library(ggplot2movies)
@@ -2758,7 +2758,7 @@ dev.off()
 
 
 
-## 6.3. Create a dataframe where I look at the overlaps between all KOs, collecting all possible information in the columns 
+## 6.3. Intersections between all KOs, collecting all possible information in the columns 
 ### 6.3.1. Create dataframe
 Do this for the DE proteins at 0.01 or 0.05?
 ```{r}
@@ -2824,7 +2824,8 @@ DE_protein_overlaps <- data.frame(strains_1, strains_2, protein_number_1, protei
 Add all other columns (calculations or matching to master or responsiveness datasets) - I am not using all variables from these dataset, only the most basic ones for now - I'll explore those and then I can always come back and add more
 ```{r}
 DE_protein_overlaps <- DE_protein_overlaps %>%
-  mutate(overlap_over_strain_1 = overlap_size/protein_number_1,
+  mutate(protein_number_avg = mean(c(protein_number_1, protein_number_2)),
+         overlap_over_strain_1 = overlap_size/protein_number_1,
          overlap_over_strain_2 = overlap_size/protein_number_2,
          overlap_over_union = overlap_size/(protein_number_1+protein_number_2),
          overlap_over_log_union = overlap_size/log2(protein_number_1+protein_number_2),
@@ -3122,7 +3123,6 @@ if (alpha == 0.05) {
 ```
 
 
-
 ### 6.3.2. Exploratory plots
 Load dataset so I don't have to create it from scratch
 ```{r}
@@ -3364,7 +3364,6 @@ ggsave(
 ```
 
 
-
 ### 6.3.3. Explore large intersections
 There are only 42 such pairs out of 19,306 combinations
 ```{r}
@@ -3508,8 +3507,6 @@ for (i in 1:length(high_jaccard_ea_list)) {
 }
 sort(table(unlist(temp_list)))
 ```
-
-
 
 
 ### 6.3.4. Test and plot for Jaccard Index across different variables (same amino acid, same anticodon, same chromosome, same amino acid charge, same amino acid type...) - variables with 2 levels
@@ -3704,7 +3701,6 @@ Manually check the effect of Nt_at_21, looking at what happens exactly for each 
 D
 ```
 
-
 Relate effect of Nt_at_whatever on Jaccard Index by conservation of that Nt position
 ```{r}
 # Look at correlation first of all
@@ -3730,7 +3726,36 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 
 
 
+## 6.4. Explore intersections between KOs with large nDEPs inside each family
+Prepare data
+```{r}
+# I identified families where there are at least 2 KOs with a decently large number of nDEPs by looking at the histograms I made earlier
+families_of_interest <- c("CUU", "UUG", "CCA", "AGA", "CAU", "AGC")
 
+# Load protein overlaps dataset created in previous section, with all possible intersections
+if (alpha == 0.01) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
+}
+if (alpha == 0.05) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
+}
+
+# Master dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
+```
+
+Analyze
+```{r}
+DE_protein_overlaps <- DE_protein_overlaps %>%
+  filter(anticodon_1 == anticodon_2,
+         protein_number_1 > 20 & protein_number_2 > 20) %>%
+  mutate(protein_number_avg = )
+
+
+ggplot(data = DE_protein_overlaps, aes(x = mean(protein_number_1, protein_number_2), y = Jaccard_index)) +
+  geom_point() +
+  theme_light()
+```
 
 
 
