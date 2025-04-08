@@ -569,7 +569,7 @@ responsiveness <- responsiveness %>%
   mutate(family_max = max(nDEP)) %>%
   ungroup() %>%
   mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",
-                               nDEP > 20 & nDEP < 0.75*family_max ~ "Minor",
+                               nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
                                nDEP > 0.75*family_max ~ "Major")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
@@ -2230,6 +2230,7 @@ fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
 
 
 
+
 ## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
 At alpha = 0.01
 ```{r}
@@ -2425,6 +2426,9 @@ de_proteins_list_001 <- de_proteins_list_001[names(de_proteins_list_001) != "WT"
 
 # Load responsiveness dataset
 responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
+
+# Master dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 ```
 
 
@@ -2824,8 +2828,12 @@ DE_protein_overlaps <- data.frame(strains_1, strains_2, protein_number_1, protei
 Add all other columns (calculations or matching to master or responsiveness datasets) - I am not using all variables from these dataset, only the most basic ones for now - I'll explore those and then I can always come back and add more
 ```{r}
 DE_protein_overlaps <- DE_protein_overlaps %>%
+  rowwise() %>%
   mutate(protein_number_avg = mean(c(protein_number_1, protein_number_2)),
-         overlap_over_strain_1 = overlap_size/protein_number_1,
+         Gene_type_1 = unique(responsiveness$Gene_type[responsiveness$Strain.Name == strains_1])[1],
+         Gene_type_2 = unique(responsiveness$Gene_type[responsiveness$Strain.Name == strains_2])[1]) %>%
+  ungroup() %>%
+  mutate(overlap_over_strain_1 = overlap_size/protein_number_1,
          overlap_over_strain_2 = overlap_size/protein_number_2,
          overlap_over_union = overlap_size/(protein_number_1+protein_number_2),
          overlap_over_log_union = overlap_size/log2(protein_number_1+protein_number_2),
@@ -2833,12 +2841,12 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
 
 # Match to strain_1
 DE_protein_overlaps <- DE_protein_overlaps %>%
-  rename(Strain.Name = strains_1)
+  dplyr::rename(Strain.Name = strains_1)
 temp <- responsiveness %>%
   dplyr::select(Strain.Name, anticodon, Amino_acid_1_letter, chromosome_letter, amino_acid_type, amino_acid_charge)
 
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(anticodon_1 = anticodon,
+  dplyr::rename(anticodon_1 = anticodon,
          Amino_acid_1 = Amino_acid_1_letter,
          chr_1 = chromosome_letter,
          aa_type_1 = amino_acid_type,
@@ -2848,7 +2856,7 @@ DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") 
 temp <- master_dataset %>%
   dplyr::select(Strain.Name, contains("Nt_at"))
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(strains_1 = Strain.Name,
+  dplyr::rename(strains_1 = Strain.Name,
          Nt_at_1_1 = Nt_at_1,
          Nt_at_2_1 = Nt_at_2,
          Nt_at_3_1 = Nt_at_3,
@@ -2926,7 +2934,7 @@ DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") 
 temp <- responsiveness %>%
   dplyr::select(Strain.Name, anticodon, Amino_acid_1_letter, chromosome_letter, amino_acid_type, amino_acid_charge)
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(anticodon_2 = anticodon,
+  dplyr::rename(anticodon_2 = anticodon,
          Amino_acid_2 = Amino_acid_1_letter,
          aa_type_2 = amino_acid_type,
          aa_charge_2 = amino_acid_charge,
@@ -2936,7 +2944,7 @@ DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") 
 temp <- master_dataset %>%
   dplyr::select(Strain.Name, contains("Nt_at"))
 DE_protein_overlaps <- left_join(DE_protein_overlaps, temp, by = "Strain.Name") %>%
-  rename(strains_2 = Strain.Name,
+  dplyr::rename(strains_2 = Strain.Name,
          Nt_at_1_2 = Nt_at_1,
          Nt_at_2_2 = Nt_at_2,
          Nt_at_3_2 = Nt_at_3,
@@ -3123,7 +3131,7 @@ if (alpha == 0.05) {
 ```
 
 
-### 6.3.2. Exploratory plots
+### 6.3.2. Exploratory plots - HONESTLY I FEEL LIKE MOST OF THESE HISTOGRAMS ARE PRETTY USELESS, AREN'T THEY? COULD MAYBE DELETE THIS OR PUT IT IN THE DELETED CODE DOCUMENT?
 Load dataset so I don't have to create it from scratch
 ```{r}
 # Protein overlaps
@@ -3729,7 +3737,7 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 ## 6.4. Explore intersections between KOs with large nDEPs inside each family
 Prepare data
 ```{r}
-# I identified families where there are at least 2 KOs with a decently large number of nDEPs by looking at the histograms I made earlier
+# I identified families where there are at least 2 KOs with a decently large number of nDEPs by looking at the histograms I made earlier - maybe I could think of doing this by the column where I define them as "minor" or "major" instead?
 families_of_interest <- c("CUU", "UUG", "CCA", "AGA", "CAU", "AGC")
 
 # Load protein overlaps dataset created in previous section, with all possible intersections
@@ -3744,19 +3752,38 @@ if (alpha == 0.05) {
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
 ```
 
-Analyze
+Got a bit side-tracked, exploring the correlation between the average nDEP in the pair and the JI
 ```{r}
-DE_protein_overlaps <- DE_protein_overlaps %>%
-  filter(anticodon_1 == anticodon_2,
-         protein_number_1 > 20 & protein_number_2 > 20) %>%
-  mutate(protein_number_avg = )
+# Keep only pairs where the 2 KOs belong to the same family
+DE_protein_overlaps_same_family <- DE_protein_overlaps %>%
+  filter(anticodon_1 == anticodon_2)
 
 
-ggplot(data = DE_protein_overlaps, aes(x = mean(protein_number_1, protein_number_2), y = Jaccard_index)) +
-  geom_point() +
+# JI vs. average nDEP
+ggplot(data = DE_protein_overlaps, aes(x = protein_number_avg, y = Jaccard_index)) +
+  geom_point(size = 0.2) +
+  theme_light()
+
+# JI vs. average nDEP - color by same family
+ggplot(data = DE_protein_overlaps, aes(x = protein_number_avg, y = Jaccard_index, col = same_family)) +
+  geom_point(size = 0.2) +
+  theme_light()
+
+# JI vs. average nDEP - for those pairs in the same family only
+ggplot(data = DE_protein_overlaps_same_family, aes(x = protein_number_avg, y = Jaccard_index)) +
+  geom_point(size = 1) +
   theme_light()
 ```
 
+Analyze
+```{r}
+# This is what happens if I filter based on major - minor (defined by me) - I end up with only 3 pairs 
+DE_protein_overlaps_major_within_family <- DE_protein_overlaps %>%
+  filter(anticodon_1 == anticodon_2,
+         Gene_type_1 == "Major" & Gene_type_2 == "Major")
+
+# So I'd rather just keep every pair from the same family
+```
 
 
 
