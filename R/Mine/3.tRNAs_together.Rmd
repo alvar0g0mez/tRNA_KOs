@@ -60,7 +60,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -268,9 +268,11 @@ yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024
 de_proteins_list_001 <- list()
 for (i in 1:length(da)) {
   temp <- da[[i]]
+  temp <- na.omit(temp)
   
   # Collect protein names and turn them all into systematic notation
-  general_protein_names <- rownames(temp)[na.omit(temp$adj.P.Val) < alpha]
+  general_protein_names <- rownames(temp)[(temp$adj.P.Val < alpha) &
+                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
   standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
   systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
   final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
@@ -294,7 +296,8 @@ for (i in 1:length(da)) {
   temp <- da[[i]]
   
   # Collect protein names and turn them all into systematic notation
-  general_protein_names <- rownames(temp)[na.omit(temp$adj.P.Val) < 0.05]
+  general_protein_names <- rownames(temp)[(na.omit(temp$adj.P.Val) < 0.05) &
+                                        ((na.omit(temp$logFC) > lfc_threshold) | (na.omit(temp$logFC) < - lfc_threshold))]
   standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
   systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
   final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
@@ -341,13 +344,17 @@ da <- merge(da, KOs_replicates, by = "Strain.Name")
 # Responsiveness
 responsiveness <- da %>%
   group_by(Strain.Name) %>%
-  summarise(nDEP = sum(abs(logFC) >= log2(lfc_threshold) & adj.P.Val <= alpha, na.rm = T),
+  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
             Replicate_num = mean(Replicate_num)) %>%
   mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
          chromosome_letter = substr(Strain.Name, 8, 8),
          anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))")) %>%
   arrange(Amino_acid_1_letter) %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
+
+# Add all amino acid names
+amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")))
+responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
 
 # Save responsiveness dataset
 fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
@@ -361,7 +368,7 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-rm(DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
+rm(amino_acids, DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
    systematic_protein_names, trna_levels, unique_KOs, trna_ko)
 ```
@@ -533,6 +540,14 @@ ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count))
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
   coord_cartesian(ylim = c(0, 350))
 
+ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family count") +
+  ylab("nDEP") +
+  coord_cartesian(ylim = c(0, 150))
+
+
 
 # Correlation between nDEP and tRNA family size
 resp_summarized_by_family <- aggregate(responsiveness$nDEP, list(responsiveness$anticodon), mean)
@@ -568,13 +583,18 @@ responsiveness <- responsiveness %>%
   group_by(anticodon) %>%
   mutate(family_max = max(nDEP)) %>%
   ungroup() %>%
-  mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",
-                               nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
-                               nDEP > 0.75*family_max ~ "Major")) %>%
+  #mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",                                 This is how I did it before
+  #                             nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
+  #                             nDEP > 0.75*family_max ~ "Major")) %>%
+  mutate(Gene_type = case_when(nDEP > 0.60*family_max ~ "Major",                      # Current version
+                               TRUE ~ "Minor")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
   ungroup() %>%
   dplyr::select(-family_max)
+
+# Save this new version of responsiveness
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
@@ -614,20 +634,15 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
                   size = 4)
 
 # Produce a single histogram like the one at the beginning of this chunk for each set of tRNA isoacceptors - and save them to a PDF
-## Add amino acid full name to be used as title for each subplot
-amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")))
-responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
-
-
 ## Create empty list of plots
 plot_list <- list()
 
 ## Generate the plots and add them to the list
-aas <- sort(levels(as.factor(responsiveness$Amino_acid_1_letter)))
+aas <- sort(levels(as.factor(responsiveness$Amino_acid_name)))
 for (i in 1:length(aas)) {
   aa <- aas[i]
   temp <- responsiveness %>%
-    filter(Amino_acid_1_letter == aa)
+    filter(Amino_acid_name == aa)
   plot_list[[aa]] <- ggplot(data = temp, aes(x = nDEP, fill = anticodon)) +
     geom_histogram(binwidth = 1, stat = StatBin2) +
     theme_light() +
@@ -873,11 +888,11 @@ ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amin
   theme_light() +
   labs(fill = "Amino acid",
        title = 'tRNA KOs Responsiveness per AA', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
   xlab("Amino acid") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 250))
+  coord_cartesian(ylim = c(0, 150))
 
 ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromosome_letter)) +
   geom_boxplot() +
@@ -895,11 +910,11 @@ ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromo
   theme_light() +
   labs(fill = "Chromosome",
        title = 'tRNA KOs Responsiveness per Chromosome', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
   xlab("Chromosome") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 250))
+  coord_cartesian(ylim = c(0, 150))
 
 
 myLetters <- letters[1:26]              # Need this to be able to re-order anticodons by amino acid
@@ -920,9 +935,9 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
   theme_light() +
   xlab("Anticodon") +
   labs(fill = "Amino acid") +
-  coord_cartesian(ylim = c(0, 350)) +
+  coord_cartesian(ylim = c(0, 150)) +
   labs(title = 'tRNA KOs Responsiveness per Anticodon', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 350 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm'),
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -967,13 +982,13 @@ responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv",
 Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
 ```{r}
 cozen_to_merge <- cozen %>%
-  filter(saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
+  dplyr::filter(saccaromyces.genome.datasbase..sgd..tRNA.name != "NA" &
            mean.normalized.ReadCount..AlkB != "NA") %>%
   dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start,
          saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
   group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
   mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
-  rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
+  dplyr::rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
   dplyr::select(Strain.Name, mean_reads_per_tRNA)
 
 ## Merge with resp
@@ -1150,10 +1165,10 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP)
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (from von der Haar, 2008)",
-       subtitle = "Truncated nDEP < 250") +
+       subtitle = "Truncated nDEP < 150") +
   xlab("log2-tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO") +
-  coord_cartesian(ylim = c(0, 250))
+  coord_cartesian(ylim = c(0, 150))
 
 # nDEP vs. log2-synthetase abundance - color by family size
 ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP, col = Family_count)) +
@@ -1205,10 +1220,10 @@ ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)",
-       subtitle = "Truncated nDEP < 250") +
+       subtitle = "Truncated nDEP < 150") +
   xlab("tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO") +
-  coord_cartesian(ylim = c(0, 250))
+  coord_cartesian(ylim = c(0, 150))
   
 
 # nDEP vs. log2-synthetase abundance
@@ -1308,7 +1323,7 @@ anticodon_freq$anticodon <- lapply(anticodon_freq[,colnames(anticodon_freq) == "
 anticodon_freq$anticodon <- as.character(anticodon_freq$anticodon)
 anticodon_freq$anticodon <- as.factor(anticodon_freq$anticodon)
 anticodon_freq <- anticodon_freq %>%
-  rename(codon_frequency_chu_2011 = Frequency)
+  dplyr::rename(codon_frequency_chu_2011 = Frequency)
 
 # Merge to resp_and_expression
 resp_and_expression <- left_join(resp_and_expression, anticodon_freq, by = "anticodon")
@@ -1328,10 +1343,10 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP)) 
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. codon frequency (from van der Haar, 2008)",
-       subtitle = "Truncated nDEP < 250") +
+       subtitle = "Truncated nDEP < 150") +
   xlab("Codon frequency") +
   ylab("nDEP per tRNA KO") +
-  coord_cartesian(ylim = c(0, 250))
+  coord_cartesian(ylim = c(0, 150))
 
 # Codon frequency vs. nDEP - color by tRNA abundance from Cozen et al.
 ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, col = mean_reads_per_tRNA)) +
@@ -1973,7 +1988,7 @@ Add some information to this plot to be able to color plots by it (amino acid, c
 ```{r}
 temp <- master_dataset %>%
   dplyr::select(Strain.Name, Anticodon, Best_isotype_model_1_letter, Family_size) %>%
-  rename(AA = Best_isotype_model_1_letter)
+  dplyr::rename(AA = Best_isotype_model_1_letter)
 test_codon_enrichment <- left_join(test_codon_enrichment, temp, by = "Strain.Name")
 
 temp <- resp_and_expression %>%
@@ -3153,7 +3168,7 @@ Want to filter out some observations before the plots?
 #         protein_number_2 < 1000)
 ```
 
-Plots - histograms - color by family, amino acid, chromosome
+Plots - histograms - color by family, amino acid, chromosome - THESE ONES I AM USING 
 ```{r}
 ggplot(data = DE_protein_overlaps, aes(x = Jaccard_index)) +
   geom_histogram(alpha = 0.7, binwidth = 0.01) +
@@ -3498,6 +3513,9 @@ for (i in 1:N) {
   high_jaccard_protein_names[[i]] <- proteins
 }
 
+# Get a version of the high_jaccard_df from which I can take a screenshot for my slides
+temp_2 <- high_jaccard_df %>%
+  dplyr::select(strains_1, strains_2, protein_number_1, protein_number_2, overlap_size, Jaccard_index)
 
 # Summary of the proteins across the N intersections
 sort(table(unlist(high_jaccard_protein_description)))
@@ -3675,12 +3693,15 @@ p_values_chisq_and_wmw$p_vals_wmw_adj <- p.adjust(p_values_chisq_and_wmw$p_vals_
 
 # Keep only significant rows
 p_values_large <- p_values_chisq_and_wmw %>%
-  filter(p_vals_chi_square_adj < alpha & p_vals_wmw_adj < alpha) %>%
-  dplyr::select(-c(p_vals_chi_square, p_vals_wmw, perc_same_across_all_pairs)) %>%
+  filter(p_vals_wmw_adj < alpha) %>%
+  dplyr::select(-c(p_vals_chi_square, p_vals_wmw)) %>%
   arrange(p_vals_chi_square_adj)
 
+p_values_print <- p_values_large %>%
+  dplyr::select(-(perc_same_across_all_pairs))
+
 # Print the resulting table to LaTex
-print(xtable(p_values_large, label = "p_values_table_with_Nts", digits = c(9)), include.rownames = F)
+print(xtable(p_values_print, label = "p_values_table_with_Nts", digits = c(9)), include.rownames = F)
 
 
 
@@ -3704,7 +3725,7 @@ print(xtable(p_values_large, label = "p_values_table_with_Nts", digits = c(9)), 
 #print(xtable(p_values_chisq_and_wmw, label = "p_values_table", digits = c(8)), include.rownames=FALSE)
 ```
 
-Manually check the effect of Nt_at_21, looking at what happens exactly for each Nt that can be there
+Manually check the effect of Nt_at_21, looking at what happens exactly for each Nt that can be there - TO DO
 ```{r}
 D
 ```
@@ -3777,15 +3798,33 @@ ggplot(data = DE_protein_overlaps_same_family, aes(x = protein_number_avg, y = J
 
 Analyze
 ```{r}
-# This is what happens if I filter based on major - minor (defined by me) - I end up with only 3 pairs 
+# This is what happens if I filter based on major - minor (defined by me)
 DE_protein_overlaps_major_within_family <- DE_protein_overlaps %>%
   filter(anticodon_1 == anticodon_2,
          Gene_type_1 == "Major" & Gene_type_2 == "Major")
 
-# So I'd rather just keep every pair from the same family
+# Get a version of this which I can screenshot for a slide
+temp <- DE_protein_overlaps_major_within_family %>%
+  dplyr::select(strains_1, strains_2, protein_number_1, protein_number_2, overlap_size, Jaccard_index)
+
+# Grab the strains in here and put them into a vector so I can filter the EA results by them
+paired_major_strains <- c(as.character(DE_protein_overlaps_major_within_family$strains_1),as.character(DE_protein_overlaps_major_within_family$strains_2))
 ```
 
+Look at the EA results for these strains
+```{r}
+# Load EA results
+go_results_list_005 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_005.json", sep=""), simplifyVector = T)
 
+# Keep only those we are interested in
+go_results_list_005_filtered <- go_results_list_005[names(go_results_list_005) %in% paired_major_strains]
+
+# Need to look deeper into this for sure, but so far I only get EA results for 2 major KOs, let's compare those 
+gca_b <- go_results_list_005_filtered[["tC(GCA)B"]]$Description
+gca_p2 <- go_results_list_005_filtered[["tC(GCA)P2"]]$Description
+gca_b
+gca_p2
+```
 
 
 

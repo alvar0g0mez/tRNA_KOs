@@ -1,10 +1,7 @@
-import pandas as pd
 import json
 import os
-import pathlib
 from Bio.SeqIO.FastaIO import SimpleFastaParser
 import textwrap
-import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
 
