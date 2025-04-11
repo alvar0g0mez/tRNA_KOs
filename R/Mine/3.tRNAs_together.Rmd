@@ -514,60 +514,16 @@ rm(replicate_num_vs_nDEP_cor)
 --> The point with this was that maybe a larger number of replicates causes more nDEP just because it's easier to achieve significance. However, there seems to be no correlation at all, I think that's actually good because it means that the nDEP will be only influenced by what is going on with the tRNA KOs? Even though that effect could be already confounding my results in this boxplot
 
 
-## 1.8. Number of DE proteins per family, coloring by number of tRNAs in the family
+
+
+## 1.8. Identify major and minor tRNA genes myself for all strains
+Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
 responsiveness <- responsiveness %>%
   group_by(anticodon) %>% 
   summarize(Family_count = n(), across()) %>%
   ungroup()
 
-ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Anticodon") +
-  labs(fill = "Genes in\nfamily",
-       title = "Number of DE proteins per family",
-       subtitle = "Colored by number of tRNA genes in the family") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
-ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Anticodon") +
-  labs(fill = "Genes in\nfamily",
-       title = "Number of DE proteins per family",
-       subtitle = "Colored by number of tRNA genes in the family - nDEP < 350") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
-  coord_cartesian(ylim = c(0, 350))
-
-ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Family count") +
-  ylab("nDEP") +
-  coord_cartesian(ylim = c(0, 150))
-
-
-
-# Correlation between nDEP and tRNA family size
-resp_summarized_by_family <- aggregate(responsiveness$nDEP, list(responsiveness$anticodon), mean)
-colnames(resp_summarized_by_family) <- c("anticodon", "nDEP")
-resp_summarized_by_family <- merge(resp_summarized_by_family, responsiveness[, c("anticodon", "Family_count")], by = "anticodon", all.x = T)
-resp_summarized_by_family <- resp_summarized_by_family %>%
-  distinct(anticodon, .keep_all = T)
-cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$Family_count)
-
-
-# Remove unnecessary variables
-rm(resp_summarized_by_family)
-```
---> The boxplot is not particularly illustrative, but the correlation is pretty meaningful I think? Looks like larger families show, on average over all tRNAs in them, less DE proteins, which makes sense with their hypothesis I think? If there are a couple major tRNA genes per family, larger families are going to have a lot of minor ones, while small families will be mostly major ones. Here I am also assuming that there are only a couple major copies per family, which I don't think they said at any point? But I guess makes sense with this. 
-
-
-
-## 1.9. Identify major and minor tRNA genes myself for all strains
-Original version, general histogram and histograms per isoacceptors, coloring by anticodon
-```{r}
 # Histogram of avg_nDEP for each KO strain
 ggplot(data = responsiveness, aes(x = nDEP)) +
   geom_histogram(binwidth = 1, color="black", fill="grey") +
@@ -586,7 +542,7 @@ responsiveness <- responsiveness %>%
   #mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",                                 This is how I did it before
   #                             nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
   #                             nDEP > 0.75*family_max ~ "Major")) %>%
-  mutate(Gene_type = case_when(nDEP > 0.60*family_max ~ "Major",                      # Current version
+  mutate(Gene_type = case_when(nDEP > 0.55*family_max ~ "Major",                      # Current version
                                TRUE ~ "Minor")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
@@ -633,6 +589,13 @@ ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
                   aes(x = Family_count, y = Major_count, label = anticodon),
                   size = 4)
 
+# Add family size information to responsiveness dataset
+temp <- family_sizes %>%
+  dplyr::select(anticodon, Family_size)
+responsiveness <- left_join(responsiveness, temp, by = "anticodon") %>%
+  mutate(perc_family = Family_count/Family_size)
+
+
 # Produce a single histogram like the one at the beginning of this chunk for each set of tRNA isoacceptors - and save them to a PDF
 ## Create empty list of plots
 plot_list <- list()
@@ -667,7 +630,7 @@ ggsave(
 rm(family_sizes_long, my_grobs, plot_list, temp, aa, aas, output_file, i)
 ```
 
-Histograms by anticodon, color by full sequence of the tRNA molecule (both DNA and mature sequences)
+Histograms by anticodon, color by full sequence of the tRNA molecule (both DNA and mature sequences) - also not coloring by anything (TO DO)
 ```{r}
 # Add columns with DNA and mature sequences to responsiveness dataframe
 temp <- master_dataset %>%
@@ -677,9 +640,10 @@ responsiveness <- left_join(responsiveness, temp, by = "Strain.Name")
 ## Create empty list of plots
 plot_list_DNA_seq <- list()
 plot_list_mature_seq <- list()
+plot_list_not_colored <- list()
 
 ## Generate the plots and add them to the list
-anticodons <- unique(as.character(responsiveness$anticodon))
+anticodons <- sort(unique(as.character(responsiveness$anticodon)))
 for (i in 1:length(anticodons)) {
   my_anticodon <- anticodons[i]
   temp <- responsiveness %>%
@@ -687,26 +651,36 @@ for (i in 1:length(anticodons)) {
   
   # Color by DNA seq
   plot_list_DNA_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = DNA_sequence, fill = DNA_sequence)) +
-    geom_histogram(binwidth = 1, stat = StatBin2) +
+    geom_histogram(bins = 100, stat = StatBin2) +
     theme_light() +
     xlab("nDEP") +
     ylab("Count") +
-    labs(title = glue("Frequency of nDEP in tRNAs with {my_anticodon}")) + 
+    labs(title = glue("{my_anticodon}")) + 
     theme(legend.position = "none")
   
   # Color by mature seq
   plot_list_mature_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = mature_sequence, fill = mature_sequence)) +
-    geom_histogram(binwidth = 1, stat = StatBin2) +
+    geom_histogram(bins = 100, stat = StatBin2) +
     theme_light() +
     xlab("nDEP") +
     ylab("Count") +
-    labs(title = glue("Frequency of nDEP in tRNAs with {my_anticodon}")) + 
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+  
+  # Not coloring by anything
+  plot_list_not_colored[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
     theme(legend.position = "none")
 }
 
 ## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
 my_grobs_DNA <- lapply(plot_list_DNA_seq, ggplotGrob)
 my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
+my_grobs_not_colored <- lapply(plot_list_not_colored, ggplotGrob)
 
 ## Print to PDF
 output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq.pdf", sep = "")
@@ -721,6 +695,54 @@ ggsave(
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
    width = 15, height = 9
 )
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
+```
+
+Repeat this but only for the strains with a single major tRNA gene, to have an image of the barplots only for those
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count == 1)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
 
 
 # Save responsiveness dataframe for further use
@@ -729,10 +751,12 @@ fwrite(responsiveness, paste(base_dir, "Data/responsiveness.csv", sep=""))
 
 # Remove unnecessary variables
 rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grobs_mature, plot_list_DNA_seq, plot_list_mature_seq, temp,
-   anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file)
+   anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file, temp_resp)
 ```
 
-This used to be in section 2, but I think it's better here: - NEED TO MAKE SURE THIS WORKS! HAVEN'T RUN IT YET SINCE I MOVED IT HERE
+
+
+This used to be in section 2, but I think it's better here:
 ```{r}
 # Just need to load resp_and_expression first
 resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
@@ -779,6 +803,92 @@ ggplot(data = temp_2, aes(x = Family_size, y = Major_count/Family_count)) +
 
 # Remove unnecessary variables
 rm(family_sizes, resp_and_expression)
+```
+
+
+
+## 1.9. Number of DE proteins per family, coloring by number of tRNAs in the family
+```{r}
+ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Genes in\nfamily",
+       title = "Number of DE proteins per family",
+       subtitle = "Colored by number of tRNA genes in the family") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Anticodon") +
+  labs(fill = "Genes in\nfamily",
+       title = "Number of DE proteins per family",
+       subtitle = "Colored by number of tRNA genes in the family - nDEP < 150") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  coord_cartesian(ylim = c(0, 150))
+
+
+# Correlation between nDEP and tRNA family size
+resp_summarized_by_family <- aggregate(responsiveness$nDEP, list(responsiveness$anticodon), mean)
+colnames(resp_summarized_by_family) <- c("anticodon", "nDEP")
+resp_summarized_by_family <- merge(resp_summarized_by_family, responsiveness[, c("anticodon", "Family_count")], by = "anticodon", all.x = T)
+resp_summarized_by_family <- resp_summarized_by_family %>%
+  distinct(anticodon, .keep_all = T)
+cor(resp_summarized_by_family$nDEP, resp_summarized_by_family$Family_count)
+
+
+# Remove unnecessary variables
+rm(resp_summarized_by_family)
+```
+--> The boxplot is not particularly illustrative, but the correlation is pretty meaningful I think? Looks like larger families show, on average over all tRNAs in them, less DE proteins, which makes sense with their hypothesis I think? If there are a couple major tRNA genes per family, larger families are going to have a lot of minor ones, while small families will be mostly major ones. Here I am also assuming that there are only a couple major copies per family, which I don't think they said at any point? But I guess makes sense with this. 
+
+More plots to look into this:
+```{r}
+# nDEP vs. family size
+ggplot(data = responsiveness, aes(x = as.factor(Family_size), y = nDEP)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family size") +
+  ylab("nDEP") +
+  labs(title = "nDEPs based on the number of tRNA genes in each family")
+
+ggplot(data = responsiveness, aes(x = as.factor(Family_size), y = nDEP)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family size") +
+  ylab("nDEP") +
+  coord_cartesian(ylim = c(0, 150)) +
+  labs(title = "nDEPs based on the number of tRNA genes in each family",
+       subtitle = "Truncated at nDEP < 150")
+
+ggplot(data = responsiveness, aes(x = as.factor(Family_size), y = nDEP, fill = perc_family)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family size") +
+  ylab("nDEP") +
+  coord_cartesian(ylim = c(0, 150)) +
+  labs(title = "nDEPs based on the number of tRNA genes in each family",
+       subtitle = "Truncated at nDEP < 150",
+       fill = "% of genes in family\nincluded in experiment")
+
+
+# nDEP vs. family count - tbh I don't think these ones are relevant at all?
+ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family count") +
+  ylab("nDEP") +
+  labs(title = "nDEPs vs. number of tRNA genes per family that were included in the study")
+
+ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Family count") +
+  ylab("nDEP") +
+  coord_cartesian(ylim = c(0, 150)) +
+  labs(title = "nDEPs vs. number of tRNA genes per family that were included in the study",
+       subtitle = "Truncated at nDEP < 150")
 ```
 
 
@@ -845,6 +955,26 @@ ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Number_o
   ylab("Number of genes") +
   geom_text_repel(data = subset(master_by_amino_acid, Number_of_tRNAs_loading_this_aa < 6 | Number_of_tRNAs_loading_this_aa > 20), aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa, label = Isotype_from_anticodon))
 
+# Family sizes of the genes that couldn't be KOd
+not_included_genes <- master_dataset %>%
+  filter(KOd == "No")
+
+# Barplot for family sizes
+ggplot(data = not_included_genes, aes(x = Family_size)) +
+  geom_bar() +
+  theme_light() +
+  xlab("Family size") +
+  ylab("Count") +
+  labs(title = "Distribution of family sizes across genes that couldn't be KOd")
+
+# Barplots for number of tRNA genes carrying that amino acid
+ggplot(data = not_included_genes, aes(x = Number_of_tRNAs_loading_this_aa)) +
+  geom_bar() +
+  theme_light() +
+  xlab("Number of genes for tRNAs carrying the same amino acid") +
+  ylab("Count") +
+  labs(title = "Distribution of the number of genes for tRNAs carrying the same amino acid",
+       subtitle = "Across genes that couldn't be KOd")
 
 # Remove unnecessary variables
 rm(master_by_amino_acid, master_by_anticodon)
@@ -1877,8 +2007,6 @@ Very simple linear model
 fit <- lm(data = gaussian_modelling_df, nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency)
 summary(fit)
 ```
-
-
 
 
 
@@ -3755,12 +3883,9 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 
 
 
-## 6.4. Explore intersections between KOs with large nDEPs inside each family
+## 6.4. Explore intersections between major KOs inside each family (only families with more than 1 major KO)
 Prepare data
 ```{r}
-# I identified families where there are at least 2 KOs with a decently large number of nDEPs by looking at the histograms I made earlier - maybe I could think of doing this by the column where I define them as "minor" or "major" instead?
-families_of_interest <- c("CUU", "UUG", "CCA", "AGA", "CAU", "AGC")
-
 # Load protein overlaps dataset created in previous section, with all possible intersections
 if (alpha == 0.01) {
   DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
@@ -3811,12 +3936,14 @@ temp <- DE_protein_overlaps_major_within_family %>%
 paired_major_strains <- c(as.character(DE_protein_overlaps_major_within_family$strains_1),as.character(DE_protein_overlaps_major_within_family$strains_2))
 ```
 
-Look at the EA results for these strains
+Look at the EA results for these strains - these is the EA done in the main file, but since I don't find anything to be enriched in most of the strains, I am going to repeat it here only for these strains trying to be more lenient with the p-values and other thresholds. I don't know if this is a great idea, these I wouldn't interpret generally as pathways or whatever that are enriched in these strains, but rather I am using it simply to summarize the proteins that are DE in these strains in a more readable way so that I can compare them within the pair, I cannot look at 2 lists of 40 proteins each and compare that myself. 
 ```{r}
 # Load EA results
+go_results_list_001 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_001.json", sep=""), simplifyVector = T)
 go_results_list_005 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_005.json", sep=""), simplifyVector = T)
 
 # Keep only those we are interested in
+go_results_list_001_filtered <- go_results_list_001[names(go_results_list_001) %in% paired_major_strains]
 go_results_list_005_filtered <- go_results_list_005[names(go_results_list_005) %in% paired_major_strains]
 
 # Need to look deeper into this for sure, but so far I only get EA results for 2 major KOs, let's compare those 
@@ -3825,6 +3952,106 @@ gca_p2 <- go_results_list_005_filtered[["tC(GCA)P2"]]$Description
 gca_b
 gca_p2
 ```
+
+
+Quick (and more lenient) EA only for these strains - only for proteins DE at 0.05 for now
+- Load data
+```{r}
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
+de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
+de_proteins_list_001 <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+
+# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05 - remove emtpy vectors
+de_proteins_list_005 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep=""))
+de_proteins_list_005 <- Filter(function(x) length(x) > 0, de_proteins_list_005)
+
+# Full Entrez ID dataframe, with all genes
+entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
+
+# Load the dataset with that information
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+
+# Phenotypic data from Bloom-Ackermann et al., 2014
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+
+
+source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+```
+
+- Get NCBI gene IDs for each of the systematic name vectors I have
+```{r}
+de_proteins_list_entrez_ID_005 <- list()
+for (i in 1:length(de_proteins_list_005)) {
+  temp <- data.frame("Protein_stable_ID" = de_proteins_list_005[[i]])
+  temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
+  temp <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
+  de_proteins_list_entrez_ID_005[[i]] <- temp
+}
+names(de_proteins_list_entrez_ID_005) <- names(de_proteins_list_005)
+```
+
+- Get the information of how many DE proteins there are for each tRNA KO strain
+```{r}
+de_prots_per_strain <- c()
+for (i in 1:length(de_proteins_list_005)) {
+  temp <- de_proteins_list_005[[i]]
+  de_prots_per_strain <- c(de_prots_per_strain, length(temp))
+}
+
+de_prots_per_strain_005 <- data.frame(Strain.Name = names(de_proteins_list_005),
+                                      nDEP = de_prots_per_strain) %>%
+  filter(Strain.Name != "WT")
+```
+
+- Perform GO enrichment analysis
+```{r}
+# Come up with background (all proteins detected)
+my_universe <- as.character(de_proteins_list_entrez_ID_005[["WT"]])
+
+# Create empty list for GO results, perform GO for each KO strain, and store them there
+de_proteins_list_entrez_ID_005 <- de_proteins_list_entrez_ID_005[names(de_proteins_list_entrez_ID_005) %in% paired_major_strains]
+go_results_list_005 <- list()
+for (i in 2:length(de_proteins_list_entrez_ID_005)) {
+  proteins_detected <- as.character(de_proteins_list_entrez_ID_005[[i]])
+  if (length(proteins_detected) > 0) {
+    go_results <- enrichGO(gene = proteins_detected, 
+                           OrgDb = "org.Sc.sgd.db", 
+                           keyType = "ENTREZID", 
+                           ont = "ALL", 
+                           pvalueCutoff = 0.1,
+                           minGSSize = 3,
+                           universe = my_universe)
+    go_results <- as.data.frame(go_results)
+    if (nrow(go_results) > 0) {
+      go_results_list_005[[names(de_proteins_list_entrez_ID_005)[i]]] <- go_results
+    }
+  }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

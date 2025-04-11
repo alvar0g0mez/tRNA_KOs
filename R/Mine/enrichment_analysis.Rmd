@@ -110,8 +110,7 @@ for (i in 2:length(de_proteins_list_entrez_ID_001)) {
                            OrgDb = "org.Sc.sgd.db", 
                            keyType = "ENTREZID", 
                            ont = "ALL", 
-                           universe = my_universe,
-                           maxGSSize = 200)
+                           universe = my_universe)
     go_results <- as.data.frame(go_results)
     if (nrow(go_results) > 0) {
       go_results_list_001[[names(de_proteins_list_entrez_ID_001)[i]]] <- go_results

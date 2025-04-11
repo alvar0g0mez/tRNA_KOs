@@ -81,7 +81,7 @@ dataset <- "batchcorrected_onWTs"
 # 1. Load data
 ```{r}
 # Our proteomics data
-resp <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_batchcorrected_onWTs.csv", sep="")))
+resp <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
 
 # Load their phenotypic data: growth rate and growth yield for all KOs
 phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
@@ -103,7 +103,8 @@ colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
 test <- full_join(phenotypic_data, resp, by = "gene_name")
 
 # Select numeric columns, calculate correlations and plot heatmap
-test <- test %>% dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
+test <- test %>% 
+  dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
 colnames(test) <- c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP")
 test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(test_corrs)
