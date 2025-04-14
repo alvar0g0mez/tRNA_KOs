@@ -47,7 +47,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -83,6 +83,12 @@ if (working_from == "charite") {
   # The stats file
   stats_file <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz"))
   
+  # The corrected, precursor-level data
+  report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
+  
+  # The processed proteomics data
+  
+  
   # Import the functions I have created in another file
   source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else 
@@ -90,21 +96,27 @@ if (working_from == "charite") {
 if (working_from == "home") {
   # Proteomics data - from the S drive
   if (dataset == "outlier_removed") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
   }
   else if (dataset == "batchcorrected_onWTs") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
-  }
+    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
+}
   
   # Sample layout - from the S drive
-  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-  
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv"))
   
   # My data - in the project folder - when I open the project, the directory is set to its location
   ## The master tRNA dataset
   master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
-  # The stats file
+    # The stats file
+  stats_file <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/report.stats.tsv.gz"))
+  
+  # The corrected, precursor-level data
+  report <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
+  
+  # The processed proteomics data
+  proteomics_processed <- as.data.frame(as.matrix(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv"), rownames = 1))
   
   
   ## Import the functions I have created in another file
@@ -145,7 +157,7 @@ if (dataset == "batchcorrected_onWTs")
 # Come up with new colnames
 new_names <- c()
 current_names <- colnames(proteomics_raw)
-new_names <- c(new_names, as.character(sample_layout$final_protemics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
+new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
 colnames(proteomics_raw) <- new_names
 
 
@@ -180,7 +192,7 @@ trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(tr
 
 # Remove the sub-batch that went wrong
 if (dataset == "outlier_removed") {
-  samples_in_wrong_batch <- sample_layout$final_protemics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 }
 
@@ -225,7 +237,7 @@ get_PCA_tags <- function(PCA_data, sample_layout, type_of_tags) {
   out <- c()
   for (i in 1:nrow(PCA_data)) {
     rowname <- rownames(PCA_data)[i]
-    out <- c(out, sample_layout[sample_layout$final_protemics_colnames == rowname, type_of_tags][1])
+    out <- c(out, sample_layout[sample_layout$final_proteomics_colnames == rowname, type_of_tags][1])
   }
   return(out)
 }
@@ -586,22 +598,50 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
 Nothing figured out from this yet :(
 
 ## 4.4. Look at this again, but based on the corrected data
+Prepare data
 ```{r}
-# Load data
-report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
-
-# Get this into a format that can be useful
+# Get a dataframe with the number of precursors and proteins and so on, but from the processed data
+## Precursor level
 report <- report %>%
-  dplyr::select(-c(Precursor.Id, Stripped.Sequence, Protein.Group, Genes)) %>%
-  t()
+  dplyr::select(-c(Precursor.Id, Stripped.Sequence, Protein.Group, Genes))
 
-new_report <- data.frame(Precursor.Quantity = apply(report, 1, FUN = sum, na.rm = T))
-new_report$Sample.ID.unique <- str_replace_all(rownames(report), "-", "_")
+Total.Precursor.Sum <- c()
+Precursor.Count <- c()
+Sample.ID.unique <- str_replace_all(colnames(report), "-", "_")
 
-new_report <- left_join(new_report, sample_layout, by = "Sample.ID.unique")
+for (i in 1:ncol(report)) {
+  Total.Precursor.Sum <- c(Total.Precursor.Sum, sum(report[,i], na.rm = T))
+  Precursor.Count <- c(Precursor.Count, sum(!is.na(report[,i])))
+}
 
-# Plot
+stats_file_processed <- data.frame(Total.Precursor.Sum, Precursor.Count, Sample.ID.unique) %>%
+  left_join(sample_layout, by = "Sample.ID.unique")
 
+
+## Protein level
+Total.Protein.Sum <- c()
+Protein.Count <- c()
+final_proteomics_colnames <- c()
+for (i in 1:ncol(proteomics_processed)) {
+  Total.Protein.Sum <- c(Total.Protein.Sum, sum(proteomics_processed[,i]))
+  Protein.Count <- c(Protein.Count, sum(!is.na(proteomics_processed[,i])))
+  final_proteomics_colnames <- c(final_proteomics_colnames, colnames(proteomics_processed)[i])
+}
+
+temp <- data.frame(Total.Protein.Sum, Protein.Count, final_proteomics_colnames)
+
+stats_file_processed <- left_join(temp, stats_file_processed, by = "final_proteomics_colnames")
+```
+
+Plots - these are completely useless for now :D
+```{r}
+ggplot(data = stats_file_processed, aes(x = Total.Precursor.Sum, y = Total.Protein.Sum)) +
+  geom_point() +
+  theme_light()
+
+ggplot(data = stats_file_processed, aes(x = Precursor.Count, y = Protein.Count)) +
+  geom_point() +
+  theme_light()
 ```
 
 

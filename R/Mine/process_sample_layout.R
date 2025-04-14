@@ -13,11 +13,18 @@ library(dplyr)
 library(data.table)
 
 
+# Set up
+working_from = "home"
+
+
 
 
 # Load data
-sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
-
+if (working_from == "home") {
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_Boris.tsv"))
+} else {
+  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
+}
 
 
 # Turn all dashes to underscores
@@ -35,7 +42,7 @@ sample_layout <- sample_layout %>%
 
 # Create a column with the column IDs of the shape I want to be working with for my proteomics data
 sample_layout <- sample_layout %>%
-  mutate(final_protemics_colnames = case_when(Strain.Name == "WT" ~ Sample.ID.unique,
+  mutate(final_proteomics_colnames = case_when(Strain.Name == "WT" ~ Sample.ID.unique,
                                               Strain.Name == "QC" ~ Sample.ID.unique,
                                               TRUE ~ paste(Strain.Name, "_0", Replicate, sep="")))
 
@@ -87,8 +94,11 @@ sample_layout <- sample_layout %>%
 
 
 # Save final version
-fwrite(sample_layout, "S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv")
-
+if (working_from == "home") {
+  fwrite(sample_layout, "/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv")
+} else {
+  fwrite(sample_layout, "S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv")
+}
 
 
 
