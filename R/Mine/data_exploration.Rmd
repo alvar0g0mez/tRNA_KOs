@@ -80,6 +80,9 @@ if (working_from == "charite") {
   # The master tRNA dataset
   master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
   
+  # The stats file
+  stats_file <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/04_ComputationalProteomics/ktextori@20230425+1332_30-0092-withQCs/report.stats.tsv.gz"))
+  
   # Import the functions I have created in another file
   source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else 
@@ -100,6 +103,9 @@ if (working_from == "home") {
   # My data - in the project folder - when I open the project, the directory is set to its location
   ## The master tRNA dataset
   master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
+  
+  # The stats file
+  
   
   ## Import the functions I have created in another file
   source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
@@ -498,9 +504,13 @@ stats_file <- left_join(stats_file, sample_layout[,c("File.Name", "Analysis.Plat
 
 ## 4.2. Plots to try to explain what is wrong with the subbatch
 ```{r}
+temp <- stats_file %>%
+  mutate(QCs = case_when(Analysis.Plate.96 == "QC" ~"QC",
+                         TRUE ~ "Not"))
+
 # Plot precursor number vs. protein number coloring by sub-batch
 output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_vs_proteins_identified_by_subbatch.png", sep="")
-ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
+ggplot(data = temp, aes(x = Precursors.Identified, y = Proteins.Identified, col = as.factor(Replicate))) +
   geom_point() +
   theme_light()
 ggsave(output_file)
@@ -536,7 +546,7 @@ ggsave(output_file)
 
 # Plot precursor number vs. date_injection_order, color by date
 output_file <- paste(base_dir, "Output/Plots/QC/stats_file/precs_identified_vs_injection_by_date.png", sep="")
-ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = date)) +
+ggplot(data = stats_file, aes(x = Date_Injection_Order, y = Precursors.Identified, col = as.factor(date))) +
   geom_point() +
   theme_light() +
   theme(axis.text.x=element_blank(), 
@@ -564,7 +574,7 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
   theme_light()
 
 # Precs vs. proteins, color by date
-ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = date)) +
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = as.factor(date))) +
   geom_point() +
   theme_light()
 
@@ -574,6 +584,25 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
   theme_light()
 ```
 Nothing figured out from this yet :(
+
+## 4.4. Look at this again, but based on the corrected data
+```{r}
+# Load data
+report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
+
+# Get this into a format that can be useful
+report <- report %>%
+  dplyr::select(-c(Precursor.Id, Stripped.Sequence, Protein.Group, Genes)) %>%
+  t()
+
+new_report <- data.frame(Precursor.Quantity = apply(report, 1, FUN = sum, na.rm = T))
+new_report$Sample.ID.unique <- str_replace_all(rownames(report), "-", "_")
+
+new_report <- left_join(new_report, sample_layout, by = "Sample.ID.unique")
+
+# Plot
+
+```
 
 
 
@@ -697,6 +726,9 @@ Heatmap(mat_log2FC,
 
 
 
+```{r}
+drift <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/driftcorrection_r2_df.tsv"))
+```
 
 
 
