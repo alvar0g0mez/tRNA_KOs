@@ -14,7 +14,7 @@ library(data.table)
 
 
 # Set up
-working_from = "home"
+working_from = "charite"
 
 
 
@@ -32,6 +32,12 @@ sample_layout <- sample_layout %>%
   mutate(Sample.ID = str_replace_all(Sample.ID, "-", "_"),
          Sample.ID.unique = str_replace_all(Sample.ID.unique, "-", "_"))
 
+# Grab the position within plate from the Plate.Position column, so that I can use it to obtain plate images with platetools
+sample_layout <- sample_layout %>%
+  mutate(temp = substr(Plate.Position, str_locate(Plate.Position, "_")+1, nchar(Plate.Position)),
+         Position.Within.Plate = case_when(nchar(temp) == 3 ~ temp,
+                                           nchar(temp) == 2 ~ paste(substr(temp, 1, 1), "0", substr(temp, 2, 2), sep=""))) %>%
+  dplyr::select(-temp)
 
 # Create a column that can match the colnames of the proteomics data as I get it from Boris
 sample_layout <- sample_layout %>%
@@ -66,7 +72,8 @@ sample_layout <- sample_layout %>%
 ## Extract the date for when each sample was run, as well as Date_Injection
 sample_layout <- sample_layout %>% 
   mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)")) %>%
-  mutate(Date_Injection_Order = paste(str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"), str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"),
+  mutate(Injection_Order = str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"), 
+         Date_Injection_Order = paste(str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"), str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"),
                                       sep="_"))
 
 ## Create a column that simply has the info of if each sample is a KO strain or a WT replicate

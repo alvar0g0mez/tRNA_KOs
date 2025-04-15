@@ -33,6 +33,9 @@ library(dendextend)
 library(ggrepel)
 library(ggvenn)
 library(tidyr)
+library(diann)
+library(platetools)
+library(viridis)
 ```
 
 Set parameters
@@ -47,7 +50,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -66,11 +69,11 @@ dataset <- "batchcorrected_onWTs"
 ```{r}
 if (working_from == "charite") {
   if (dataset == "outlier_removed") {
-    # Our proteomics data 
+    # Our raw proteomics data 
   proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv', header = T)
   }
   else if (dataset == "batchcorrected_onWTs") {
-    # Our proteomics data 
+    # Our raw proteomics data 
   proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
   }
   
@@ -86,12 +89,11 @@ if (working_from == "charite") {
   # The corrected, precursor-level data
   report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
   
-  # The processed proteomics data
-  
-  
   # Import the functions I have created in another file
   source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else 
+
+
 
 if (working_from == "home") {
   # Proteomics data - from the S drive
@@ -115,16 +117,42 @@ if (working_from == "home") {
   # The corrected, precursor-level data
   report <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
   
-  # The processed proteomics data
-  proteomics_processed <- as.data.frame(as.matrix(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv"), rownames = 1))
-  
-  
   ## Import the functions I have created in another file
   source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 }
 ```
 
-## 1.2. Merge sample_layout with master_dataframe
+## 1.2. Obtain processed protein dataset from the precursor-level processed data, so as to still have NAs
+```{r}
+# DONE ONCE, NOT NECESSARY TO RUN AGAIN SINCE IT TAKES A LONG TIME, JUST LOAD THE RESULTS
+
+# Get report into long format
+#report <- report %>%
+#  pivot_longer(cols = !c(Precursor.Id, Stripped.Sequence, Protein.Group, Genes),
+#               names_to = "File.Name",
+#               values_to = "Precursor.Quantity")
+#
+## Turn negative values to NAs
+#report <- report %>%
+#  mutate(Precursor.Quantity = case_when(Precursor.Quantity < 0 ~ NA,
+#                                        TRUE ~ Precursor.Quantity))
+
+# Run MaxLFQ on this data
+#proteomics_processed <- diann_maxlfq(report,
+#                                     sample.header = "File.Name",                        # Column with the sample IDs
+#                                     group.header = "Genes",                             # Column with the protein IDs
+#                                     id.header = "Precursor.Id",                         # Column with the precursor IDs
+#                                     quantity.header = "Precursor.Quantity")             # Column with the precursor quantities
+#
+#proteomics_processed <- data.frame(proteomics_processed)
+#fwrite(proteomics_processed, paste(base_dir, "Data/Other/proteomics_data/protein_level_processed_not_imputed.tsv", sep=""))
+
+# Load the resulting file from MaxLFQ
+proteomics_processed <- as.data.frame(fread(paste(base_dir, "Data/Other/proteomics_data/protein_level_processed_not_imputed.tsv", sep="")))
+```
+
+
+## 1.3. Merge sample_layout with master_dataframe
 ```{r}
 # Merge with master dataframe
 colnames(master_dataset)[colnames(master_dataset) == "gene_name"] <- "Strain.Name"
@@ -134,7 +162,7 @@ sample_layout <- sample_layout %>%
   left_join(master_dataset, by = c("Strain.Name"))
 ```
 
-## 1.3. Pre-process proteomics data - this is where I:
+## 1.4. Pre-process proteomics data - this is where I:
   - Deal with the 2/3 duplicated strains
   - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
   - Generally do everything necessary to come up with trna_ko from proteomics_raw
@@ -210,6 +238,26 @@ if (dataset == "batchcorrected_onWTs") {
 
 # Remove unnecessary objects
 rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names)
+```
+
+## 1.5. Come up with plate drawings for where the samples were located
+```{r}
+replicates <- c(1, 2, 3)
+for (i in replicates) {
+  temp <- sample_layout %>%
+    filter(Replicate == i)
+  
+  raw_map(data = temp$Strain.Type,
+        well = temp$Position.Within.Plate,
+        plate = 384) +
+  ggtitle(glue("Plate {i} - tRNA KOs")) +
+  theme_dark() +
+  scale_fill_viridis_d() +
+  theme(axis.text=element_text(size=6))
+  
+  ggsave(paste(base_dir, "Output/Plots/sample_layout/tRNA_KOs_plate_", i, ".png", sep=""))
+}
+
 ```
 
 
@@ -511,8 +559,9 @@ rm(PCA_tags, var_exp_PC1, var_exp_PC2, var_explained, get_PCA_tags, PC, PCA_data
 ```{r}
 # Add column with subbatches to stats file
 stats_file <- left_join(stats_file, sample_layout[,c("File.Name", "Analysis.Plate.96", "Replicate", "Analysis.Plate.96_Replicate", "Strain.Type", 
-                                                     "Wrong_batch", "date", "Date_Injection_Order")], by = "File.Name")
+                                                     "Wrong_batch", "date", "Injection_Order", "Date_Injection_Order")], by = "File.Name")
 ```
+
 
 ## 4.2. Plots to try to explain what is wrong with the subbatch
 ```{r}
@@ -573,14 +622,25 @@ ggplot(data = stats_file, aes(x = MS1.Signal, y = Precursors.Identified, col = A
   theme_light()
 ```
 
+
 ## 4.3. Plots to try to explain what's up with the 2 separate curves in Precursors.Identified vs. Proteins.Identified
 ```{r}
+# Precs vs. proteins
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified)) +
+  geom_point() +
+  theme_light()
+
 # Precs vs. proteins, color by batch/384-well plate
 ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = as.factor(Replicate))) +
   geom_point() +
   theme_light()
 
 # Precs vs. proteins, color by 96-well plate
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96)) +
+  geom_point() +
+  theme_light()
+
+# Precs vs. proteins, color by 96-well plate_Replicate
 ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Analysis.Plate.96_Replicate)) +
   geom_point() +
   theme_light()
@@ -594,8 +654,24 @@ ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified
 ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Strain.Type)) +
   geom_point() +
   theme_light()
+
+# Precs vs. proteins, color by Date_Injection_Order - doesn't really work, needs to be a factor and it has way too many levels
+#ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Date_Injection_Order)) +
+#  geom_point() +
+#  theme_light()
+
+# Precs vs. proteins, color by Injection_Order
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = Injection_Order)) +
+  geom_point() +
+  theme_light()
+
+# Precs vs. proteins, color by Date+Injection_Order
+ggplot(data = stats_file, aes(x = Precursors.Identified, y = Proteins.Identified, col = date+Injection_Order)) +
+  geom_point() +
+  theme_light()
 ```
 Nothing figured out from this yet :(
+
 
 ## 4.4. Look at this again, but based on the corrected data
 Prepare data
@@ -621,19 +697,19 @@ stats_file_processed <- data.frame(Total.Precursor.Sum, Precursor.Count, Sample.
 ## Protein level
 Total.Protein.Sum <- c()
 Protein.Count <- c()
-final_proteomics_colnames <- c()
+raw_proteomics_colnames <- c()
 for (i in 1:ncol(proteomics_processed)) {
-  Total.Protein.Sum <- c(Total.Protein.Sum, sum(proteomics_processed[,i]))
+  Total.Protein.Sum <- c(Total.Protein.Sum, sum(proteomics_processed[,i], na.rm = T))
   Protein.Count <- c(Protein.Count, sum(!is.na(proteomics_processed[,i])))
-  final_proteomics_colnames <- c(final_proteomics_colnames, colnames(proteomics_processed)[i])
+  raw_proteomics_colnames <- c(raw_proteomics_colnames, colnames(proteomics_processed)[i])
 }
 
-temp <- data.frame(Total.Protein.Sum, Protein.Count, final_proteomics_colnames)
+temp <- data.frame(Total.Protein.Sum, Protein.Count, raw_proteomics_colnames)
 
-stats_file_processed <- left_join(temp, stats_file_processed, by = "final_proteomics_colnames")
+stats_file_processed <- left_join(temp, stats_file_processed, by = "raw_proteomics_colnames")
 ```
 
-Plots - these are completely useless for now :D
+Plots
 ```{r}
 ggplot(data = stats_file_processed, aes(x = Total.Precursor.Sum, y = Total.Protein.Sum)) +
   geom_point() +
@@ -641,8 +717,49 @@ ggplot(data = stats_file_processed, aes(x = Total.Precursor.Sum, y = Total.Prote
 
 ggplot(data = stats_file_processed, aes(x = Precursor.Count, y = Protein.Count)) +
   geom_point() +
-  theme_light()
+  theme_light() +
+  xlab("Precursors.Identified") +
+  ylab("Proteins.Identified")
 ```
+
+
+## 4.5. Obtain plots Ludwig recommended, log10(intensity) vs. acquisition time
+```{r}
+# This code is from 2 chunks above
+report <- report %>%
+  t() %>%
+  as.data.frame()
+report$Sample.ID <- as.character(str_replace_all(rownames(report), "-", "_"))
+temp <- sample_layout %>%
+  dplyr::select(Sample.ID, final_proteomics_colnames, Date_Injection_Order)
+
+report <- left_join(report, temp, by = "Sample.ID")
+
+report <- pivot_longer(data = report, 
+                       cols = !c(Sample.ID, final_proteomics_colnames, Date_Injection_Order),
+                       names_to = "Whatever",
+                       values_to = "Precursor.Quantity")
+
+
+# Get the plot
+temp <- report[1:4701996,]
+ggplot(data = temp, aes(x = Date_Injection_Order, y = log10(Precursor.Quantity))) +
+  geom_boxplot(outliers = F) +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank()) +
+  labs(title = "Total precursor intensity along the injection order, for processed data",
+       subtitle = "Only the first 1/5 of the data")
+```
+
+
+These are the proteins that were drift corrected, in case I want to check them
+```{r}
+drift <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/driftcorrection_r2_df.tsv"))
+```
+
+
 
 
 
@@ -766,9 +883,26 @@ Heatmap(mat_log2FC,
 
 
 
+
+
+
+
+
+
+
+
+Check the number of replicates
 ```{r}
-drift <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/driftcorrection_r2_df.tsv"))
+report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity.tsv"))
 ```
+
+
+
+
+
+
+
+
 
 
 
