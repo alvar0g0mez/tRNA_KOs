@@ -62,7 +62,7 @@ lfc_threshold <- 1.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -88,6 +88,9 @@ phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloo
 
 # Load trna_ko
 trna_ko <- as.data.frame(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep="")))
+
+# My helper functions
+source("0.general_use_functions.R")
 ```
 
 
@@ -131,6 +134,13 @@ nDEP has:
   - No correlation with growth rate under SDC, YPD and low glucose
   - Relatively large, positive correlation with growth rate and growth yield under DTT: those that show more DEPs in rich medium are those that        grow better under DTT, this agrees with the original article: these strains have proteotoxic stress going on already in the cell because of the     lack of that necessary (major?) tRNA, so they adapt better to living in DTT. 
   - Relatively large, negative correlation with growth rates and growth yields under all other conditions: also makes sense with the original            article, the strains which are less affected by the KO (so less DEPs) grow better in most conditions, simply because less things are affected     inside the cell, reasonable. The more unintuitive one is the previous one. 
+
+Try a scatterplot instead of simply the correlations - for growth rate and growth yield in SM?
+```{r}
+ggplot(data = test, aes(x = SDC_GR, y = nDEP)) +
+  geom_point() +
+  theme_light()
+```
 
 
 
@@ -362,3 +372,33 @@ for (i in 1:length(microarray_samples)) {
 --> The correlations here get quite a bit better than in the heatmap for proteomics vs. transcriptomics, I guess because the proteomics data is averaged over the replicates for each tRNA? That's the only difference I can think of
 
 --> Interestingly, I get decent correlations between proteomics and transcriptomics in the KOs for MC tRNAs, those which grew worse than WT or equally bad in DTT, so those where we assume the removal of the tRNA is not having a proteotoxic effect. On the other hand, for SC tRNAs (those where the removal of the tRNA has a proteotoxic effect, hence allowing them to grow better than WT in DTT), there is barely any correlation between transcriptomics and proteomics. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
