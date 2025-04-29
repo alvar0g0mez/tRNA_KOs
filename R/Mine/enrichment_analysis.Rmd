@@ -37,7 +37,7 @@ alpha <- 0.01
 lfc_threshold <- 1.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"

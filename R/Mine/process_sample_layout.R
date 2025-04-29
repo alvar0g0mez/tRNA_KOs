@@ -34,10 +34,10 @@ sample_layout <- sample_layout %>%
 
 # Grab the position within plate from the Plate.Position column, so that I can use it to obtain plate images with platetools
 sample_layout <- sample_layout %>%
-  mutate(temp = substr(Plate.Position, str_locate(Plate.Position, "_")+1, nchar(Plate.Position)),
-         Position.Within.Plate = case_when(nchar(temp) == 3 ~ temp,
-                                           nchar(temp) == 2 ~ paste(substr(temp, 1, 1), "0", substr(temp, 2, 2), sep=""))) %>%
-  dplyr::select(-temp)
+  mutate(Position.Within.Plate.384 = case_when(nchar(as.character(Analysis.Column.384)) == 2 ~ paste(Analysis.Row.384, Analysis.Column.384, sep=""),
+                                               nchar(as.character(Analysis.Column.384)) == 1 ~ paste(Analysis.Row.384, 0, Analysis.Column.384, sep="")),
+         Position.Within.Plate.96 = case_when(nchar(as.character(Analysis.Column.96)) == 2 ~ paste(Analysis.Row.96, Analysis.Column.96, sep=""),
+                                              nchar(as.character(Analysis.Column.96)) == 1 ~ paste(Analysis.Row.96, 0, Analysis.Column.96, sep="")))
 
 # Create a column that can match the colnames of the proteomics data as I get it from Boris
 sample_layout <- sample_layout %>%

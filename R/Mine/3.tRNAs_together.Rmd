@@ -122,6 +122,10 @@ if (working_from == "home") {
   ## Import the functions I have created in another file
   source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 }
+
+
+# The ODs
+od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
 ```
 
 
@@ -1074,7 +1078,29 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
 ```
 
 
-## 1.13. Clean up environment
+## 1.13. Quick look at the OD
+```{r}
+ggplot(data = od, aes(x = OD_processed)) +
+  geom_histogram(binwidth = 0.1, fill = "grey", col = "black") +
+  theme_light() +
+  labs(title = "Processed ODs for tRNA KO strains",
+       subtitle = "For the following 96-well plates: 2.1., 2.2., 2.3.") +
+  ylab("Frequency") +
+  xlab("OD")
+
+# Color by empty wells
+ggplot(data = od, aes(x = OD_processed, fill = Empty_well)) +
+  geom_histogram(binwidth = 0.03, col = "black") +
+  theme_light() +
+  labs(title = "Processed ODs for tRNA KO strains",
+       subtitle = "For the following 96-well plates: 2.1., 2.2., 2.3.",
+       fill = "Empty well?") +
+  ylab("Frequency") +
+  xlab("OD")
+```
+
+
+# 1.14. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
@@ -3938,13 +3964,19 @@ paired_major_strains <- c(as.character(DE_protein_overlaps_major_within_family$s
 
 Look at the EA results for these strains - these is the EA done in the main file, but since I don't find anything to be enriched in most of the strains, I am going to repeat it here only for these strains trying to be more lenient with the p-values and other thresholds. I don't know if this is a great idea, these I wouldn't interpret generally as pathways or whatever that are enriched in these strains, but rather I am using it simply to summarize the proteins that are DE in these strains in a more readable way so that I can compare them within the pair, I cannot look at 2 lists of 40 proteins each and compare that myself. 
 ```{r}
-# Load EA results
+# Load GO EA results
 go_results_list_001 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_001.json", sep=""), simplifyVector = T)
 go_results_list_005 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_005.json", sep=""), simplifyVector = T)
+
+# Load GSEA results (GO and KEGG)
+kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
 
 # Keep only those we are interested in
 go_results_list_001_filtered <- go_results_list_001[names(go_results_list_001) %in% paired_major_strains]
 go_results_list_005_filtered <- go_results_list_005[names(go_results_list_005) %in% paired_major_strains]
+kegg_gsea_results_filtered <- kegg_gsea_results[names(kegg_gsea_results) %in% paired_major_strains]
+go_gsea_results_filtered <- go_gsea_results[names(go_gsea_results) %in% paired_major_strains]
 
 # Need to look deeper into this for sure, but so far I only get EA results for 2 major KOs, let's compare those 
 gca_b <- go_results_list_005_filtered[["tC(GCA)B"]]$Description
@@ -4030,7 +4062,37 @@ for (i in 2:length(de_proteins_list_entrez_ID_005)) {
 ```
 
 
+Produce LaTex table with significant pathways in pairs of KOs with the same anticodon
+```{r}
+# For GO GSEA results
+## Get the unique codons to iterate over
+codons <- unique(sapply(names(go_gsea_results_filtered), extract_anticodon_from_trna_name))
 
+# Iterate over codons and create a table for each pair of KOs (for those anticodons for which we have more than 1 KO)
+for (i in 1:length(codons)) {
+  codon <- codons[i]
+  temp_go_gsea_results <- go_gsea_results_filtered[grepl(codon, names(go_gsea_results_filtered))]
+  
+  # Proceed only if there are GSEA results for at least 2 KOs with this anticodon
+  if (length(temp_go_gsea_results) > 1) {
+    temp_list <- list()
+    for (j in 1:length(temp_go_gsea_results)) {
+      temp_list[[names(temp_go_gsea_results)[j]]] <- sort(temp_go_gsea_results[[j]]$pathway)
+    }
+    out_df <- data.frame(matrix(ncol = 0, nrow = max(sapply(temp_list, length))))
+    for (j in 1:length(temp_list)) {
+      new_col <- temp_list[[j]]
+      if (length(new_col) == max(sapply(temp_list, length))) {
+        out_df[,j] <- new_col
+      } else {
+        out_df[,j] <- c(new_col, rep(NA, max(sapply(temp_list, length))-length(new_col)))
+      }
+    }
+    colnames(out_df) <- names(temp_list)
+    print(xtable(out_df), include.rownames=FALSE)
+  }
+}
+```
 
 
 

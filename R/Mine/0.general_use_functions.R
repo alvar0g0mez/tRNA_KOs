@@ -5,6 +5,7 @@ library(readODS)
 library(stringr)
 library(roxygen2)
 library(stringi)
+library(stringr)
 
 
 
@@ -447,6 +448,29 @@ summarize_mine <- function(df, column_name, output_column_name) {
 }
 
 
+
+
+
+
+
+
+################################################################################
+# Extract anticodon from tRNA name
+################################################################################
+#' Just grab the 3 letters in between parenthesis, very simple but by defining 
+#' it as a function it's easier to apply it to lists/vectors. 
+#' 
+#' @param trna A string containing the name of one of the tRNA KO strains, in 
+#' the format "tA(AGC)M"
+#' 
+#' @return The anticodon in this tRNA, this is, the 3 letters in between 
+#' parenthesis in the name of the tRNA KO strain - "AGC" in this case
+extract_anticodon_from_trna_name <- function(trna) {
+  start <- str_locate(trna, "\\(")[1]+1
+  end <- str_locate(trna, "\\)")[1]-1
+  out <- substr(trna, start, end)
+  return(out)
+}
 
 
 
