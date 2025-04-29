@@ -21,6 +21,8 @@ library(ggplot2)
 library(jsonlite)
 library(stringr)
 library(forcats)
+library(GO.db)
+library(biomaRt)
 ```
 
 
@@ -336,7 +338,6 @@ phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloo
 source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
-
 ## 5.2. Evaluate growth in DTT and classify strains to better than WT or equal/worse
 ```{r}
 # Plot GR and GY in DTT
@@ -366,7 +367,7 @@ strains_better_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT > sd(phen
 strains_worse_or_equal_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT < -sd(phenotypic_data$DTT, na.rm = T) & phenotypic_data$DTT_GY < -sd(phenotypic_data$DTT_GY, na.rm = T)]
 ```
 
-## 5.2. Compare EA results to these strain classification
+## 5.3. Compare EA results to these strain classification
 ```{r}
 go_list_better_dtt <- list()
 go_list_worse_dtt <- list()
@@ -382,7 +383,7 @@ for (i in 1:length(go_results_list_001)) {
 }
 ```
 
-## 5.3. Come up with a count of the enriched pathways throughout each set of strains
+## 5.4. Come up with a count of the enriched pathways throughout each set of strains
 Get dataframes
 ```{r}
 # For strains growing worse in DTT
@@ -551,8 +552,17 @@ ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term
 
 
 
-# 6. GSEA - try to imitate the results from the original article
+# 6. Gene Set Enrichment Analysis (GSEA)
+In order to perform GSEA with the gsea() function from the gsea package in R, we need the following:
+  - A list of named vectors, where the names are those of the gene sets we are working with (GO, KEGG, whatever) and the corresponding vector contains the names of the genes that are included in that gene set. Only genes that are detected in our dataset should be included here (this is at the same time the reference and the background for our enrichment analysis).
+  - A named vector of ranked genes - we calculate ranks/scores for the genes detected in each strain, which represent how DE they are basically. The values in this vector are these ranks/scores, while their names are simply the name of the gene. 
+  
+That's it! We provide gsea() with these things and with some other parameters, and it will perform the enrichment analysis :)
+
+
+
 ## 6.1. Prepare ranked gene lists
+For now, my score/rank is: sign(logFC)*(-log10(adj.P.Val))
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
 da <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), simplifyVector = T)
@@ -560,22 +570,38 @@ da <- da[names(da) != "WT"]
 
 # Create empty list to put the named ranked gene lists in
 ranked_genes <- list()
+number_of_proteins_with_no_Entrez_ID <- c()
 
 # Iterate over these dataframes
 for (i in 1:length(da)) {
   temp <- da[[i]]
   
+  # Get the corresponding Entrez IDs to these systematic gene names, since the GSEA is performed in terms of those
+  temp$Protein_stable_ID <- rownames(temp)
+  entrez_temp <- entrez_db %>%
+    dplyr::select(Protein_stable_ID, `NCBI_gene_(formerly_Entrezgene)_ID`)
+  temp <- left_join(temp, entrez_temp, by = "Protein_stable_ID")
+  rownames(temp) <- NULL
+  temp <- temp %>%
+    dplyr::select(logFC, adj.P.Val, `NCBI_gene_(formerly_Entrezgene)_ID`) %>%
+    rename(gene_symbol = `NCBI_gene_(formerly_Entrezgene)_ID`)
+  
+  # Get rid of the proteins for which we don't have the Entrez ID (and save the count of how many of them there are, to check it's not too many) - otherwise GSEA doesn't work
+  number_of_proteins_with_no_Entrez_ID <- c(number_of_proteins_with_no_Entrez_ID, sum(is.na(temp$gene_symbol)))
+  temp <- temp %>%
+    dplyr::filter(!is.na(gene_symbol))
+  
   # Using as score the -log10(p-value)*sign of the logFC
   rankings <- sign(temp$logFC)*(-log10(temp$adj.P.Val))
-  names(rankings) <- rownames(temp)
+  names(rankings) <- temp$gene_symbol
   rankings <- sort(rankings, decreasing = TRUE)
   
   # Plot
   plot(rankings)
   
-  # Check max and min - to see if there is a need to correct for -Inf and +Inf
-  max(rankings)
-  min(rankings)
+  # Check max and min - to see if there is a need to correct for -Inf and +Inf - commented out, I don't think it's necessary
+  #print(max(rankings))
+  #print(min(rankings))
   
   # Some genes have such low p values that the signed pval is +- inf, we need to change it to the maximum * constant to avoid problems with fgsea
   # (this part is copy pasted from the link)
@@ -590,9 +616,11 @@ for (i in 1:length(da)) {
 }
 ```
 
-## 6.2. Perform GSEA with KEGG annotation
+
+
+## 6.2. Perform GSEA with KEGG annotation - as described by https://biostatsquid.com/fgsea-tutorial-gsea/
 ### Download KEGG gene lists (according to https://www.researchgate.net/post/How_i_can_get_a_list_of_KEGG_pathways_and_its_list_of_genes)
-DO NOT RUN AGAIN - I used this to download the file, I just need to load it, but I left this code here in case I want to know how I did it
+DO NOT RUN AGAIN - I used this to download the .gmt file, I just need to load it, but I left this code here in case I want to know how I did it
 ```{r}
 BiocManager::install("KEGGREST")
 BiocManager::install("EnrichmentBrowser")
@@ -612,8 +640,7 @@ sar <- getGenesets(org = "sce", db = "kegg", cache = TRUE, return.type="list")
 writeGMT(sar, gmt.file = paste(base_dir, "Data/Other/enrichment_analysis/20250305_kegg_sce_gmt", sep=""))
 ```
 
-
-### Now perform the GSEA as described by https://biostatsquid.com/fgsea-tutorial-gsea/
+### Process .gmt file to turn it into the list of gene set vectors we need for gsea()
 Get a list of pathways, with each entry being a vector with the Entrez IDs for the genes involved in that pathway. Make it so that only proteins that we detect in our dataset are included here. 
 ```{r}
 # Read in the .gmt file
@@ -629,7 +656,7 @@ proteins_detected <- match_systematic_and_standard_protein_names(data = rownames
                                                                  simplify = T)
 proteins_detected <- entrez_db$`NCBI_gene_(formerly_Entrezgene)_ID`[entrez_db$Protein_stable_ID %in% proteins_detected]
 
-# Get our list of vectors, where each vector is a KEGG pathway and the terms in it are the genes related to it
+# Get our list of vectors, where each vector is a KEGG pathway and the terms in it are the genes related to it - keeping only genes which are detected in our dataset
 gmt <- gmt %>%
   mutate(pathway_code = substr(term, 1, str_locate(term, "_")[1]-1), 
          pathway_name = substr(term, str_locate(term, "_")[1]+1, nchar(term)))
@@ -644,28 +671,460 @@ for (i in 1:length(pathways)) {
 }
 ```
 
-Run GSEA
+### Run GSEA
 The warning I get here refers to many proteins having exactly the same rank (these are the ones we see in a horizontal line in the plots produced in 5.1.) - this should be okay, since these are the genes that were not significantly differentially expressed at all - but tbh this makes it so that I cannot really get that much info from those anyway, right? So there isn't that much of a difference between this and doing the GSEA only with DE proteins, right?? Idk
 ```{r}
 kegg_gsea_results <- list()
 
 for (i in 1:length(ranked_genes)) {
-  kegg_gsea_results[[names(ranked_genes)[i]]] <- fgsea(pathways = kegg_genes, # List of gene sets to check
-                 stats = ranked_genes[[i]],
-                 scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
-                 minSize = 1,
-                 maxSize = 1000,
-                 nproc = 1) # for parallelisation
+  kegg_gsea_results[[names(ranked_genes)[i]]] <- fgsea(pathways = kegg_genes,                                # List of gene sets to check
+                                                       stats = ranked_genes[[i]],
+                                                       scoreType = 'std',                                     
+                                                                      # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                                                       minSize = 1,
+                                                       maxSize = 1000,
+                                                       nproc = 1)                                             # for parallelisation
 }
+
+
+# This returns a list, where each element is a dataframe for the corresponding KO strain, and each row in that dataframe is a pathway. However, all pathways are included, so we are going to filter all of these dataframes to keep only the pathways that are significant in each KO strain
+kegg_gsea_results_filtered <- lapply(kegg_gsea_results, function(x) filter(x, padj < 0.05))
+bool <- sapply(kegg_gsea_results_filtered, function(x) nrow(x)>0)
+kegg_gsea_results_filtered <- kegg_gsea_results_filtered[bool]
+
+# Save these results
+write_json(kegg_gsea_results_filtered, paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), pretty = T)
 ```
 
-THE RESULTS JUST COME OUT TOTALLY EMPTY FOR ALL KOS :D - I GUESS I'LL HAVE TO LOOK INTO THIS AT SOME POINT
+
+
+## 6.3. GSEA with GO annotation
+### Get the information equivalent to that in the .gmt file and save it as gene set vectors already - code from ChatGPT
+Initially I was then saving this info to an actual .gmt file to them use it, but honestly that just made everything more convoluted, I'm just going to save it as a list of vectors, as a JSON file and that's it :)
+```{r}
+# Step 1: Connect to Ensembl Fungi
+ensembl_fungi <- useMart("fungi_mart", dataset = "scerevisiae_eg_gene", host = "https://fungi.ensembl.org")
+
+# Step 2: Retrieve GO annotations
+go_annotations <- getBM(attributes = c("ensembl_gene_id", "external_gene_name", 
+                                       "go_id", "name_1006", "namespace_1003", "entrezgene_id"),
+                        mart = ensembl_fungi)
+
+# This is added by me
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+go_annotations <- go_annotations %>%
+  dplyr::filter(namespace_1003 != "go") %>%                                     # Pretty sure these rows are just wrong, or at least not useful to me
+  dplyr::filter(ensembl_gene_id %in% rownames(trna_ko)) %>%                     # Keep only those genes which are detected in our data, so as to prevent bias
+  dplyr::mutate(gene_set = case_when(namespace_1003 == "molecular_function" ~ paste(name_1006, " (MF)", sep=""),
+                              namespace_1003 == "biological_process" ~ paste(name_1006, " (BP)", sep=""),
+                              namespace_1003 == "cellular_component" ~ paste(name_1006, " (CC)", sep="")))
+
+# Check the first few rows
+head(go_annotations)
+
+# Step 3: Filter for Biological Process (BP) only
+go_annotations <- go_annotations %>%
+  #filter(namespace_1003 == "biological_process") %>%
+  filter(go_id != "")  # Remove any empty GO terms if present
+
+# Step 4: Build a list: GO Term -> Genes
+# Use external_gene_name (common names) or ensembl_gene_id (your choice)
+go_list <- split(go_annotations$entrezgene_id, go_annotations$gene_set)
+
+# Step 5: Save this named list of vectors as a JSON file
+write_json(go_list, path = paste(base_dir, "Data/Other/enrichment_analysis/go_list_gmt.json", sep=""), pretty = T)
+```
+
+### Load the gene set vectors created in the previous chunk
+Get a list of pathways, with each entry being a vector with the Entrez IDs for the genes involved in that pathway. Make it so that only proteins that we detect in our dataset are included here. 
+```{r}
+# Read in the .json file
+go_gene_sets <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_list_gmt.json", sep=""), simplifyVector = T)
+```
+
+### Run GSEA
+The warning I get here refers to many proteins having exactly the same rank (these are the ones we see in a horizontal line in the plots produced in 5.1.) - this should be okay, since these are the genes that were not significantly differentially expressed at all - but tbh this makes it so that I cannot really get that much info from those anyway, right? So there isn't that much of a difference between this and doing the GSEA only with DE proteins, right?? Idk
+```{r}
+go_gsea_results <- list()
+
+for (i in 1:length(ranked_genes)) {
+  go_gsea_results[[names(ranked_genes)[i]]] <- fgsea(pathways = go_gene_sets,                                # List of gene sets to check
+                                                       stats = ranked_genes[[i]],
+                                                       scoreType = 'std',                                     
+                                                                      # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+                                                       minSize = 1,
+                                                       maxSize = 1000,
+                                                       nproc = 1)                                             # for parallelisation
+}
+
+
+# This returns a list, where each element is a dataframe for the corresponding KO strain, and each row in that dataframe is a pathway. However, all pathways are included, so we are going to filter all of these dataframes to keep only the pathways that are significant in each KO strain
+go_gsea_results_filtered <- lapply(go_gsea_results, function(x) filter(x, padj < 0.05))
+bool <- sapply(go_gsea_results_filtered, function(x) nrow(x)>0)
+go_gsea_results_filtered <- go_gsea_results_filtered[bool]
+
+# Save these results
+write_json(go_gsea_results_filtered, paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), pretty = T)
+```
+
+
+
+
+Perform GSEA with Reactome annotation?? - Seeminlgy Reactome is mostly human, so if anything I could look to repeat this with GO annotation, but not Reactome!
+
+
+
+## 6.4. Analyze GSEA results
+### 6.4.1. Load results
+```{r}
+kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
+```
+
+
+### 6.4.2. Barplots for most common GSEA terms
+KEGG
+```{r}
+# Prepare dataframe
+## Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
+}
+kegg_gsea_results <- mapply(FUN = add_strain_tag, df = kegg_gsea_results, strain = names(kegg_gsea_results), SIMPLIFY = F)
+
+## Collapse list of dataframes into single dataframe and add a column with the count of Description
+kegg_terms_df_full <- bind_rows(kegg_gsea_results) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+
+
+# Plot
+## Grab only top 10 most common EA terms
+temp <- kegg_terms_df_full %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common KEGG GSEA terms",
+       subtitle = "Across all strains") +
+  ylab("Strain count") +
+  xlab("GSEA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common KEGG GSEA terms",
+       subtitle = "Across all strains") +
+  ylab("Strain percentage") +
+  xlab("GSEA term")
+```
+
+GO
+```{r}
+# Prepare dataframe
+## Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
+}
+go_gsea_results <- mapply(FUN = add_strain_tag, df = go_gsea_results, strain = names(go_gsea_results), SIMPLIFY = F)
+
+## Collapse list of dataframes into single dataframe and add a column with the count of Description
+go_terms_df_full <- bind_rows(go_gsea_results) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+
+
+# Plot
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_full %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common GO GSEA terms",
+       subtitle = "Across all strains") +
+  ylab("Strain count") +
+  xlab("GSEA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common GO GSEA terms",
+       subtitle = "Across all strains") +
+  ylab("Strain percentage") +
+  xlab("GSEA term")
+```
+
+
+### 6.4.3. Barplot separating strains growing better or worse than WT in DTT
+Load data
+```{r}
+# Load the dataset with that information
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+
+# Phenotypic data from Bloom-Ackermann et al., 2014
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+
+source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+```
+
+Classify strains
+```{r}
+# Plot GR and GY in DTT
+ggplot(data = phenotypic_data, aes(x = DTT)) +
+  geom_histogram(binwidth = 1) +
+  theme_light() +
+  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)+sd(phenotypic_data$DTT, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)-sd(phenotypic_data$DTT, na.rm = T), col = "red")
+
+ggplot(data = phenotypic_data, aes(x = DTT_GY)) +
+  geom_histogram(binwidth = 1) +
+  theme_light() +
+  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)+sd(phenotypic_data$DTT_GY, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)-sd(phenotypic_data$DTT_GY, na.rm = T), col = "red")
+
+# At first I just divided strains into those above and below 0, and grabbed those that were above 0 in both GR and GY as one group, and those that were below 0 in both GR and GY as the other group. However, I found no pattern at all, so I think it would make sense to be a bit more stringent in how I select the strains. I am going to do it based on the SD of each of the distribution above
+
+# Need to look into the original article to figure out which one to use - going with both for now, so I don't take all strains here, only those that agree on their GR and GY (not sure if that makes sense, going by vibes for now)
+## Need to get rid of the lethal strains before I select here
+phenotypic_data <- phenotypic_data %>%
+  filter(lethal != "Yes",
+         !(is.na(DTT)),
+         !is.na(DTT_GY))
+
+## Actually perform the selection
+strains_better_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT > sd(phenotypic_data$DTT, na.rm = T) & phenotypic_data$DTT_GY > sd(phenotypic_data$DTT_GY, na.rm = T)]
+strains_worse_or_equal_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT < -sd(phenotypic_data$DTT, na.rm = T) & phenotypic_data$DTT_GY < -sd(phenotypic_data$DTT_GY, na.rm = T)]
+```
+
+KEGG - separate GSEA results based on this classification
+```{r}
+# Step 1 - Separate results
+kegg_list_better_dtt <- list()
+kegg_list_worse_dtt <- list()
+
+for (i in 1:length(kegg_gsea_results)) {
+  strain_name <- names(kegg_gsea_results)[i]
+  if (strain_name %in% strains_better_in_DTT) {
+    kegg_list_better_dtt[[strain_name]] <- kegg_gsea_results[[i]]
+  }
+  else if (strain_name %in% strains_worse_or_equal_in_DTT) {
+    kegg_list_worse_dtt[[strain_name]] <- kegg_gsea_results[[i]]
+  }
+}
+
+
+
+# Step 2 - Turn to dataframes
+## For strains growing worse in DTT
+### Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
+}
+kegg_list_worse_dtt <- mapply(FUN = add_strain_tag, df = kegg_list_worse_dtt, strain = names(kegg_list_worse_dtt), SIMPLIFY = F)
+
+### Collapse list of dataframes into single dataframe and add a column with the count of pathway
+kegg_terms_df_worse_dtt <- bind_rows(kegg_list_worse_dtt) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+  
+
+## For strains growing better in DTT
+### Add strain tag to each dataframe before collapsing
+kegg_list_better_dtt <- mapply(FUN = add_strain_tag, df = kegg_list_better_dtt, strain = names(kegg_list_better_dtt), SIMPLIFY = F)
+
+### Collapse list of dataframes into single dataframe and add a column with the count of pathway
+kegg_terms_df_better_dtt <- bind_rows(kegg_list_better_dtt) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+```
+
+Plot
+```{r}
+# For strains growing worse in DTT
+## Grab only top 10 most common EA terms
+temp <- kegg_terms_df_worse_dtt %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+
+
+
+
+# For strains growing better in DTT
+## Grab only top 10 most common EA terms
+temp <- kegg_terms_df_better_dtt %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+```
+
+
+GO - separate GSEA results based on this classification
+```{r}
+# Step 1 - Separate results
+go_list_better_dtt <- list()
+go_list_worse_dtt <- list()
+
+for (i in 1:length(go_gsea_results)) {
+  strain_name <- names(go_gsea_results)[i]
+  if (strain_name %in% strains_better_in_DTT) {
+    go_list_better_dtt[[strain_name]] <- go_gsea_results[[i]]
+  }
+  else if (strain_name %in% strains_worse_or_equal_in_DTT) {
+    go_list_worse_dtt[[strain_name]] <- go_gsea_results[[i]]
+  }
+}
+
+
+
+# Step 2 - Turn to dataframes
+## For strains growing worse in DTT
+### Add strain tag to each dataframe before collapsing
+add_strain_tag <- function(df, strain) {
+  df$Strain <- rep(strain, nrow(df))
+  return(df)
+}
+go_list_worse_dtt <- mapply(FUN = add_strain_tag, df = go_list_worse_dtt, strain = names(go_list_worse_dtt), SIMPLIFY = F)
+
+### Collapse list of dataframes into single dataframe and add a column with the count of pathway
+go_terms_df_worse_dtt <- bind_rows(go_list_worse_dtt) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+  
+
+## For strains growing better in DTT
+### Add strain tag to each dataframe before collapsing
+go_list_better_dtt <- mapply(FUN = add_strain_tag, df = go_list_better_dtt, strain = names(go_list_better_dtt), SIMPLIFY = F)
+
+### Collapse list of dataframes into single dataframe and add a column with the count of pathway
+go_terms_df_better_dtt <- bind_rows(go_list_better_dtt) %>%
+  summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
+  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  arrange(desc(EA_term_count))
+```
+
+Plot
+```{r}
+# For strains growing worse in DTT
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_worse_dtt %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing worse than WT in DTT") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+
+
+
+
+# For strains growing better in DTT
+## Grab only top 10 most common EA terms
+temp <- go_terms_df_better_dtt %>%
+  distinct(pathway, .keep_all = T) %>%
+  slice(1:10)
+
+## Plot with total EA term count
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT") +
+  ylab("Strain count") +
+  xlab("EA term")
+
+# Plot with % - total EA term count/number of strains
+ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_percentage)) +
+  geom_col() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Most common EA terms",
+       subtitle = "Across strains growing better than WT in DTT") +
+  ylab("Strain percentage") +
+  xlab("EA term")
+```
 
 
 
 
 
-## 6.3. Perform GSEA with Reactome annotation??
+
 
 
 
