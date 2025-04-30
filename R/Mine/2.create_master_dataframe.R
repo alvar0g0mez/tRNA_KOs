@@ -15,6 +15,10 @@
 #   Features column
 #   - For the columns with 3-letter amino acid codes, create a corresponding 
 #   column with the 1-letter code.
+#   - For some reason, in GtRNAdb they use "TGC" as the anticodon name,
+#   which doesn't make any sense, that is neither the codon (which would be "GCA")
+#   nor the anticodon (which should be "UGC"), so I had to write a function to 
+#   go through these and turn all the Ts to Us for it to make sense
 #   - Output it as a .csv and delete the .xlsx original file
 
 
@@ -29,13 +33,15 @@ library(stringr)
 #-----------------------------------------------------------------------------------------
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 } else
   if (working_from == "charite") {
     base_dir = "C:/MyStuff/tRNA_KOs/"
+    source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
   }
 
 #-----------------------------------------------------------------------------------------
@@ -47,6 +53,7 @@ if (working_from == "home") {
 
 # Load data
 db <- read.xlsx(paste(base_dir, "Data/Other/GtRNAdb/GtRNAdb_gene_list.xlsx", sep=""), 1)
+source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
 
 
 # 1.1. Come up with Intron and Mismatch columns from the Features column
@@ -184,6 +191,17 @@ rm(trna_seqs)
 
 # 4. Add things I forgot to add and realized later
 
+## The anticodon column in this dataframe is actually codons, let's rename that and create an actual anticodon column
+master_dataset <- master_dataset %>%
+  mutate(anticodon = sapply(Anticodon, turn_t_to_u_in_wrong_GtRNAdb_anticodons),
+         codon = sapply(anticodon, anticodon_to_codon))
+
+## Make the order of the columns a bit nicer
+master_dataset <- master_dataset %>%
+  relocate(gene_name, .after = Locus) %>%
+  relocate(anticodon, .after = gene_name) %>%
+  relocate(codon, .after = anticodon)
+
 ## Add columns with the length of each of the sequences
 master_dataset <- master_dataset %>%
   mutate(length_DNA_seq = nchar(DNA_sequence),
@@ -191,7 +209,7 @@ master_dataset <- master_dataset %>%
 
 ## Add column with family size
 master_dataset <- master_dataset %>%
-  group_by(Anticodon) %>%
+  group_by(anticodon) %>%
   mutate(Family_size = n())
 
 ## Add a column which contains the number of tRNAs loading each amino acid (like family_size, but for amino acid loaded, not anticodon)
@@ -207,7 +225,7 @@ master_dataset <- master_dataset %>%
 
 ## Add a column which contains the number of tRNA genes that could and couldn't be KOd with a certain anticodon
 master_dataset <- master_dataset %>%
-  group_by(Anticodon) %>%
+  group_by(anticodon) %>%
   mutate(Number_of_not_KOd_genes_per_anticodon = sum(KOd == "No"),
          Number_of_KOd_genes_per_anticodon = sum(KOd == "Yes"))
 
@@ -218,9 +236,9 @@ master_dataset <- master_dataset %>%
 
 ## Column saying if there is a U in position 34 (the one that binds the last nucleotide in the codon), and a couple things more
 master_dataset <- master_dataset %>%
-  mutate(U_34 = case_when(grepl("\\(U", Strain.Name) ~ T,
+  mutate(U_34 = case_when(grepl("\\(U", gene_name) ~ T,
                           TRUE ~ F),
-         A_34 = case_when(grepl("\\(A", Strain.Name) ~ T,
+         A_34 = case_when(grepl("\\(A", gene_name) ~ T,
                           TRUE ~ F),
          Nt_at_1 = substr(mature_sequence, 1, 1),
          Nt_at_2 = substr(mature_sequence, 2, 2),
@@ -292,6 +310,12 @@ master_dataset <- master_dataset %>%
          Nt_at_68 = substr(mature_sequence, 68, 68),
          Nt_at_69 = substr(mature_sequence, 69, 69),
          Nt_at_70 = substr(mature_sequence, 70, 70))
+
+
+
+# Change the "gene_name" column to "Strain.Name"
+master_dataset <- master_dataset %>%
+  dplyr::rename(Strain.Name = gene_name)
 
 
 

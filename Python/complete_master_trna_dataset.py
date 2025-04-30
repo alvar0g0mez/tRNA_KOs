@@ -8,8 +8,6 @@ database and add them to this as well. Then add all of this information to the m
 (at "C:/MyStuff/tRNAs/Scripts/R/Mine/2.create_master_dataframe.R).
 """
 
-# How about adding a little change to here, what happens with Git?
-# This is another change, does this update automatically or what? Okay making 1 more change to see if now I can commit
 
 
 #TODO
@@ -51,7 +49,7 @@ def url_get_contents(url):
 
 # 1. Collect the tables
 ## 1.1. Collect the names of the tRNAs from the master dataset in order to build the URLs from them
-gtrnas = pd.read_csv("C:\\MyStuff\\tRNAs\\Data\\GtRNAdb\\master_tRNA_dataset.csv")
+gtrnas = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv")
 gene_symbols = gtrnas["GtRNAdb_gene_symbol"].to_list()
 
 
@@ -96,16 +94,18 @@ out.columns = ["GtRNAdb_gene_symbol", "Gene.primaryIdentifier", "RNAcentral_IDs"
 
 
 ## 2. Load SGD table and add new columns - standard and systematic gene names, based on SGD ID
-SGD = pd.read_csv("C:\\MyStuff\\ScRAP\\Code\\Biological questions\\Data\\yeastmine_results_2.tsv", sep="\t")
+SGD = pd.read_csv("C:\\MyStuff\\ScRAP\\Data\\Biological_questions\\yeastmine_results_2.tsv", sep="\t")
 out = out.merge(SGD, on="Gene.primaryIdentifier", how="left")
 out = out[["GtRNAdb_gene_symbol", "Gene.primaryIdentifier", "RNAcentral_IDs", "Gene.secondaryIdentifier", "Gene.symbol"]]
 
 
 
-## 3. Add the columns in this dataset to the original master_dataset (created in R) and rewrite this one
-master_dataset = pd.read_csv("C:\\MyStuff\\tRNAs\\Data\\GtRNAdb\\master_tRNA_dataset.csv")
+## 3. Add the columns in this dataset to the original master_dataset (created in R), reorder them, and rewrite this one
+master_dataset = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv")
 master_dataset = master_dataset.merge(out, on="GtRNAdb_gene_symbol", how="left")
-master_dataset.to_csv("C:\\MyStuff\\tRNAs\\Data\\GtRNAdb\\master_tRNA_dataset.csv", header=True, index=False)
+first_columns = ["GtRNAdb_gene_symbol", "tRNAscan_SE_ID", "Locus", "Gene.primaryIdentifier", "RNAcentral_IDs", "Gene.secondaryIdentifier", "Gene.symbol"]
+master_dataset = master_dataset[first_columns + [col for col in master_dataset if col not in first_columns]]
+master_dataset.to_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv", header=True, index=False)
 
 
 

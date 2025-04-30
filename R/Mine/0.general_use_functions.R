@@ -257,6 +257,38 @@ anticodon_to_codon <- function(anticodon) {
 
 
 
+#' Go through wrong anticodons from GtRNAdb and turn any T into U
+#' 
+#' Provide a wrong anticodon sequence from GtRNAdb as a 3-character string, 
+#' and another 3-character string will be returned with the fixed anticodon. This
+#' is only the case if the anticodon contains a T, which will then be turned into
+#' a U. Otherwise, the inputed anticodon is returned without any modification.
+#' 
+#' @param codon A 3-character string 
+#' @return Another 3-character string
+turn_t_to_u_in_wrong_GtRNAdb_anticodons <- function(anticodon) {
+  fixed_anticodon <- ""
+  for (i in 1:nchar(anticodon)) {
+    nt <- substr(anticodon, i, i)
+    if (nt == "T") {
+      new_nt <- "U"
+    } else {
+      new_nt <- nt
+    }
+    fixed_anticodon <- paste(fixed_anticodon, new_nt, sep="")
+  }
+  return(fixed_anticodon)
+}
+
+
+
+
+
+
+
+
+
+
 
 
 

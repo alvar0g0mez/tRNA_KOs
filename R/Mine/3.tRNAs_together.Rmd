@@ -126,6 +126,9 @@ if (working_from == "home") {
 
 # The ODs
 od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
+
+# Phenotypic data
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 ```
 
 
@@ -161,7 +164,7 @@ if (dataset == "batchcorrected_onWTs")
 # Come up with new colnames
 new_names <- c()
 current_names <- colnames(proteomics_raw)
-new_names <- c(new_names, as.character(sample_layout$final_protemics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
+new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
 colnames(proteomics_raw) <- new_names
 
 
@@ -196,7 +199,7 @@ trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(tr
 
 # Remove the sub-batch that went wrong
 if (dataset == "outlier_removed") {
-  samples_in_wrong_batch <- sample_layout$final_protemics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
 trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 }
 
@@ -230,7 +233,7 @@ Perform DE analysis
 trna_levels <- c()
 for (i in 1:ncol(trna_ko)) {
   sample_name <- colnames(trna_ko)[i]
-  strain_name <- sample_layout$Strain.Name[sample_layout$final_protemics_colnames == sample_name]
+  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
   if (length(strain_name) > 1) {
     strain_name <- strain_name[1]
   }
@@ -400,7 +403,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -432,7 +435,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_together.pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins.pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -449,13 +452,12 @@ rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KO
 ## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep = "")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep = "")))
 
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
   filter(UCU_family != "No") %>%
-  dplyr::select(gene_name, UCU_family) %>%
-  dplyr::rename(Strain.Name = gene_name)
+  dplyr::select(Strain.Name, UCU_family)
 
 UCU_responsiveness <- responsiveness%>% filter(anticodon == "UCU")
 
@@ -488,7 +490,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_together.pdf", sep="")
+output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family.pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1079,6 +1081,7 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
 
 
 ## 1.13. Quick look at the OD
+Plot just OD histograms
 ```{r}
 ggplot(data = od, aes(x = OD_processed)) +
   geom_histogram(binwidth = 0.1, fill = "grey", col = "black") +
@@ -1099,8 +1102,109 @@ ggplot(data = od, aes(x = OD_processed, fill = Empty_well)) +
   xlab("OD")
 ```
 
+OD boxplots per anticodon and amino acid
+```{r}
+# Boxplot by anticodon, color by amino acid
+temp_plot <- od %>%
+  filter(Anticodon != "")
+myLetters <- letters[1:26]              # Need this to be able to re-order anticodons by amino acid
+ggplot(data = temp_plot, aes(x = fct_reorder(Anticodon, match(tolower(Amino_acid_1_letter), myLetters)), y = OD_processed, fill = Amino_acid_1_letter)) +
+  geom_boxplot() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8)) +
+  xlab("Anticodon") +
+  ylab("OD") +
+  labs(title = "OD boxplots per anticodon",
+       subtitle = "Ordered and colored by amino acid carried", 
+       fill = "Amino acid") +
+  guides(fill=guide_legend(ncol=2))
 
-# 1.14. Clean up environment
+# Boxplot by amino acid
+ggplot(data = temp_plot, aes(x = Amino_acid_1_letter, y = OD_processed)) +
+  geom_boxplot(fill = "grey") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8)) +
+  xlab("Anticodon") +
+  ylab("OD") +
+  labs(title = "OD boxplots per amino acid")
+
+# Boxplot by whether a strain is WT, KO, or empty well - was going to do it for every single Strain.Name, but you cannot really see anything
+# I could still do that and just divide it across a few plots, but I can also just compare the WTs here to the plots above
+od <- od %>%
+  mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
+                                 Strain.Name == "" ~ "Empty",
+                                 TRUE ~ "KO"))
+ggplot(data = od, aes(x = Strain.Type, y = OD_processed)) +
+  geom_boxplot() +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8)) +
+  xlab("Strain type") +
+  ylab("OD") +
+  labs(title = "OD boxplots per strain type")
+```
+
+
+## 1.14. Explore phenotypic results (GR and GY)
+Compare the phenotypic results from 2014 and 2020
+```{r}
+ggplot(data = phenotypic_data, aes(x = GR_YPD_2014, y = GR_YPD_2020)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "Growth rates in YPD")
+
+ggplot(data = phenotypic_data, aes(x = GR_SDC_2014, y = GR_SDC_2020)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "Growth rates in SDC")
+
+ggplot(data = phenotypic_data, aes(x = GY_YPD_2014, y = GY_YPD_2020)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "Growth yields in YPD")
+
+ggplot(data = phenotypic_data, aes(x = GY_SDC_2014, y = GY_SDC_2020)) +
+  geom_point() +
+  theme_light() +
+  labs(title = "Growth yields in SDC")
+```
+
+Compare phenotypic results to OD
+```{r}
+# Join the 2 datasets
+temp_od <- od %>%
+  dplyr::select(OD_processed, Strain.Name)
+temp_phenotypic <- phenotypic_data %>%
+  dplyr::select(Strain.Name, starts_with("GR"), starts_with("GY"))
+
+od_and_phenotypic_data <- left_join(temp_phenotypic, temp_od, by = "Strain.Name")
+
+# Plot
+ggplot(data = od_and_phenotypic_data, aes(x = OD_processed, y = GR_low_glucose_2014)) +
+  geom_point() +
+  theme_light()
+
+# Get correlations - actually let me add nDEP here and get a more complete view
+temp_resp <- responsiveness %>%
+  dplyr::select(Strain.Name, nDEP)
+od_and_phenotypic_data_for_corr <- od_and_phenotypic_data %>%
+  left_join(temp_resp, by = "Strain.Name") %>%
+  dplyr::select(-Strain.Name) %>%
+  na.omit()
+cor_mat <- round(cor(od_and_phenotypic_data_for_corr), 2)
+melted_cormat <- melt(cor_mat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(Var2, Var1, label = value), size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(-1,1), name="Correlation") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+
+## 1.15. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
