@@ -469,7 +469,7 @@ summarize_mine <- function(df, column_name, output_column_name) {
   # Perform the count
   temp <- df %>%
     group_by(get(column_name)) %>%
-    count()
+    dplyr::count()
   
   # Match to full dataset
   colnames(temp) <- c(column_name, output_column_name)

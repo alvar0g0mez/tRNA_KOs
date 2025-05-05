@@ -31,7 +31,7 @@ library(biomaRt)
 ## 1.0. Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
-alpha <- 0.01
+alpha <- 0.05
 
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 1.5
@@ -64,7 +64,7 @@ entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 
 
 source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
@@ -584,7 +584,7 @@ for (i in 1:length(da)) {
   rownames(temp) <- NULL
   temp <- temp %>%
     dplyr::select(logFC, adj.P.Val, `NCBI_gene_(formerly_Entrezgene)_ID`) %>%
-    rename(gene_symbol = `NCBI_gene_(formerly_Entrezgene)_ID`)
+    dplyr::rename(gene_symbol = `NCBI_gene_(formerly_Entrezgene)_ID`)
   
   # Get rid of the proteins for which we don't have the Entrez ID (and save the count of how many of them there are, to check it's not too many) - otherwise GSEA doesn't work
   number_of_proteins_with_no_Entrez_ID <- c(number_of_proteins_with_no_Entrez_ID, sum(is.na(temp$gene_symbol)))
@@ -803,8 +803,8 @@ kegg_terms_df_full <- bind_rows(kegg_gsea_results) %>%
 # Plot
 ## Grab only top 10 most common EA terms
 temp <- kegg_terms_df_full %>%
-  distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::distinct(pathway, .keep_all = T) %>%
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -848,7 +848,7 @@ go_terms_df_full <- bind_rows(go_gsea_results) %>%
 ## Grab only top 10 most common EA terms
 temp <- go_terms_df_full %>%
   distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -879,25 +879,23 @@ Load data
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
-
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 ```
 
 Classify strains
 ```{r}
 # Plot GR and GY in DTT
-ggplot(data = phenotypic_data, aes(x = DTT)) +
+ggplot(data = phenotypic_data, aes(x = GR_DTT_2014)) +
   geom_histogram(binwidth = 1) +
   theme_light() +
-  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)+sd(phenotypic_data$DTT, na.rm = T), col = "red") +
-  geom_vline(xintercept = mean(phenotypic_data$DTT, na.rm = T)-sd(phenotypic_data$DTT, na.rm = T), col = "red")
+  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)+sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)-sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red")
 
-ggplot(data = phenotypic_data, aes(x = DTT_GY)) +
+ggplot(data = phenotypic_data, aes(x = GY_DTT_2014)) +
   geom_histogram(binwidth = 1) +
   theme_light() +
-  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)+sd(phenotypic_data$DTT_GY, na.rm = T), col = "red") +
-  geom_vline(xintercept = mean(phenotypic_data$DTT_GY, na.rm = T)-sd(phenotypic_data$DTT_GY, na.rm = T), col = "red")
+  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)+sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red") +
+  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)-sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red")
 
 # At first I just divided strains into those above and below 0, and grabbed those that were above 0 in both GR and GY as one group, and those that were below 0 in both GR and GY as the other group. However, I found no pattern at all, so I think it would make sense to be a bit more stringent in how I select the strains. I am going to do it based on the SD of each of the distribution above
 
@@ -905,12 +903,12 @@ ggplot(data = phenotypic_data, aes(x = DTT_GY)) +
 ## Need to get rid of the lethal strains before I select here
 phenotypic_data <- phenotypic_data %>%
   filter(lethal != "Yes",
-         !(is.na(DTT)),
-         !is.na(DTT_GY))
+         !(is.na(GR_DTT_2014)),
+         !is.na(GY_DTT_2014))
 
 ## Actually perform the selection
-strains_better_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT > sd(phenotypic_data$DTT, na.rm = T) & phenotypic_data$DTT_GY > sd(phenotypic_data$DTT_GY, na.rm = T)]
-strains_worse_or_equal_in_DTT <- phenotypic_data$gene_name[phenotypic_data$DTT < -sd(phenotypic_data$DTT, na.rm = T) & phenotypic_data$DTT_GY < -sd(phenotypic_data$DTT_GY, na.rm = T)]
+strains_better_in_DTT <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 > sd(phenotypic_data$GR_DTT_2014, na.rm = T) & phenotypic_data$GY_DTT_2014 > sd(phenotypic_data$GY_DTT_2014, na.rm = T)]
+strains_worse_or_equal_in_DTT <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 < -sd(phenotypic_data$GR_DTT_2014, na.rm = T) & phenotypic_data$GY_DTT_2014 < -sd(phenotypic_data$GY_DTT_2014, na.rm = T)]
 ```
 
 KEGG - separate GSEA results based on this classification
@@ -943,8 +941,8 @@ kegg_list_worse_dtt <- mapply(FUN = add_strain_tag, df = kegg_list_worse_dtt, st
 ### Collapse list of dataframes into single dataframe and add a column with the count of pathway
 kegg_terms_df_worse_dtt <- bind_rows(kegg_list_worse_dtt) %>%
   summarize_mine(column_name = "pathway", output_column_name = "EA_term_count") %>%
-  mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
-  arrange(desc(EA_term_count))
+  dplyr::mutate(EA_term_percentage = EA_term_count/length(unique(Strain))) %>%
+  dplyr::arrange(desc(EA_term_count))
   
 
 ## For strains growing better in DTT
