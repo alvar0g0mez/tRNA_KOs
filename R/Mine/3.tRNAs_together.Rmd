@@ -54,16 +54,16 @@ Set parameters
 alpha <- 0.05
 
 # Significance level as a plain string to use when loading or writing files
-alpha_plain <- "005"
+alpha_plain <- str_replace(as.character(alpha), "\\.", "")
 
 # Log-fold change limit to be considered "biologically significant"
-lfc_threshold <- 1
+lfc_threshold <- 0
 
 # Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -130,8 +130,12 @@ if (working_from == "home") {
 # The ODs
 od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
 
-# Phenotypic data
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+# Phenotypic data - THIS IS THE RIGHT ONE
+#phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+
+# Phenotypic data - DELETE THIS ONE - IT'S JUST BECAUSE FOR NOW I NEED IT IN MY HOME COMPUTER
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep=""))) %>%
+  dplyr::rename(Strain.Name = gene_name)
 ```
 
 
@@ -341,7 +345,7 @@ amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_aci
 responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
 
 # Save responsiveness dataset
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 # Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
 DE <- list(fit = fit,
@@ -380,7 +384,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -412,7 +416,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -464,7 +468,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep="")
+output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -530,7 +534,7 @@ responsiveness <- responsiveness %>%
   dplyr::select(-family_max)
 
 # Save this new version of responsiveness
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
@@ -598,7 +602,7 @@ for (i in 1:length(aas)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -663,19 +667,19 @@ my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
 my_grobs_not_colored <- lapply(plot_list_not_colored, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
@@ -684,7 +688,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness", alpha_plain, "_logFC_", as.character(logFC_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
 Repeat this but only for the strains with a single major tRNA gene, to have an image of the barplots only for those
@@ -717,7 +721,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major", alpha_plain, "_logFC_", as.character(logFC_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -726,7 +730,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness", alpha_plain, "_logFC_", as.character(logFC_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 
 # Remove unnecessary variables
@@ -739,7 +743,7 @@ rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grob
 This used to be in section 2, but I think it's better here:
 ```{r}
 # Just need to load resp_and_expression first
-resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression", alpha_plain, "_logFC_", as.character(logFC_threshold), ".csv", sep="")))
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
 temp <- resp_and_expression %>%
@@ -1229,7 +1233,7 @@ cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen
   filter(read.mapping..genomic.sequence.or.mature.tRNA. == "genomic")
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
+responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 ```
 
 Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
@@ -1653,7 +1657,7 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, c
 
 ## 2.4. Save the resp_and_expression dataset as it is at this point, and clean up the environment
 ```{r}
-fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression.csv", sep=""))
+fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 rm(anticodon_freq, resp_and_expression, responsiveness)
 ```
 

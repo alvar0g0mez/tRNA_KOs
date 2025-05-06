@@ -13,7 +13,7 @@ library(xlsx)
 
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -33,7 +33,8 @@ if (working_from == "home") {
 
 
 # Load data
-processed_od <- read.xlsx(paste(base_dir, "Data/OD_processed.xlsx", sep=""), sheetIndex = 1)
+#processed_od <- read.xlsx(paste(base_dir, "Data/OD_processed.xlsx", sep=""), sheetIndex = 1)
+processed_od <- as.data.frame(fread(paste(base_dir, "Data/OD_processed.csv", sep="")))
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 
 
