@@ -175,6 +175,379 @@ mature <- resp_and_expression %>%
 
 
 
+######################################################################################
+# 6. Check if different KOs with the same anticodon cause the same proteins to be DE
+######################################################################################
+(From main tRNAs_together.Rmd - put here on 07.05.2024)
+
+
+## 6.2. Upset plots
+Example - to be deleted
+```{r}
+library(ggplot2movies)
+movies = as.data.frame(ggplot2movies::movies)
+head(movies, 3)
+
+genres = colnames(movies)[18:24]
+genres
+
+movies[genres] = movies[genres] == 1
+t(head(movies[genres], 3))
+
+movies[movies$mpaa == '', 'mpaa'] = NA
+movies = na.omit(movies)
+
+upset(movies, genres, name='genre', width_ratio=0.1)
+```
+
+Per anticodon
+```{r}
+# Preparations: 
+#   - Remove KOs with 0 DE proteins from list, 
+#   - Grab anticodon names
+#   - Create empty list to put data matrices for Upset plots there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+anticodons <- unique(responsiveness$anticodon)
+
+
+#pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
+
+# Iterate over the anticodons and get an Upset plot for each of them
+for (i in 1:length(anticodons)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
+  anticodon <- anticodons[i]
+  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
+  KOs_with_anticodon_names <- names(KOs_with_anticodon)
+  
+  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
+  if (length(KOs_with_anticodon) > 1) {
+    # Create the matrix where I will add one-hot encoded columns for each KO
+    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
+    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
+    
+    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
+    for (j in 1:length(KOs_with_anticodon_names)) {
+      KO <- KOs_with_anticodon_names[j]
+      proteins <- KOs_with_anticodon[[KO]]
+      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
+    }
+    
+    # Now that we have the dataframe, get the Upset plot and save it to the list
+    ## Using ComplexUpset
+    ComplexUpset::upset(data = df_to_upset,
+                        intersect = KOs_with_anticodon_names,
+                        name='KO strain', 
+                        width_ratio=0.1,
+                        mode = "intersect") +
+      ggtitle(label = "Intersection in DE proteins",
+              subtitle = glue("Across KOs for tRNAs with {anticodon}"))
+    
+    
+    image_name <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/per_anticodon/upset_", anticodon, ".png", sep="")
+    ggsave(filename = image_name, width = 8, height = 5)
+  }
+}
+
+#dev.off()
+```
+
+Per amino acid - TO DO
+```{r}
+# Preparations: 
+#   - Remove KOs with 0 DE proteins from list, 
+#   - Grab anticodon names
+#   - Create empty list to put data matrices for Upset plots there
+de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+aas <- unique(responsiveness$Amino_acid_1_letter)
+
+
+pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_amino_acid.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
+
+# Iterate over the anticodons and get an Upset plot for each of them
+for (i in 1:length(aas)) {
+  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
+  aa <- aas[i]
+  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
+  KOs_with_anticodon_names <- names(KOs_with_anticodon)
+  
+  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
+  if (length(KOs_with_anticodon) > 1) {
+    # Create the matrix where I will add one-hot encoded columns for each KO
+    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
+    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
+    
+    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
+    for (j in 1:length(KOs_with_anticodon_names)) {
+      KO <- KOs_with_anticodon_names[j]
+      proteins <- KOs_with_anticodon[[KO]]
+      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
+    }
+    
+    # Now that we have the dataframe, get the Upset plot and save it to the list
+    ## Using ComplexUpset
+    p <- ComplexUpset::upset(data = df_to_upset,
+                             intersect = KOs_with_anticodon_names,
+                             name='KO strain', 
+                             width_ratio=0.1,
+                             mode = "intersect")
+    print(p)
+  }
+}
+
+dev.off()
+```
+
+
+
+### 6.3.2. Exploratory plots - HONESTLY I FEEL LIKE MOST OF THESE HISTOGRAMS ARE PRETTY USELESS, AREN'T THEY? COULD MAYBE DELETE THIS OR PUT IT IN THE DELETED CODE DOCUMENT?
+Load dataset so I don't have to create it from scratch
+```{r}
+# Protein overlaps
+if (alpha == 0.01) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
+}
+if (alpha == 0.05) {
+  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
+}
+
+# Master dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
+```
+
+Want to filter out some observations before the plots?
+```{r}
+#DE_protein_overlaps <- DE_protein_overlaps %>%
+#  filter(protein_number_1 < 1000,
+#         protein_number_2 < 1000)
+```
+
+Plots - histograms - color by family, amino acid, chromosome - THESE ONES I AM USING 
+```{r}
+ggplot(data = DE_protein_overlaps, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains")
+
+ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins - after removing all 0 values",
+       subtitle = "For all possible pairs of KO strains") 
+
+ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_index, fill = same_amino_acid)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(fill = "Did the 2 KOs carry\nthe same amino acid?") 
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index))) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins  - after removing all 0 values",
+       subtitle = "For all possible pairs of KO strains") 
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same family?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same amino acid?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_chromosome)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same chromosome?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family_and_chr)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same family and\nchromosome?") +
+  scale_fill_viridis_d()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid_and_chr)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "Same amino acid and\nchromosome?") +
+  scale_fill_viridis_d()
+```
+
+Plots - histograms - by both aa charges and both aa types
+```{r}
+ggplot(data = DE_protein_overlaps, aes(x = both_aa_types, y = log2(Jaccard_index), fill = both_aa_types)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Amino acid types") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by the type of the amino acids carried by the KOd tRNAs") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+
+ggplot(data = DE_protein_overlaps, aes(x = both_aa_charges, y = log2(Jaccard_index), fill = both_aa_charges)) +
+  geom_boxplot() +
+  theme_light() +
+  xlab("Amino acid charges") +
+  ylab("log2(Jaccard index)") +
+  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
+       subtitle = "Classified by the charges of the amino acids carried by the KOd tRNAs") +
+  scale_fill_viridis_d() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+
+Plots - histograms - try to explain the larger overlaps
+```{r}
+ggplot(data = subset(DE_protein_overlaps, overlap_size > 0), aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 0.01) +
+  theme_light() +
+  xlab("Jaccard_index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard_index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains") 
+
+
+
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_more_DEPs, group = Strain_more_DEPs)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "DEPs in strain\nwith more DEPs") +
+  scale_fill_viridis_c()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_less_DEPs, group = Strain_less_DEPs)) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "DEPs in strain\nwith less DEPs") +
+  scale_fill_viridis_c()
+
+ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = log2(Ratio_more_to_less_DEPs), group = log2(Ratio_more_to_less_DEPs))) +
+  geom_histogram(alpha = 0.7) +
+  theme_light() +
+  xlab("log2(Jaccard index)") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = "For all possible pairs of KO strains",
+       fill = "nDEP ratio -\nlarger/smaller") +
+  scale_fill_viridis_c()
+```
+
+Plots - histograms - separate histogram for each anticodon - don't think this is too useful
+```{r}
+plot_list <- list()
+anticodons <- unique(responsiveness$anticodon)
+for (i in 1:length(anticodons)) {
+  anticodon <- anticodons[i]
+  temp <- DE_protein_overlaps %>%
+    filter(anticodon_1 == anticodon & anticodon_2 == anticodon)
+  
+  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 1) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = glue("For strains with {anticodon} anticodon")) +
+  scale_fill_viridis_d()
+}
+
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_family.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+```
+
+Plots - histograms - separate histogram for each amino acid - don't think this is too useful
+```{r}
+plot_list <- list()
+aas <- unique(responsiveness$Amino_acid_1_letter)
+for (i in 1:length(aas)) {
+  aa <- aas[i]
+  temp <- DE_protein_overlaps %>%
+    filter(Amino_acid_1 == aa & Amino_acid_2 == aa)
+  
+  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
+  geom_histogram(alpha = 0.7, binwidth = 1) +
+  theme_light() +
+  xlab("Jaccard index") +
+  ylab("Count") +
+  labs(title = "Histogram of Jaccard index of the DE proteins",
+       subtitle = glue("For strains carrying {aa}")) +
+  scale_fill_viridis_d()
+}
+
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_amino_acid.pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+```
+
+
+
+
+
+
+
+
+
+
 
 
 

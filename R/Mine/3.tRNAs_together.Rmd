@@ -56,6 +56,12 @@ alpha <- 0.05
 # Significance level as a plain string to use when loading or writing files
 alpha_plain <- str_replace(as.character(alpha), "\\.", "")
 
+# Separate significance level, the one used for the enrichment analysis
+alpha_enrichment <- 0.05
+
+# Significance level above as a plain string to use when loading or writing files
+alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
+
 # Log-fold change limit to be considered "biologically significant"
 lfc_threshold <- 0
 
@@ -63,7 +69,7 @@ lfc_threshold <- 0
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -72,7 +78,7 @@ if (working_from == "charite") {
   base_dir = "C:/MyStuff/tRNA_KOs/"
 }
 
-# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs
+# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs -
 dataset <- "batchcorrected_onWTs"
 ```
 
@@ -130,12 +136,8 @@ if (working_from == "home") {
 # The ODs
 od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
 
-# Phenotypic data - THIS IS THE RIGHT ONE
-#phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
-
-# Phenotypic data - DELETE THIS ONE - IT'S JUST BECAUSE FOR NOW I NEED IT IN MY HOME COMPUTER
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep=""))) %>%
-  dplyr::rename(Strain.Name = gene_name)
+# Phenotypic data
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 ```
 
 
@@ -312,11 +314,14 @@ da <- bind_rows(da) %>%
   mutate(protein = rep(rownames(da[[1]]), times = length(da)),
          Strain.Name = rep(names(da), each = nrow(da[[1]])), .before = 1) %>%
   `rownames<-`(NULL) %>%
-  dplyr::select(protein, Strain.Name, logFC, adj.P.Val) %>%
+  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%
   filter(Strain.Name != 'WT') %>%                              # From here on in this function it's added by me
-  mutate(diffexpressed = case_when(logFC > lfc_threshold & adj.P.Val < alpha ~ "Up_regulated",
-                                   logFC < -lfc_threshold & adj.P.Val < alpha ~ "Down_regulated",
-                                   TRUE ~ "Not_significant"))
+  mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
+                                            (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
+                                            TRUE ~ "Not_significant"),
+         diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
+                                                (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
+                                                TRUE ~ "Not_significant"))
 
 # Add a column to da with the number of replicates per KO - by me
 unique_KOs <- unique(da$Strain.Name)
@@ -370,10 +375,10 @@ plot_list <- list()
 for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
   trna <- levels(as.factor(da$Strain.Name))[i]
   temp <- da %>% filter(Strain.Name == trna)
-  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
+  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed_adjusted)) +
     geom_point() +
-    geom_hline(yintercept = -log10(0.01), linetype = "dashed", col = "gray") +
-    geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", col = "gray") +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
     labs(title = trna) +
@@ -390,6 +395,38 @@ ggsave(
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
+
+
+
+
+# One plot per KO and save them to a PDF - for all KOs
+## Come up with the list of plots
+plot_list <- list()
+for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
+  trna <- levels(as.factor(da$Strain.Name))[i]
+  temp <- da %>% filter(Strain.Name == trna)
+  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(P.Value), col = diffexpressed_non_adjusted)) +
+    geom_point() +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
+    theme_light() +
+    theme(legend.position = "none") +
+    labs(title = trna) +
+    scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_non_adjusted_p_values_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
 
 
 # One plot per KO and save them to a PDF - only for KOs with at least 1 DE protein
@@ -422,12 +459,25 @@ ggsave(
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
    width = 15, height = 9
 )
+```
+--> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
+
+Volcano plot for all KO strains together
+```{r}
+ggplot(data = da, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
+    geom_point() +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
+    theme_light() +
+    theme(legend.position = "none") +
+    labs(title = "Volcano plot for all KO strains together") +
+    scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
 
 
 # Remove unused objects
-rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i", "output_file"))
+#rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i", "output_file"))
 ```
---> Lots of the volcano plots are completely flat, just dots at the bottom. It would be nice if I could compare this to which are minor and which are major tRNA copies within each family actually, that would be great, but we don't have that information, do we? We have it for one family I think, I could check that, and then for the other families I would have to make the conclusions about "major" and "minor" myself precisely based on this, no?
+
 
 
 ## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
@@ -457,7 +507,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
   plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
     geom_point() +
     geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
-    geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
     labs(title = plot_title) +
@@ -526,7 +576,8 @@ responsiveness <- responsiveness %>%
   #mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",                                 This is how I did it before
   #                             nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
   #                             nDEP > 0.75*family_max ~ "Major")) %>%
-  mutate(Gene_type = case_when(nDEP > 0.55*family_max ~ "Major",                      # Current version
+  mutate(Gene_type = case_when(nDEP <= 20 ~ "-",
+                               nDEP > 0.55*family_max ~ "Major",                      # Current version
                                TRUE ~ "Minor")) %>%
   group_by(anticodon) %>%
   summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
@@ -673,13 +724,13 @@ ggsave(
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
@@ -721,7 +772,91 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+```
+
+Repeat this but only for the strains with more than one single major tRNA gene
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count > 1)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+```
+
+Repeat this but only for the strains which have only KOs with less than 20 nDEP
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count == 0)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1669,7 +1804,7 @@ rm(anticodon_freq, resp_and_expression, responsiveness)
 ################################################################################
 ## 3.0. Load data - so I don't have to run everything above
 ```{r}
-resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Create a new version of the dataset with prettier names for the columns so the model summary is more readable
 resp_and_expression_modelling <- resp_and_expression %>%
@@ -2688,27 +2823,18 @@ rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_librar
 ######################################################################################
 ## 6.0. Load data
 ```{r}
-print("You are trying to load DEA results. At which logFC threshold do you want them?")
-lfc <- readline()
-print("And at which p-value? Please provide it as '001' or '005'")
-pval <- readline()
-print("Thanks! Coming right up :)")
-
 # List of dataframes with the proteins that were DE in each KO strain
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", pval, "_", "logFC_", lfc, ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 
 ## Remove WT dataframe
-de_proteins_list <- de_proteins_list_001[names(de_proteins_list_001) != "WT"]
-
+de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
-
+responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Master dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 ```
-
 
 
 
@@ -2752,7 +2878,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 
 ## Print to PDF
 my_grobs <- lapply(plot_list, ggplotGrob)
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_no_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -2803,7 +2929,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_no_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -2852,7 +2978,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_with_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -2902,7 +3028,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_with_NAs.pdf", sep = "")
+output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -2918,125 +3044,6 @@ rm(KOs_with_anticodon, jaccard_matrix, jaccard_matrices_list, plot_list, my_grob
 
 
 
-## 6.2. Upset plots
-Example - to be deleted
-```{r}
-library(ggplot2movies)
-movies = as.data.frame(ggplot2movies::movies)
-head(movies, 3)
-
-genres = colnames(movies)[18:24]
-genres
-
-movies[genres] = movies[genres] == 1
-t(head(movies[genres], 3))
-
-movies[movies$mpaa == '', 'mpaa'] = NA
-movies = na.omit(movies)
-
-upset(movies, genres, name='genre', width_ratio=0.1)
-```
-
-Per anticodon
-```{r}
-# Preparations: 
-#   - Remove KOs with 0 DE proteins from list, 
-#   - Grab anticodon names
-#   - Create empty list to put data matrices for Upset plots there
-de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
-anticodons <- unique(responsiveness$anticodon)
-
-
-#pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_anticodon.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
-
-# Iterate over the anticodons and get an Upset plot for each of them
-for (i in 1:length(anticodons)) {
-  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
-  anticodon <- anticodons[i]
-  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
-  KOs_with_anticodon_names <- names(KOs_with_anticodon)
-  
-  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
-  if (length(KOs_with_anticodon) > 1) {
-    # Create the matrix where I will add one-hot encoded columns for each KO
-    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
-    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
-    
-    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
-    for (j in 1:length(KOs_with_anticodon_names)) {
-      KO <- KOs_with_anticodon_names[j]
-      proteins <- KOs_with_anticodon[[KO]]
-      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
-    }
-    
-    # Now that we have the dataframe, get the Upset plot and save it to the list
-    ## Using ComplexUpset
-    ComplexUpset::upset(data = df_to_upset,
-                        intersect = KOs_with_anticodon_names,
-                        name='KO strain', 
-                        width_ratio=0.1,
-                        mode = "intersect") +
-      ggtitle(label = "Intersection in DE proteins",
-              subtitle = glue("Across KOs for tRNAs with {anticodon}"))
-    
-    
-    image_name <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/per_anticodon/upset_", anticodon, ".png", sep="")
-    ggsave(filename = image_name, width = 8, height = 5)
-  }
-}
-
-#dev.off()
-```
-
-Per amino acid - TO DO
-```{r}
-# Preparations: 
-#   - Remove KOs with 0 DE proteins from list, 
-#   - Grab anticodon names
-#   - Create empty list to put data matrices for Upset plots there
-de_protein_list <- Filter(function(x) length(x) > 0, de_proteins_list_001)
-aas <- unique(responsiveness$Amino_acid_1_letter)
-
-
-pdf(file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/upset/upset_plots_per_amino_acid.pdf", sep = ""), onefile = T, width = 12, height = 5, paper = 'USr')
-
-# Iterate over the anticodons and get an Upset plot for each of them
-for (i in 1:length(aas)) {
-  # For each anticodon, grab the tRNAs that contain it, and get a matrix with the right format for an upset plot
-  aa <- aas[i]
-  KOs_with_anticodon <- de_protein_list[grepl(anticodon, names(de_protein_list))]
-  KOs_with_anticodon_names <- names(KOs_with_anticodon)
-  
-  # This is so I don't process anticodons for which there is only one KO - there is an error if I do so
-  if (length(KOs_with_anticodon) > 1) {
-    # Create the matrix where I will add one-hot encoded columns for each KO
-    all_proteins_anticodon <- unique(unlist(KOs_with_anticodon))
-    df_to_upset <- data.frame(Proteins = all_proteins_anticodon)
-    
-    # Iterate over the KO strains and add a one-hot encoded column for each of them, for presence/absence of that protein among the DE prots in that strain
-    for (j in 1:length(KOs_with_anticodon_names)) {
-      KO <- KOs_with_anticodon_names[j]
-      proteins <- KOs_with_anticodon[[KO]]
-      df_to_upset[,KO] <- all_proteins_anticodon %in% proteins
-    }
-    
-    # Now that we have the dataframe, get the Upset plot and save it to the list
-    ## Using ComplexUpset
-    p <- ComplexUpset::upset(data = df_to_upset,
-                             intersect = KOs_with_anticodon_names,
-                             name='KO strain', 
-                             width_ratio=0.1,
-                             mode = "intersect")
-    print(p)
-  }
-}
-
-dev.off()
-```
-
-
-
-
 
 ## 6.3. Intersections between all KOs, collecting all possible information in the columns 
 ### 6.3.1. Create dataframe
@@ -3044,7 +3051,7 @@ Create dataframe - only basic columns that are obtained through iteration
 ```{r}
 # Prepare for iterations, create empty vectors to which I will save the information (and from which I'll create a dataframe afterwards)
 observed_pairs <- c()
-strains <- names(de_protein_list)
+strains <- names(de_proteins_list)
 strains_1 <- c()
 strains_2 <- c()
 protein_number_1 <- c()
@@ -3058,12 +3065,12 @@ overlap_size <- c()
 # First iteration through the strains
 for (i in 1:length(strains)) {
   strain_1 <- strains[i]
-  proteins_strain_1 <- de_protein_list[[strain_1]]
+  proteins_strain_1 <- de_proteins_list[[strain_1]]
   
   # Second iteration through the strains
   for (j in 1:length(strains)) {
     strain_2 <- strains[j]
-    proteins_strain_2 <- de_protein_list[[strain_2]]
+    proteins_strain_2 <- de_proteins_list[[strain_2]]
     
     # Make sure we are not comparing a strain to itself
     condition_1 = strain_1 != strain_2
@@ -3388,254 +3395,9 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
 
 Save this dataset as of now 
 ```{r}
-if (alpha == 0.01) {
-  fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep=""))
-}
-if (alpha == 0.05) {
-  fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep=""))
-}
+fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep=""))
 ```
 
-
-### 6.3.2. Exploratory plots - HONESTLY I FEEL LIKE MOST OF THESE HISTOGRAMS ARE PRETTY USELESS, AREN'T THEY? COULD MAYBE DELETE THIS OR PUT IT IN THE DELETED CODE DOCUMENT?
-Load dataset so I don't have to create it from scratch
-```{r}
-# Protein overlaps
-if (alpha == 0.01) {
-  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
-}
-if (alpha == 0.05) {
-  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
-}
-
-# Master dataset
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
-```
-
-Want to filter out some observations before the plots?
-```{r}
-#DE_protein_overlaps <- DE_protein_overlaps %>%
-#  filter(protein_number_1 < 1000,
-#         protein_number_2 < 1000)
-```
-
-Plots - histograms - color by family, amino acid, chromosome - THESE ONES I AM USING 
-```{r}
-ggplot(data = DE_protein_overlaps, aes(x = Jaccard_index)) +
-  geom_histogram(alpha = 0.7, binwidth = 0.01) +
-  theme_light() +
-  xlab("Jaccard index") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains")
-
-ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_index)) +
-  geom_histogram(alpha = 0.7, binwidth = 0.01) +
-  theme_light() +
-  xlab("Jaccard index") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins - after removing all 0 values",
-       subtitle = "For all possible pairs of KO strains") 
-
-ggplot(data = subset(DE_protein_overlaps, Jaccard_index > 0), aes(x = Jaccard_index, fill = same_amino_acid)) +
-  geom_histogram(alpha = 0.7, binwidth = 0.01) +
-  theme_light() +
-  xlab("Jaccard index") +
-  ylab("Count") +
-  labs(fill = "Did the 2 KOs carry\nthe same amino acid?") 
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index))) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins  - after removing all 0 values",
-       subtitle = "For all possible pairs of KO strains") 
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "Same family?") +
-  scale_fill_viridis_d()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "Same amino acid?") +
-  scale_fill_viridis_d()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_chromosome)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "Same chromosome?") +
-  scale_fill_viridis_d()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_family_and_chr)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "Same family and\nchromosome?") +
-  scale_fill_viridis_d()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = same_amino_acid_and_chr)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "Same amino acid and\nchromosome?") +
-  scale_fill_viridis_d()
-```
-
-Plots - histograms - by both aa charges and both aa types
-```{r}
-ggplot(data = DE_protein_overlaps, aes(x = both_aa_types, y = log2(Jaccard_index), fill = both_aa_types)) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Amino acid types") +
-  ylab("log2(Jaccard index)") +
-  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
-       subtitle = "Classified by the type of the amino acids carried by the KOd tRNAs") +
-  scale_fill_viridis_d() +
-  theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-
-ggplot(data = DE_protein_overlaps, aes(x = both_aa_charges, y = log2(Jaccard_index), fill = both_aa_charges)) +
-  geom_boxplot() +
-  theme_light() +
-  xlab("Amino acid charges") +
-  ylab("log2(Jaccard index)") +
-  labs(title = "Boxplots of the Jaccard Index values for all pairs of KO strains",
-       subtitle = "Classified by the charges of the amino acids carried by the KOd tRNAs") +
-  scale_fill_viridis_d() +
-  theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-```
-
-Plots - histograms - try to explain the larger overlaps
-```{r}
-ggplot(data = subset(DE_protein_overlaps, overlap_size > 0), aes(x = Jaccard_index)) +
-  geom_histogram(alpha = 0.7, binwidth = 0.01) +
-  theme_light() +
-  xlab("Jaccard_index") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard_index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains") 
-
-
-
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_more_DEPs, group = Strain_more_DEPs)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "DEPs in strain\nwith more DEPs") +
-  scale_fill_viridis_c()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = Strain_less_DEPs, group = Strain_less_DEPs)) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "DEPs in strain\nwith less DEPs") +
-  scale_fill_viridis_c()
-
-ggplot(data = DE_protein_overlaps, aes(x = log2(Jaccard_index), fill = log2(Ratio_more_to_less_DEPs), group = log2(Ratio_more_to_less_DEPs))) +
-  geom_histogram(alpha = 0.7) +
-  theme_light() +
-  xlab("log2(Jaccard index)") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = "For all possible pairs of KO strains",
-       fill = "nDEP ratio -\nlarger/smaller") +
-  scale_fill_viridis_c()
-```
-
-Plots - histograms - separate histogram for each anticodon - don't think this is too useful
-```{r}
-plot_list <- list()
-anticodons <- unique(responsiveness$anticodon)
-for (i in 1:length(anticodons)) {
-  anticodon <- anticodons[i]
-  temp <- DE_protein_overlaps %>%
-    filter(anticodon_1 == anticodon & anticodon_2 == anticodon)
-  
-  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
-  geom_histogram(alpha = 0.7, binwidth = 1) +
-  theme_light() +
-  xlab("Jaccard index") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = glue("For strains with {anticodon} anticodon")) +
-  scale_fill_viridis_d()
-}
-
-
-## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
-my_grobs <- lapply(plot_list, ggplotGrob)
-
-## Print to PDF
-output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_family.pdf", sep = "")
-ggsave(
-   filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
-   width = 15, height = 9
-)
-```
-
-Plots - histograms - separate histogram for each amino acid - don't think this is too useful
-```{r}
-plot_list <- list()
-aas <- unique(responsiveness$Amino_acid_1_letter)
-for (i in 1:length(aas)) {
-  aa <- aas[i]
-  temp <- DE_protein_overlaps %>%
-    filter(Amino_acid_1 == aa & Amino_acid_2 == aa)
-  
-  plot_list[[i]] <- ggplot(data = temp, aes(x = Jaccard_index)) +
-  geom_histogram(alpha = 0.7, binwidth = 1) +
-  theme_light() +
-  xlab("Jaccard index") +
-  ylab("Count") +
-  labs(title = "Histogram of Jaccard index of the DE proteins",
-       subtitle = glue("For strains carrying {aa}")) +
-  scale_fill_viridis_d()
-}
-
-
-## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
-my_grobs <- lapply(plot_list, ggplotGrob)
-
-## Print to PDF
-output_file = paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/histograms/Jaccard_index_per_amino_acid.pdf", sep = "")
-ggsave(
-   filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
-   width = 15, height = 9
-)
-```
 
 
 ### 6.3.3. Explore large intersections
@@ -3710,14 +3472,14 @@ Go into the top pairs with the largest JIs and look at what are the proteins in 
 ```{r}
 # Since I want to do enrichment analysis below, I need to load some stuff beforehand - based on the enrichment analysis file
 ## List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
-de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
-de_proteins_list_001 <- Filter(function(x) length(x) > 0, de_proteins_list_001)
+de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+de_proteins_list <- Filter(function(x) length(x) > 0, de_proteins_list)
 
 # Full Entrez ID dataframe, with all genes
 entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
 
 ## Define background
-temp <- data.frame("Protein_stable_ID" = de_proteins_list_001[["WT"]])
+temp <- data.frame("Protein_stable_ID" = de_proteins_list[["WT"]])
 temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
 my_universe <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
 
@@ -3741,7 +3503,7 @@ for (i in 1:N) {
   strain_2 <- high_jaccard_df$strains_2[i]
   
   # Grab the names of the proteins in the intersection
-  proteins <- intersect(de_proteins_list_001[[strain_1]], de_proteins_list_001[[strain_2]])
+  proteins <- intersect(de_proteins_list[[strain_1]], de_proteins_list[[strain_2]])
   
   # Do an enrichment analysis
   proteins_detected <- data.frame("Protein_stable_ID" = proteins)
@@ -4010,14 +3772,8 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 ## 6.4. Explore intersections between major KOs inside each family (only families with more than 1 major KO)
 Prepare data
 ```{r}
-alpha = 0.05
 # Load protein overlaps dataset created in previous section, with all possible intersections
-if (alpha == 0.01) {
-  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_001.tsv", sep="")))
-}
-if (alpha == 0.05) {
-  DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_005.tsv", sep="")))
-}
+DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep="")))
 
 # Master dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
@@ -4064,101 +3820,18 @@ paired_major_strains <- sort(unique(c(as.character(DE_protein_overlaps_major_wit
 Look at the EA results for these strains - this is the EA done in the main file, but since I don't find anything to be enriched in most of the strains, I am going to repeat it here only for these strains trying to be more lenient with the p-values and other thresholds. I don't know if this is a great idea, these I wouldn't interpret generally as pathways or whatever that are enriched in these strains, but rather I am using it simply to summarize the proteins that are DE in these strains in a more readable way so that I can compare them within the pair, I cannot look at 2 lists of 40 proteins each and compare that myself. 
 ```{r}
 # Load GO EA results
-go_results_list_001 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_001.json", sep=""), simplifyVector = T)
-go_results_list_005 <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_005.json", sep=""), simplifyVector = T)
+go_results_list <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
 # Load GSEA results (GO and KEGG)
 kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
 go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
 
 # Keep only those we are interested in
-go_results_list_001_filtered <- go_results_list_001[names(go_results_list_001) %in% paired_major_strains]
-go_results_list_005_filtered <- go_results_list_005[names(go_results_list_005) %in% paired_major_strains]
+go_results_list_filtered <- go_results_list[names(go_results_list_001) %in% paired_major_strains]
 kegg_gsea_results_filtered <- kegg_gsea_results[names(kegg_gsea_results) %in% paired_major_strains]
 go_gsea_results_filtered <- go_gsea_results[names(go_gsea_results) %in% paired_major_strains]
-
-# Need to look deeper into this for sure, but so far I only get EA results for 2 major KOs, let's compare those 
-gca_b <- go_results_list_005_filtered[["tC(GCA)B"]]$Description
-gca_p2 <- go_results_list_005_filtered[["tC(GCA)P2"]]$Description
-gca_b
-gca_p2
 ```
 
-
-Quick (and more lenient) EA only for these strains - only for proteins DE at 0.05 for now
-- Load data
-```{r}
-# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
-de_proteins_list_001 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_001.json", sep=""))
-de_proteins_list_001 <- Filter(function(x) length(x) > 0, de_proteins_list_001)
-
-# List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.05 - remove emtpy vectors
-de_proteins_list_005 <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_005.json", sep=""))
-de_proteins_list_005 <- Filter(function(x) length(x) > 0, de_proteins_list_005)
-
-# Full Entrez ID dataframe, with all genes
-entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
-
-# Load the dataset with that information
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
-
-# Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
-
-
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
-```
-
-- Get NCBI gene IDs for each of the systematic name vectors I have
-```{r}
-de_proteins_list_entrez_ID_005 <- list()
-for (i in 1:length(de_proteins_list_005)) {
-  temp <- data.frame("Protein_stable_ID" = de_proteins_list_005[[i]])
-  temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
-  temp <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
-  de_proteins_list_entrez_ID_005[[i]] <- temp
-}
-names(de_proteins_list_entrez_ID_005) <- names(de_proteins_list_005)
-```
-
-- Get the information of how many DE proteins there are for each tRNA KO strain
-```{r}
-de_prots_per_strain <- c()
-for (i in 1:length(de_proteins_list_005)) {
-  temp <- de_proteins_list_005[[i]]
-  de_prots_per_strain <- c(de_prots_per_strain, length(temp))
-}
-
-de_prots_per_strain_005 <- data.frame(Strain.Name = names(de_proteins_list_005),
-                                      nDEP = de_prots_per_strain) %>%
-  filter(Strain.Name != "WT")
-```
-
-- Perform GO enrichment analysis
-```{r}
-# Come up with background (all proteins detected)
-my_universe <- as.character(de_proteins_list_entrez_ID_005[["WT"]])
-
-# Create empty list for GO results, perform GO for each KO strain, and store them there
-de_proteins_list_entrez_ID_005 <- de_proteins_list_entrez_ID_005[names(de_proteins_list_entrez_ID_005) %in% paired_major_strains]
-go_results_list_005 <- list()
-for (i in 2:length(de_proteins_list_entrez_ID_005)) {
-  proteins_detected <- as.character(de_proteins_list_entrez_ID_005[[i]])
-  if (length(proteins_detected) > 0) {
-    go_results <- enrichGO(gene = proteins_detected, 
-                           OrgDb = "org.Sc.sgd.db", 
-                           keyType = "ENTREZID", 
-                           ont = "ALL", 
-                           pvalueCutoff = 0.1,
-                           minGSSize = 3,
-                           universe = my_universe)
-    go_results <- as.data.frame(go_results)
-    if (nrow(go_results) > 0) {
-      go_results_list_005[[names(de_proteins_list_entrez_ID_005)[i]]] <- go_results
-    }
-  }
-}
-```
 
 
 
@@ -4167,8 +3840,10 @@ for (i in 2:length(de_proteins_list_entrez_ID_005)) {
 Produce LaTex table with significant pathways in pairs of KOs with the same anticodon
   - GO
 ```{r}
+N <- 10
+
 # Load the GO GSEA results produced in that file
-go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
 
 # For GO GSEA results
 ## Get the unique codons to iterate over
@@ -4205,8 +3880,10 @@ for (i in 1:length(codons)) {
 
   - KEGG
 ```{r}
+N <- 10
+
 # Load the GO GSEA results produced in that file
-kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
+kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
 
 # For GO GSEA results
 ## Get the unique codons to iterate over
@@ -4240,29 +3917,4 @@ for (i in 1:length(codons)) {
   }
 }
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
