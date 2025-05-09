@@ -56,6 +56,12 @@ alpha <- 0.05
 # Significance level as a plain string to use when loading or writing files
 alpha_plain <- str_replace(as.character(alpha), "\\.", "")
 
+# Minimum threshold for the average log2-expression across all samples in order to keep a protein in the data before DE analysis
+mean_log2_across_all_samples_threshold <- 2
+
+# Minimum threshold for the variance of the log2-expression across all samples in order to keep a protein in the data before DE analysis
+var_across_log2_all_samples_threshold <- 0.6
+
 # Separate significance level, the one used for the enrichment analysis
 alpha_enrichment <- 0.05
 
@@ -231,18 +237,19 @@ rownames(trna_ko) <- new_rownames
 fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
 
 # Remove unnecessary objects
-rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, yeastmine)
+#rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, yeastmine)
 ```
 
 
-## 1.4. Differential expression analysis - adapted from what Alexis did, still need to fully understand some stuff
-Perform DE analysis
+## 1.4. Differential expression analysis - adapted from what Alexis did
+### 1.4.1. Perform DE analysis
+Prepare the necessary matrices and do some quality control: remove proteins with extremely low variance across all samples, as well as those with extremely low average expression across all samples, this eases the work of eBayes. 
 ```{r}
 # Get the names of all KOs we have, and set WT as the reference
 trna_levels <- c()
 for (i in 1:ncol(trna_ko)) {
   sample_name <- colnames(trna_ko)[i]
-  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
+  strain_name <- sample_layout$Strain.Name.Dots[sample_layout$final_proteomics_colnames == sample_name]
   if (length(strain_name) > 1) {
     strain_name <- strain_name[1]
   }
@@ -251,9 +258,8 @@ for (i in 1:ncol(trna_ko)) {
 trna_levels <- as.factor(trna_levels)
 trna_levels <- relevel(trna_levels, ref = "WT")
 
-
 # Generate design matrix
-mm <- model.matrix(~trna_levels)
+mm <- model.matrix(~ 0 + trna_levels)
 colnames(mm) <- levels(trna_levels)
 voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
 
@@ -266,14 +272,55 @@ trna_ko_log <- trna_ko
 trna_ko_log[] <- apply(trna_ko, c(1,2), zeros_to_ones)
 trna_ko_log <- log2(trna_ko_log)
 
-# Fit linear model
-fit <- lmFit(trna_ko_log, mm)                                 # Notice the log2 here
-fit2 <- eBayes(fit, trend = TRUE)
 
-# Identify differentially expressed proteins
+# Quality control
+## Average expression of each protein across all samples
+hist(rowMeans(trna_ko_log))
+hist(apply(trna_ko_log, 1, var), breaks = 60)
+mean(apply(trna_ko_log, 1, var))
+median(apply(trna_ko_log, 1, var))
+
+# Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
+# Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of those with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE anyway...
+## Remove lowly expressed proteins
+keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
+trna_ko_log_filtered <- trna_ko_log[keep, ]
+
+## Remove proteins which are extremely non-variable across all samples
+#keep_var <- apply(trna_ko_log_filtered, 1, var) > var_across_log2_all_samples_threshold
+#trna_ko_log_filtered <- trna_ko_log_filtered[keep_var, ]
+```
+
+Perform linear model fit, apply contrasts and compute statistics by empirical Bayes
+```{r}
+# Fit linear model
+fit <- lmFit(trna_ko_log_filtered, mm)                                 
+
+
+# Contrasts and eBayes need to be done by batches, otherwise eBayes gets overwhelmed with so many comparisons and such few replicates
+# Create all contrasts
+treatments <- colnames(fit$coefficients)
+design <- model.matrix(~ 0 + treatments)
+colnames(design) <- treatments
+contrast_list <- paste0(treatments, "-WT")
+
+# Introduce the contrasts and run eBayes for them, 10 at a time
 da <- list()
-for (i in colnames(mm)) {
-  da[[i]] <- topTable(fit2, coef = i, adjust = 'BH', number = Inf, sort.by = 'none')
+batch_size <- 3
+n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
+
+for (i in 1:n_batches) {
+  contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
+  contrast.matrix <- makeContrasts(contrasts = contrast_list, levels = design)
+  
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
+  
+  # Store topTables for each contrast
+  for (contrast_name in colnames(contrast.matrix)) {
+    da[[contrast_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
+    da[[contrast_name]]$Contrast <- contrast_name
+  }
 }
 ```
 
@@ -311,17 +358,29 @@ Finish processing the DE analysis results
 ```{r}
 # Format data
 da <- bind_rows(da) %>%
-  mutate(protein = rep(rownames(da[[1]]), times = length(da)),
-         Strain.Name = rep(names(da), each = nrow(da[[1]])), .before = 1) %>%
-  `rownames<-`(NULL) %>%
-  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%
-  filter(Strain.Name != 'WT') %>%                              # From here on in this function it's added by me
+  mutate(Strain.Name.Dots = substr(Contrast, 1, str_locate(Contrast, "-")-1),
+         protein = rep(rownames(da[[1]]), times = length(da))) %>%
+  dplyr::distinct(Strain.Name.Dots, protein, logFC, .keep_all = T)
+temp <- sample_layout %>%
+  dplyr::select(Strain.Name, Strain.Name.Dots) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
+da <- left_join(da, temp, by = "Strain.Name.Dots") %>%
+  dplyr::select(-c(Strain.Name.Dots, Contrast)) %>%
+  dplyr::relocate(Strain.Name, .before = logFC) %>%
+  dplyr::relocate(protein, .after = Strain.Name) %>%
+  filter(Strain.Name != "WT")
+
+da <- da %>%
+  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
   mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
                                             (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
                                             TRUE ~ "Not_significant"),
          diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
                                                 (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
                                                 TRUE ~ "Not_significant"))
+
+da <- da %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
 
 # Add a column to da with the number of replicates per KO - by me
 unique_KOs <- unique(da$Strain.Name)
@@ -361,9 +420,9 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-rm(amino_acids, DE, de_proteins_list_001, de_proteins_list_005, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
-   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
+#rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
+#   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
+#   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
 ```
 
 
@@ -381,7 +440,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
     geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
-    labs(title = trna) +
+    labs(title = glue("{trna} - {unique(temp$Replicate_num)} replicates")) +
     scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
 }
 
@@ -439,7 +498,7 @@ plot_list <- list()
 for (i in 1:length(KOs_with_DE_proteins)) {
   trna <- KOs_with_DE_proteins[i]
   temp <- da_only_KOs_with_DE_proteins %>% filter(Strain.Name == trna)
-  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
+  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed_adjusted)) +
     geom_point() +
     geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
     geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
@@ -464,19 +523,56 @@ ggsave(
 
 Volcano plot for all KO strains together
 ```{r}
-ggplot(data = da, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
+ggplot(data = da, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed_adjusted)) +
     geom_point() +
     geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
     geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
     theme_light() +
     theme(legend.position = "none") +
-    labs(title = "Volcano plot for all KO strains together") +
+    labs(title = "Volcano plot for all KO strains together",
+         subtitle = "Adjusted p-values") +
+    scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
+
+
+ggplot(data = da, aes(x = logFC, y = -log10(P.Value), col = diffexpressed_non_adjusted)) +
+    geom_point() +
+    geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
+    geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
+    theme_light() +
+    theme(legend.position = "none") +
+    labs(title = "Volcano plot for all KO strains together",
+         subtitle = "Raw p-values") +
     scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))
 
 
 # Remove unused objects
 #rm(list = c("my_grobs", "plot_list", "KOs_with_DE_proteins", "temp", "da_only_KOs_with_DE_proteins", "trna", "i", "output_file"))
 ```
+
+Evaluate distribution of p-values and fold-changes
+```{r}
+ggplot(data = da, aes(x = P.Value)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light() +
+  labs(title = "Distribution of raw p-values for DE") +
+  xlab("p-value") +
+  ylab("Count")
+
+ggplot(data = da, aes(x = adj.P.Val)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light() +
+  labs(title = "Distribution of adjusted p-values for DE") +
+  xlab("p-value") +
+  ylab("Count")
+
+ggplot(data = da, aes(x = logFC)) +
+  geom_histogram(col = "black", fill = "grey", binwidth = 0.2) +
+  theme_light() +
+  labs(title = "Distribution of logFC values for DE") +
+  xlab("logFC") +
+  ylab("Count")
+```
+
 
 
 
@@ -2713,7 +2809,7 @@ grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
 }
 
 
-da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da.json", sep=""), simplifyVector = T)
+da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
 de_synthetases_df_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
 de_synthetases_df_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
