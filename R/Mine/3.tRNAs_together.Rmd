@@ -75,7 +75,7 @@ lfc_threshold <- 0
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -351,7 +351,7 @@ write_json(de_proteins_list_001, path=output_file)
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -448,7 +448,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -4013,4 +4013,60 @@ for (i in 1:length(codons)) {
   }
 }
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+FIGURE OUT WHAT IS GOING ON WITH THE NEW VERSION OF THE DE ANALYSIS - DELETE ONCE THAT'S DONE
+```{r}
+da_old <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+da_new <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+
+responsiveness_old <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+responsiveness_new <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
