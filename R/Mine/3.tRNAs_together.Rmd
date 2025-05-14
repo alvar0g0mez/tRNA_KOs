@@ -75,7 +75,7 @@ lfc_threshold <- 0
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -319,15 +319,28 @@ for (i in 1:n_batches) {
   # Store topTables for each contrast
   for (contrast_name in colnames(contrast.matrix)) {
     da[[contrast_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
-    da[[contrast_name]]$Contrast <- contrast_name
+    new_names <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
+    for (j in 1:length(new_names)) {
+      name <- new_names[j]
+      if (grepl(".", name)) {
+        substr(name, 3, 3) <- "("
+        substr(name, 7, 7) <- ")"
+        new_names[i] <- name
+      }
+    }
+    da[[contrast_name]]$Strain.Name <- new_names
   }
 }
+
+# Fix names to be that of the strain and not that of the contrast
+new_names <- sapply(names(da), function(x) substr(x, 1, str_locate(x, "-")-1))
+names(da) <- new_names
 ```
 
 Save DE proteins for GO enrichment analysis
 ```{r}
 yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-de_proteins_list_001 <- list()
+de_proteins_list <- list()
 for (i in 1:length(da)) {
   temp <- da[[i]]
   temp <- na.omit(temp)
@@ -343,10 +356,10 @@ for (i in 1:length(da)) {
                                                                                                  simplify = T))
   
   # Save protein names
-  de_proteins_list_001[[names(da)[i]]] <- final_protein_names
+  de_proteins_list[[names(da)[i]]] <- final_protein_names
 }
 output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
-write_json(de_proteins_list_001, path=output_file)
+write_json(de_proteins_list, path=output_file)
 ```
 
 Save all proteins for GSEA
@@ -358,14 +371,11 @@ Finish processing the DE analysis results
 ```{r}
 # Format data
 da <- bind_rows(da) %>%
-  mutate(Strain.Name.Dots = substr(Contrast, 1, str_locate(Contrast, "-")-1),
-         protein = rep(rownames(da[[1]]), times = length(da))) %>%
-  dplyr::distinct(Strain.Name.Dots, protein, logFC, .keep_all = T)
+  mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
 temp <- sample_layout %>%
-  dplyr::select(Strain.Name, Strain.Name.Dots) %>%
   dplyr::distinct(Strain.Name, .keep_all = T)
-da <- left_join(da, temp, by = "Strain.Name.Dots") %>%
-  dplyr::select(-c(Strain.Name.Dots, Contrast)) %>%
+da <- left_join(da, temp, by = "Strain.Name") %>%
   dplyr::relocate(Strain.Name, .before = logFC) %>%
   dplyr::relocate(protein, .after = Strain.Name) %>%
   filter(Strain.Name != "WT")
@@ -397,10 +407,16 @@ da <- merge(da, KOs_replicates, by = "Strain.Name")
 responsiveness <- da %>%
   group_by(Strain.Name) %>%
   summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
+            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
+            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
             Replicate_num = mean(Replicate_num)) %>%
   mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
          chromosome_letter = substr(Strain.Name, 8, 8),
-         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))")) %>%
+         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
+         up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
+         up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
   arrange(Amino_acid_1_letter) %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
@@ -554,21 +570,24 @@ Evaluate distribution of p-values and fold-changes
 ggplot(data = da, aes(x = P.Value)) +
   geom_histogram(col = "black", fill = "grey") +
   theme_light() +
-  labs(title = "Distribution of raw p-values for DE") +
+  labs(title = "Distribution of raw p-values for DE", 
+       subtitle = "All KO strains") +
   xlab("p-value") +
   ylab("Count")
 
 ggplot(data = da, aes(x = adj.P.Val)) +
   geom_histogram(col = "black", fill = "grey") +
   theme_light() +
-  labs(title = "Distribution of adjusted p-values for DE") +
+  labs(title = "Distribution of adjusted p-values for DE", 
+       subtitle = "All KO strains") +
   xlab("p-value") +
   ylab("Count")
 
 ggplot(data = da, aes(x = logFC)) +
   geom_histogram(col = "black", fill = "grey", binwidth = 0.2) +
   theme_light() +
-  labs(title = "Distribution of logFC values for DE") +
+  labs(title = "Distribution of logFC values for DE", 
+       subtitle = "All KO strains") +
   xlab("logFC") +
   ylab("Count")
 ```
@@ -600,7 +619,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
   trna <- KOs_in_UCU_family[i]
   plot_title <- paste(trna, UCU_family$UCU_family[UCU_family$Strain.Name == trna], sep = "_")
   temp <- da_only_KOs_from_UCU_family %>% filter(Strain.Name == trna)
-  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed)) +
+  plot_list[[i]] <- ggplot(data = temp, aes(x = logFC, y = -log10(adj.P.Val), col = diffexpressed_adjusted)) +
     geom_point() +
     geom_hline(yintercept = -log10(alpha), linetype = "dashed", col = "gray") +
     geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", col = "gray") +
@@ -1290,6 +1309,14 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
 
 
 ## 1.13. Quick look at the OD
+Join OD and responsiveness dataframes
+```{r}
+resp_temp <- responsiveness %>%
+  dplyr::select(Strain.Name, nDEP, up_down_regulated_ratio_adjusted, up_down_regulated_ratio_non_adjusted)
+od_and_nDEP <- left_join(od, resp_temp, by = "Strain.Name")
+```
+
+
 Plot just OD histograms
 ```{r}
 ggplot(data = od, aes(x = OD_processed)) +
@@ -1307,6 +1334,16 @@ ggplot(data = od, aes(x = OD_processed, fill = Empty_well)) +
   labs(title = "Processed ODs for tRNA KO strains",
        subtitle = "For the following 96-well plates: 2.1., 2.2., 2.3.",
        fill = "Empty well?") +
+  ylab("Frequency") +
+  xlab("OD")
+
+# Color by up-regulated/down_regulated ratio
+ggplot(data = od_and_nDEP, aes(x = OD_processed, fill = up_down_regulated_ratio_adjusted)) +
+  geom_histogram(binwidth = 0.03, col = "black") +
+  theme_light() +
+  labs(title = "Processed ODs for tRNA KO strains",
+       subtitle = "For the following 96-well plates: 2.1., 2.2., 2.3.",
+       fill = "Up/down reg. proteins") +
   ylab("Frequency") +
   xlab("OD")
 ```
@@ -1354,10 +1391,6 @@ ggplot(data = od, aes(x = Strain.Type, y = OD_processed)) +
 
 OD vs. nDEP
 ```{r}
-resp_temp <- responsiveness %>%
-  dplyr::select(Strain.Name, nDEP)
-od_and_nDEP <- left_join(od, resp_temp, by = "Strain.Name")
-
 # OD vs. nDEP
 ggplot(data = od_and_nDEP, aes(x = OD_processed, y = nDEP)) +
   geom_point() +
@@ -1368,6 +1401,25 @@ ggplot(data = od_and_nDEP, aes(x = OD_processed, y = nDEP)) +
   geom_point() +
   theme_light() +
   coord_cartesian(ylim = c(0, 200))
+```
+
+Up_regulated/Down_regulated proteins per strain vs. OD
+```{r}
+ggplot(data = od_and_nDEP, aes(x = OD_processed, y = up_down_regulated_ratio_non_adjusted)) +
+  geom_point() +
+  theme_light() + 
+  labs(title = "Up-regulated protein count/down-regulated protein count vs. OD",
+       subtitle = "Un-adjusted p-values") +
+  xlab("OD") +
+  ylab("Up-regulated proteins/Down-regulated proteins")
+
+ggplot(data = od_and_nDEP, aes(x = OD_processed, y = up_down_regulated_ratio_adjusted)) +
+  geom_point() +
+  theme_light() + 
+  labs(title = "Up-regulated protein count/down-regulated protein count vs. OD",
+       subtitle = "Adjusted p-values") +
+  xlab("OD") +
+  ylab("Up-regulated proteins/Down-regulated proteins")
 ```
 
 
@@ -1432,7 +1484,31 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
 ```
 
 
-## 1.15. Clean up environment
+## 1.15. Up-regulated and down-regulated proteins exploration
+```{r}
+resp_only_no_up_regulated_strains <- responsiveness %>%
+  filter(up_down_regulated_ratio_adjusted == 0)
+
+print("Strain.Name")
+length(unique(responsiveness$Strain.Name))
+length(unique(resp_only_no_up_regulated_strains$Strain.Name))
+
+print("Anticodon")
+length(unique(responsiveness$anticodon))
+length(unique(resp_only_no_up_regulated_strains$anticodon))
+
+print("Amino acid")
+length(unique(responsiveness$Amino_acid_1_letter))
+length(unique(resp_only_no_up_regulated_strains$Amino_acid_1_letter))
+
+print("Mean major count")
+mean(responsiveness$Major_count)
+mean(resp_only_no_up_regulated_strains$Major_count)
+```
+
+
+
+## 1.16. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
@@ -2565,14 +2641,8 @@ rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, tes
 # Processed KO proteomics dataframe
 trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
 
-print("You are trying to load DEA results. At which logFC threshold do you want them?")
-lfc <- readline()
-print("And at which p-value? Please provide it as '001' or '005'")
-pval <- readline()
-print("Thanks! Coming right up :)")
-
 # List of dataframes with the proteins that were DE in each KO strain
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", pval, "_", "logFC_", lfc, ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 
 ## Remove WT dataframe
 de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
@@ -2602,7 +2672,7 @@ for (i in 1:nrow(chu_synths)) {
   }
 }
 chu_synths_new <- chu_synths_new %>%
-  rename(gene_names = Synthetase)
+  dplyr::rename(gene_names = Synthetase)
 
 
 # Get a column with systematic gene names in the synthetase dataframe (they only have the standard naming)
@@ -2725,6 +2795,30 @@ temp <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")) %>%
 synthetases <- left_join(synthetases, temp, by = "Amino_acid_3_letter")
 
 
+# One final thing - add information of which ones are included in the TS library, and which ones are included in the GFP/RFP data
+if (working_from == "charite") {
+  ts_sample_layout <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/sample_layout.csv"))
+} else {
+  ts_sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/sample_layout.csv"))
+}
+
+if (working_from == "charite") {
+  ts_fluorescence_raw_1 <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/Fluorescence/raw_1.csv"))
+} else {
+  ts_fluorescence_raw_1 <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/Fluorescence/raw_1.csv"))
+}
+
+synthetases <- synthetases %>%
+  dplyr::mutate(in_ts_library = case_when(Gene.secondaryIdentifier %in% ts_sample_layout$Sys.Name ~ "Yes",
+                                          TRUE ~ "No"),
+                in_fluorescence_data = case_when(Gene.symbol %in% ts_fluorescence_raw_1$Gene ~ "Yes",
+                                                 TRUE ~ "No"))
+
+# Get a subset of this for a screenshot for a slide
+temp <- synthetases %>%
+  dplyr::select(Gene.name, Gene.symbol, Gene.secondaryIdentifier, mitochondrial, Amino_acid_3_letter, in_ts_library, in_fluorescence_data)
+
+
 # Save this dataset
 fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
 ```
@@ -2733,54 +2827,36 @@ fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
 
 
 ## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
-At alpha = 0.01
 ```{r}
-de_synthetases_001 <- list()
-for (i in 1:length(de_proteins_list_001)) {
-  de_proteins <- de_proteins_list_001[[i]]
+de_synthetases <- list()
+for (i in 1:length(de_proteins_list)) {
+  de_proteins <- de_proteins_list[[i]]
   temp <- de_proteins[de_proteins %in% chu_synths_new$Gene.secondaryIdentifier]
   if (length(temp) > 0) {
-    de_synthetases_001[[names(de_proteins_list_001)[i]]] <- temp
+    de_synthetases[[names(de_proteins_list)[i]]] <- temp
   }
 }
 
 # Get a table summarizing this
-temp <- unlist(de_synthetases_001)
+temp <- unlist(de_synthetases)
 sort(table(temp))
 
 # Remove unnecessary variables
 rm(de_proteins, temp)
 ```
+All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
 
-At alpha = 0.05
-```{r}
-de_synthetases_005 <- list()
-for (i in 1:length(de_proteins_list_005)) {
-  de_proteins <- de_proteins_list_005[[i]]
-  temp <- de_proteins[de_proteins %in% chu_synths_new$Gene.secondaryIdentifier]
-  if (length(temp) > 0) {
-    de_synthetases_005[[names(de_proteins_list_005)[i]]] <- temp
-  }
-}
-
-# Get a table summarizing this
-temp <- unlist(de_synthetases_005)
-sort(table(temp))
-
-# Remove unnecessary variables
-rm(de_proteins, temp)
-```
 
 
 ## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains
 ```{r}
-grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
+grab_de_synthetases_dfs <- function(da, de_synthetases, yeastmine) {
   de_synthetases_dfs <- list()
-  for (i in 1:length(da_full)) {
-    strain_name <- names(da_full)[[i]]
+  for (i in 1:length(da)) {
+    strain_name <- names(da)[[i]]
     strains_with_de_synths <- names(de_synthetases)
     if (strain_name %in% strains_with_de_synths) {
-      temp <- da_full[[i]]
+      temp <- da[[i]]
       rownames(temp) <- match_systematic_and_standard_protein_names(data = rownames(temp),
                                                                        yeastmine = yeastmine,
                                                                        input = "standard",
@@ -2803,7 +2879,7 @@ grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
                                                       simplify = T)
   de_synthetases_df$Synthetase_standard <- temp
   de_synthetases_df <- de_synthetases_df %>%
-    rename(Synthetase_systematic = Synthetase)
+    dplyr::rename(Synthetase_systematic = Synthetase)
   
   return(de_synthetases_df)
 }
@@ -2811,8 +2887,7 @@ grab_de_synthetases_dfs <- function(da_full, de_synthetases, yeastmine) {
 
 da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
-de_synthetases_df_001 <- grab_de_synthetases_dfs(da, de_synthetases_001, yeastmine)
-de_synthetases_df_005 <- grab_de_synthetases_dfs(da, de_synthetases_005, yeastmine)
+de_synthetases_df <- grab_de_synthetases_dfs(da, de_synthetases, yeastmine)
 ```
 
 Add 2 columns: one for the amino acid which the KOd tRNA carries, another for the the amino acid that is loaded by the synthetase found to be DE
@@ -2873,13 +2948,12 @@ add_2_columns <- function(de_synthetases_df) {
 amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) 
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 
-de_synthetases_df_001 <- add_2_columns(de_synthetases_df_001)
-de_synthetases_df_005 <- add_2_columns(de_synthetases_df_005)
+de_synthetases_df <- add_2_columns(de_synthetases_df)
 
 
 # Remove unnecessary variables
-rm(chu_synths, chu_synths_new, de_proteins_list_001, de_proteins_list_005, new_row, trna_ko, yeastmine,
-   std_name, std_names, i, j, check, detected_proteins, de_synthetases_001, de_synthetases_005,
+rm(chu_synths, chu_synths_new, de_proteins_list, new_row, trna_ko, yeastmine,
+   std_name, std_names, i, j, check, detected_proteins, de_synthetases,
    grab_de_synthetases_dfs, da, amino_acids, add_2_columns, synths_detected)
 ```
 
