@@ -311,30 +311,24 @@ n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
 
 for (i in 1:n_batches) {
   contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
-  contrast.matrix <- makeContrasts(contrasts = contrast_list, levels = design)
+  contrast.matrix <- makeContrasts(contrasts = contrast_subset, levels = design)
   
   fit2 <- contrasts.fit(fit, contrast.matrix)
   fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
   
+  new_contrast_names <- c()
+  
   # Store topTables for each contrast
   for (contrast_name in colnames(contrast.matrix)) {
-    da[[contrast_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
-    new_names <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
-    for (j in 1:length(new_names)) {
-      name <- new_names[j]
-      if (grepl(".", name)) {
-        substr(name, 3, 3) <- "("
-        substr(name, 7, 7) <- ")"
-        new_names[i] <- name
-      }
+    new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
+    if (grepl(".", new_name)) {
+        substr(new_name, 3, 3) <- "("
+        substr(new_name, 7, 7) <- ")"
     }
-    da[[contrast_name]]$Strain.Name <- new_names
+    da[[new_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
+    da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
   }
 }
-
-# Fix names to be that of the strain and not that of the contrast
-new_names <- sapply(names(da), function(x) substr(x, 1, str_locate(x, "-")-1))
-names(da) <- new_names
 ```
 
 Save DE proteins for GO enrichment analysis
@@ -1336,16 +1330,6 @@ ggplot(data = od, aes(x = OD_processed, fill = Empty_well)) +
        fill = "Empty well?") +
   ylab("Frequency") +
   xlab("OD")
-
-# Color by up-regulated/down_regulated ratio
-ggplot(data = od_and_nDEP, aes(x = OD_processed, fill = up_down_regulated_ratio_adjusted)) +
-  geom_histogram(binwidth = 0.03, col = "black") +
-  theme_light() +
-  labs(title = "Processed ODs for tRNA KO strains",
-       subtitle = "For the following 96-well plates: 2.1., 2.2., 2.3.",
-       fill = "Up/down reg. proteins") +
-  ylab("Frequency") +
-  xlab("OD")
 ```
 
 OD boxplots per anticodon and amino acid
@@ -1599,8 +1583,8 @@ resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "Amino_ac
 synthetases <- fread(paste(base_dir, "Data/trna_synthetases.csv", sep=""))
 temp <- synthetases %>%
   filter(Gene.symbol != "GRS2",
-         !is.na(measured_proteomics_WT)) %>%
-  dplyr::select(Amino_acid_1_letter, measured_proteomics_WT)
+         !is.na(measured_proteomics_WTs_WT)) %>%
+  dplyr::select(Amino_acid_1_letter, measured_proteomics_WTs_WT)
   
 
 # For the rows for each amino acid, select the limiting one, the one we detect the least of (even though I don't even know if they join 1:1 to form the complex?)
@@ -1610,7 +1594,7 @@ for (i in 1:length(aas)) {
   aa <- aas[i]
   temp_2 <- temp %>%
     filter(Amino_acid_1_letter == aa)
-  temp_2 <- temp_2[which.min(temp_2$measured_proteomics_WT),]
+  temp_2 <- temp_2[which.min(temp_2$measured_proteomics_WTs_WT),]
   synthetases_to_merge <- rbind(synthetases_to_merge, temp_2)
 }
 
@@ -1681,32 +1665,32 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_
 Plots - tRNA expression from Cozen et al., 2015 vs. tRNA synthetase abundance from our WTs
 ```{r}
 # tRNA abundance from Cozen et al., vs. log2 tRNA synthetase abundance from Chu et al.
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA)) +
   geom_point() +
   theme_light()
 
 # Same, but color by major and minor based on our proteomics
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = Gene_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = Gene_type)) +
   geom_point() +
   theme_light()
 
 # Plot average nDEP vs. avg expression, but color by tRNA synthetase abundance from our WT samples
-ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = measured_proteomics_WT)) +
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = measured_proteomics_WTs_WT)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid type
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = amino_acid_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = amino_acid_type)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid charge
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = amino_acid_charge)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = amino_acid_charge)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid weight
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = molecular_weight_Da)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = molecular_weight_Da)) +
   geom_point() +
   theme_light()
 ```
@@ -1773,14 +1757,14 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP,
 Plots - nDEP vs. synthetase abundance - from our WTs
 ```{r}
 # nDEP vs. synthetase abundance
-ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = measured_proteomics_WTs_WT, y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
   xlab("tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
-ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = measured_proteomics_WTs_WT, y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)",
@@ -1791,7 +1775,7 @@ ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
   
 
 # nDEP vs. log2-synthetase abundance
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1799,7 +1783,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDE
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by family size
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = Family_count)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = Family_count)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1807,7 +1791,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDE
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by chromosome
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = chromosome_letter)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = chromosome_letter)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1815,7 +1799,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDE
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid type
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = amino_acid_type)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1823,7 +1807,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDE
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid charge
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_charge)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = amino_acid_charge)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1831,7 +1815,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDE
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid weight
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = molecular_weight_Da)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = molecular_weight_Da)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -1984,7 +1968,7 @@ resp_and_expression_modelling <- resp_and_expression %>%
                 codon_frequency = codon_frequency_chu_2011,
                 tRNA_expression = mean_reads_per_tRNA,
                 synthetase_abundance_literature = synthetase_abundance,
-                synthetase_abundance_our_WTs = measured_proteomics_WT)
+                synthetase_abundance_our_WTs = measured_proteomics_WTs_WT)
 
 # Add info on U_34, A_34 from master_dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep=""))) %>%
@@ -2447,7 +2431,7 @@ summary(fit)
 
 Remove unnecessary variables
 ```{r}
-rm(check_lit, check_WTs, fit, resp_and_expression, resp_and_expression_modelling, resp_measure_corrs, measured_proteomics)
+rm(check_lit, check_WTs, fit, resp_and_expression, resp_and_expression_modelling, resp_measure_corrs, measured_proteomics_WTs)
 ```
 
 
@@ -2769,24 +2753,44 @@ Check how much of each we detect across WTs, add that information to the dataset
 ```{r}
 # Prepare
 WTs <- trna_ko[, grepl("WT", colnames(trna_ko))]
+KOs <- trna_ko[, !grepl("WT", colnames(trna_ko))]
 rownames(WTs) <- match_systematic_and_standard_protein_names(as.character(rownames(WTs)),
                                                              yeastmine = yeastmine, 
                                                              input = "standard",
                                                              simplify = T)
 
 # Actually check and save it to a new column in the dataframe
-measured_proteomics <- c()
+measured_proteomics_WTs <- c()
+quantified_in_how_many_WTs <- c()
+quantified_in_how_many_KO_samples <- c()
 for (i in 1:nrow(synthetases)) {
   synth <- synthetases$Gene.secondaryIdentifier[i]
+  
+  # If the synthetase is detected at all, present in the dataset
   if (synth %in% rownames(WTs)) {
-    measured_proteomics <- c(measured_proteomics, mean(as.numeric(WTs[rownames(WTs) == synth,]), na.rm = T))
+    ## Get the average expression of this synthetase across WTs
+    synth_quant_across_WTs <- as.numeric(WTs[rownames(WTs) == synth,])
+    measured_proteomics_WTs <- c(measured_proteomics_WTs, mean(synth_quant_across_WTs, na.rm = T))
     hist(as.numeric(WTs[rownames(WTs) == synth,]))
+    
+    ## In how many WT samples is this synthetase actually detected? (value != 0)
+    quantified_in_how_many_WTs <- c(quantified_in_how_many_WTs, sum(synth_quant_across_WTs != 0))
+    
+    ## In how many samples in total is this synthetase actually detected? (value != 0)
+    synth_quant_across_KO_samples <- as.numeric(KOs[rownames(KOs) == synth,])
+    quantified_in_how_many_KO_samples <- c(quantified_in_how_many_KO_samples, sum(synth_quant_across_all_samples != 0))
   }
+  
+  # If it is not
   else {
-    measured_proteomics <- c(measured_proteomics, NA)
+    measured_proteomics_WTs <- c(measured_proteomics_WTs, NA)
+    quantified_in_how_many_WTs <- c(quantified_in_how_many_WTs, NA)
+    quantified_in_how_many_KO_samples <- c(quantified_in_how_many_KO_samples, NA)
   }
 }
-synthetases$measured_proteomics_WT <- measured_proteomics
+synthetases$measured_proteomics_WTs_WT <- measured_proteomics_WTs
+synthetases$quantified_in_how_many_WTs <- quantified_in_how_many_WTs
+synthetases$quantified_in_how_many_KO_samples <- quantified_in_how_many_KO_samples
 
 
 # Add columns with all other amino acid information
@@ -2895,38 +2899,38 @@ Add 2 columns: one for the amino acid which the KOd tRNA carries, another for th
 add_2_columns <- function(de_synthetases_df) {
   # Amino acid carried by the KOd tRNA
   temp <- master_dataset %>%
-    dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter)
+    dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter, anticodon, codon, chromosome, Family_size)
   de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
-    rename(Amino_acid_1_letter = Isotype_from_anticodon_1_letter)
+    dplyr::rename(Amino_acid_1_letter = Isotype_from_anticodon_1_letter)
   
   temp <- amino_acids %>%
     dplyr::select(Amino_acid_1_letter, amino_acid_charge, amino_acid_type) %>%
-    rename(AA_charge_tRNA = amino_acid_charge,
+    dplyr::rename(AA_charge_tRNA = amino_acid_charge,
            AA_type_tRNA = amino_acid_type)
   de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Amino_acid_1_letter") %>%
-    rename(AA_carried_by_tRNA = Amino_acid_1_letter)
+    dplyr::rename(AA_carried_by_tRNA = Amino_acid_1_letter)
   
   # Amino acid loaded by the synthetase
   temp <- amino_acids %>%
     dplyr::select(Amino_acid_name, Amino_acid_1_letter, Amino_acid_3_letter, amino_acid_charge, amino_acid_type) %>%
-    rename(AA_loaded_by_synthetase = Amino_acid_1_letter,
+    dplyr::rename(AA_loaded_by_synthetase = Amino_acid_1_letter,
            AA_charge_synth = amino_acid_charge,
            AA_type_synth = amino_acid_type)
   
   temp_2 <- left_join(chu_synths_new, temp, by = "Amino_acid_3_letter") %>%
     dplyr::select(Gene.secondaryIdentifier, AA_charge_synth, AA_type_synth) %>%
-    rename(Synthetase = Gene.secondaryIdentifier)
+    dplyr::rename(Synthetase = Gene.secondaryIdentifier)
   
   temp_3 <- temp_2 %>%
     group_by(Synthetase) %>%
     summarise(text=paste(AA_charge_synth, collapse = ",")) %>%
-    rename(AA_charge_synth = text,
+    dplyr::rename(AA_charge_synth = text,
            Synthetase_systematic = Synthetase)
   
   temp_4 <- temp_2 %>%
     group_by(Synthetase) %>%
     summarise(text=paste(AA_type_synth, collapse = ",")) %>%
-    rename(AA_type_synth = text,
+    dplyr::rename(AA_type_synth = text,
            Synthetase_systematic = Synthetase)
   
   de_synthetases_df <- left_join(de_synthetases_df, temp_3, by = "Synthetase_systematic")
@@ -2934,13 +2938,12 @@ add_2_columns <- function(de_synthetases_df) {
   
   temp <- left_join(chu_synths_new, temp, by = "Amino_acid_3_letter") %>%
     dplyr::select(Gene.secondaryIdentifier, AA_loaded_by_synthetase) %>%
-    rename(Synthetase = Gene.secondaryIdentifier) %>%
+    dplyr::rename(Synthetase = Gene.secondaryIdentifier) %>%
     group_by(Synthetase) %>%
     summarise(text=paste(AA_loaded_by_synthetase, collapse = ",")) %>%
-    rename(AA_loaded_by_synthetase = text,
+    dplyr::rename(AA_loaded_by_synthetase = text,
            Synthetase_systematic = Synthetase)
-  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Synthetase_systematic") %>%
-    rename()
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Synthetase_systematic") 
   
   return(de_synthetases_df)
 }
@@ -2951,6 +2954,22 @@ master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master
 de_synthetases_df <- add_2_columns(de_synthetases_df)
 
 
+# Also add a column which counts how many DE synthetases there are in each strain, and also another one with in how many strains each synthetase is DE
+de_synthetases_df <- de_synthetases_df %>%
+  group_by(Strain.Name) %>%
+  mutate(DE_synths_per_strain = n()) %>%
+  ungroup() %>%
+  group_by(Synthetase_systematic) %>%
+  mutate(strains_per_synth = n())
+
+# Add the information from the synthetases dataframe of in how many total samples and in how many WT samples each synthetase is detected
+temp <- synthetases %>%
+  dplyr::select(Gene.secondaryIdentifier, measured_proteomics_WTs_WT, quantified_in_how_many_WTs, quantified_in_how_many_KO_samples) %>%
+  dplyr::rename(Synthetase_systematic = Gene.secondaryIdentifier)
+de_synthetases_df<- de_synthetases_df %>%
+  left_join(temp, by = "Synthetase_systematic")
+
+
 # Remove unnecessary variables
 rm(chu_synths, chu_synths_new, de_proteins_list, new_row, trna_ko, yeastmine,
    std_name, std_names, i, j, check, detected_proteins, de_synthetases,
@@ -2959,7 +2978,7 @@ rm(chu_synths, chu_synths_new, de_proteins_list, new_row, trna_ko, yeastmine,
 
 
 ## 5.4. Check how many synthetases we have TS alleles for in the Boone library
-There are 11 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase
+There are 13 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase - 2 of them were sick when sent and did not grow
 ```{r}
 if (working_from == "charite") {
   ts_library <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
@@ -2972,7 +2991,64 @@ synths_in_ts_library_info <- synthetases[synthetases$Gene.secondaryIdentifier %i
 ```
 
 
-## 5.5. Save the dataframes with the information on the DE synthetases and remove everything
+## 5.5. There are only 33 strains with DE synthetases - is there anything special about them?
+```{r}
+unique(de_synthetases_df$AA_carried_by_tRNA)
+unique(de_synthetases_df$anticodon)
+unique(de_synthetases_df$chromosome)
+
+length(unique(de_synthetases_df$AA_carried_by_tRNA))
+length(unique(de_synthetases_df$anticodon))
+length(unique(de_synthetases_df$chromosome))
+```
+
+```{r}
+sort(table(de_synthetases_df$AA_loaded_by_synthetase))
+
+# Rank the 33 KO strains based on AA_type_synth
+sort(table(de_synthetases_df$AA_type_synth))
+
+# Rank the 33 KO strains based on how many DE synthetases there are in each of them
+
+```
+
+More plots
+```{r}
+# Boxplots for the number of DE synthetases per amino acid carried
+ggplot(data = de_synthetases_df, aes(x = AA_carried_by_tRNA, y = DE_synths_per_strain)) +
+  geom_boxplot(col = "black") +
+  theme_light() +
+  labs(title = "Number of DE synthetases by the amino acid carried by the KOd tRNA") +
+  xlab("Amino acid carried by the tRNA") +
+  ylab("Count of DE synthetases")
+
+# Scatter plot for the number of strains in which each synthetase is DE
+ggplot(data = de_synthetases_df, aes(x = Synthetase_standard, y = strains_per_synth, col = AA_loaded_by_synthetase)) +
+  geom_point(size = 3) +
+  theme_light() +
+  labs(title = "Number of strains in which each synthetase is DE",
+       col = "AA loaded by synthetase") +
+  xlab("Synthetase") +
+  ylab("Strain count") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  guides(col=guide_legend(ncol=2))
+
+# Scatter plot: number of strains in which each synthetase is DE vs. number of samples in which that synthetase is detected
+ggplot(data = de_synthetases_df, aes(x = Synthetase_standard, y = strains_per_synth, col = AA_loaded_by_synthetase)) +
+  geom_point(size = 3) +
+  theme_light() +
+  labs(title = "Number of strains in which each synthetase is DE",
+       col = "AA loaded by synthetase") +
+  xlab("Synthetase") +
+  ylab("Strain count") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  guides(col=guide_legend(ncol=2))
+```
+
+
+
+
+## 5.6. Save the dataframes with the information on the DE synthetases and remove everything
 ```{r}
 # Save them
 fwrite(de_synthetases_df_001, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_001.tsv", sep=""))

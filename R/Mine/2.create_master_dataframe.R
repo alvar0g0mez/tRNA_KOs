@@ -158,13 +158,14 @@ rm(og_name, new_name, i)
 
 
 # 2.0. Load phenotypic results dataset
-phenotypic_results <- fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep=""))
+phenotypic_results <- fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep=""))
 
 # 2.1. Add columns
 master_dataset <- db %>%
   mutate(KOd = case_when(GtRNADB_name %in% phenotypic_results$GtRNADB_name ~ "Yes",
                          TRUE ~ "No")) %>%
-  left_join(phenotypic_results[, c("GtRNADB_name", "gene_name")], by="GtRNADB_name")
+  dplyr::rename(GtRNAdb_name = GtRNADB_name) %>%
+  left_join(phenotypic_results[, c("GtRNAdb_name", "Strain.Name")], by="GtRNAdb_name")
 
 
 ## Remove unnecessary variables
@@ -177,8 +178,9 @@ rm(phenotypic_results, db)
 
 
 # 3. Add genetic and mature tRNA sequences from the FASTA files
-trna_seqs <- read.csv(paste(base_dir, "Data/Other/GtRNAdb/gene_and_mature_tRNA_seqs.csv", sep=""))
-master_dataset <- left_join(master_dataset, trna_seqs, by = "GtRNADB_name")
+trna_seqs <- read.csv(paste(base_dir, "Data/Other/GtRNAdb/gene_and_mature_tRNA_seqs.csv", sep="")) %>%
+  dplyr::rename(GtRNAdb_name = GtRNADB_name)
+master_dataset <- left_join(master_dataset, trna_seqs, by = "GtRNAdb_name")
 
 ## Remove unnecessary variables
 rm(trna_seqs)
@@ -198,9 +200,14 @@ master_dataset <- master_dataset %>%
 
 ## Make the order of the columns a bit nicer
 master_dataset <- master_dataset %>%
-  relocate(gene_name, .after = Locus) %>%
-  relocate(anticodon, .after = gene_name) %>%
+  relocate(Strain.Name, .after = Locus) %>%
+  relocate(anticodon, .after = Strain.Name) %>%
   relocate(codon, .after = anticodon)
+
+## Create a chromosome column based on tRNAscan_SE_ID 
+master_dataset <- master_dataset %>%
+  mutate(chromosome = LETTERS[as.numeric(as.roman(str_extract(tRNAscan_SE_ID, "(?<=chr)[^\\.]+(?=\\.)")))]) %>%
+  relocate(chromosome, .after = codon)
 
 ## Add columns with the length of each of the sequences
 master_dataset <- master_dataset %>%
@@ -236,9 +243,9 @@ master_dataset <- master_dataset %>%
 
 ## Column saying if there is a U in position 34 (the one that binds the last nucleotide in the codon), and a couple things more
 master_dataset <- master_dataset %>%
-  mutate(U_34 = case_when(grepl("\\(U", gene_name) ~ T,
+  mutate(U_34 = case_when(grepl("\\(U", Strain.Name) ~ T,
                           TRUE ~ F),
-         A_34 = case_when(grepl("\\(A", gene_name) ~ T,
+         A_34 = case_when(grepl("\\(A", Strain.Name) ~ T,
                           TRUE ~ F),
          Nt_at_1 = substr(mature_sequence, 1, 1),
          Nt_at_2 = substr(mature_sequence, 2, 2),
@@ -312,10 +319,6 @@ master_dataset <- master_dataset %>%
          Nt_at_70 = substr(mature_sequence, 70, 70))
 
 
-
-# Change the "gene_name" column to "Strain.Name"
-master_dataset <- master_dataset %>%
-  dplyr::rename(Strain.Name = gene_name)
 
 
 
