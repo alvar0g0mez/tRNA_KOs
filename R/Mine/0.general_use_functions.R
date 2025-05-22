@@ -512,6 +512,21 @@ extract_anticodon_from_trna_name <- function(trna) {
 
 
 
+################################################################################
+# Calculate robust CV (coefficient of variation)
+################################################################################
+robust_cv <- function(x, na.rm = TRUE) {
+  if (na.rm) x <- x[!is.na(x)]
+  median_x <- median(x)
+  mad_x <- mad(x)  
+  return(mad_x/median_x)
+}
+
+
+
+
+
+
 
 
 

@@ -46,6 +46,7 @@ library(xtable)
 library(clusterProfiler)
 library(org.Sc.sgd.db)
 library(fgsea)
+library(limpa)
 ```
 
 Set parameters
@@ -69,7 +70,7 @@ alpha_enrichment <- 0.05
 alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 
 # Log-fold change limit to be considered "biologically significant"
-lfc_threshold <- 0
+lfc_threshold <- 1
 
 # Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
 threshold_major <- 2
@@ -160,84 +161,85 @@ sample_layout <- sample_layout %>%
   - Deal with the 2/3 duplicated strains
   - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
   - Generally do everything necessary to come up with trna_ko from proteomics_raw
+NOT NECESSARY ANYMORE SINCE I USE LIMPA - IN ANOTHER DOCUMENT - THIS IS NECESSARY BEFORE RUNNING THAT, BUT THOSE RESULTS ARE ALREADY SAVED AND LOADED BELOW
 ```{r}
-# Remove annoying unnecessary (?) column (UniProt IDs)
-if (dataset == "outlier_removed") 
-  {proteomics_raw <- proteomics_raw %>%
-    dplyr::select(-sample) %>%
-    rename(genes = X) %>%
-    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
-    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
-
-if (dataset == "batchcorrected_onWTs")    
-    {proteomics_raw <- proteomics_raw %>%
-    dplyr::select(-Protein.Group) %>%
-      dplyr::rename(genes = Genes) %>%
-      column_to_rownames(var = 'genes')}
-
-
-# Come up with new colnames
-new_names <- c()
-current_names <- colnames(proteomics_raw)
-new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
-colnames(proteomics_raw) <- new_names
-
-
-# Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated samples
-## Come up with the averages
-n_occur <- data.frame(table(colnames(proteomics_raw)))
-repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
-
-out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
-for (i in 1:length(repeated_samples)) {
-  strain <- repeated_samples[i]
-  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
-  temp[,1] <- as.numeric(temp[,1])
-  temp[,2] <- as.numeric(temp[,2])
-  out <- c(apply(temp, 1, mean))
-  out_temp[,i] <- out
-}
-colnames(out_temp) <- repeated_samples
-
-## Remove original columns from dataframe and add the averaged ones
-proteomics_raw <- proteomics_raw[,!(colnames(proteomics_raw) %in% repeated_samples)]
-proteomics_raw <- cbind(proteomics_raw, out_temp)
-
-
-# Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
-trna_ko <- proteomics_raw %>%                 
-  dplyr::select(!contains('QC'))                                 # Remove QCs columns
-                                
-
-# Convert to a numeric dataframe
-trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
-
-# Remove the sub-batch that went wrong
-if (dataset == "outlier_removed") {
-  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
-trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
-}
-
-# Turn the rownames to all be systematic gene names rather than standard and systematic mixed
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-old_rownames <- rownames(trna_ko)
-new_rownames <- match_systematic_and_standard_protein_names(data = old_rownames,
-                                                            yeastmine = yeastmine,
-                                                            input = "standard",
-                                                            simplify = T)
-rownames(trna_ko) <- new_rownames
-
-# Save this last dataset for later usage elsewhere
+## Remove annoying unnecessary (?) column (UniProt IDs)
+#if (dataset == "outlier_removed") 
+#  {proteomics_raw <- proteomics_raw %>%
+#    dplyr::select(-sample) %>%
+#    rename(genes = X) %>%
+#    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
+#    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
+#
+#if (dataset == "batchcorrected_onWTs")    
+#    {proteomics_raw <- proteomics_raw %>%
+#    dplyr::select(-Protein.Group) %>%
+#      dplyr::rename(genes = Genes) %>%
+#      column_to_rownames(var = 'genes')}
+#
+#
+## Come up with new colnames
+#new_names <- c()
+#current_names <- colnames(proteomics_raw)
+#new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
+#colnames(proteomics_raw) <- new_names
+#
+#
+## Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated #samples
+### Come up with the averages
+#n_occur <- data.frame(table(colnames(proteomics_raw)))
+#repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+#
+#out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
+#for (i in 1:length(repeated_samples)) {
+#  strain <- repeated_samples[i]
+#  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
+#  temp[,1] <- as.numeric(temp[,1])
+#  temp[,2] <- as.numeric(temp[,2])
+#  out <- c(apply(temp, 1, mean))
+#  out_temp[,i] <- out
+#}
+#colnames(out_temp) <- repeated_samples
+#
+### Remove original columns from dataframe and add the averaged ones
+#proteomics_raw <- proteomics_raw[,!(colnames(proteomics_raw) %in% repeated_samples)]
+#proteomics_raw <- cbind(proteomics_raw, out_temp)
+#
+#
+## Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
+#trna_ko <- proteomics_raw %>%                 
+#  dplyr::select(!contains('QC'))                                 # Remove QCs columns
+#                                
+#
+## Convert to a numeric dataframe
+#trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
+#
+## Remove the sub-batch that went wrong
 #if (dataset == "outlier_removed") {
-#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+#  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+#trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
 #}
-#if (dataset == "batchcorrected_onWTs") {
-#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
-#}
-fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
-
-# Remove unnecessary objects
-#rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, yeastmine)
+#
+## Turn the rownames to all be systematic gene names rather than standard and systematic mixed
+#yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+#old_rownames <- rownames(trna_ko)
+#new_rownames <- match_systematic_and_standard_protein_names(data = old_rownames,
+#                                                            yeastmine = yeastmine,
+#                                                            input = "standard",
+#                                                            simplify = T)
+#rownames(trna_ko) <- new_rownames
+#
+## Save this last dataset for later usage elsewhere
+##if (dataset == "outlier_removed") {
+##  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+##}
+##if (dataset == "batchcorrected_onWTs") {
+##  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
+##}
+#fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
+#
+## Remove unnecessary objects
+##rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, #yeastmine)
 ```
 
 
@@ -283,8 +285,8 @@ Prepare the necessary matrices and do some quality control: remove proteins with
 # Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
 # Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of those with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE anyway...
 ## Remove lowly expressed proteins
-keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
-trna_ko_log_filtered <- trna_ko_log[keep, ]
+#keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
+#trna_ko_log_filtered <- trna_ko_log[keep, ]
 
 ## Remove proteins which are extremely non-variable across all samples
 #keep_var <- apply(trna_ko_log_filtered, 1, var) > var_across_log2_all_samples_threshold
@@ -445,10 +447,35 @@ load(paste(base_dir, "Data/Other/limpa_analysis/limpa_analysis_results.RData", s
 dpcfit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
 y.protein <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
 fit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/fit.rds", sep=""))
+
+# Set this so I don't have to change its name in the code below
+trna_ko <- y.protein$E
+
+
+# Re-run the parts that don't take so long
+## Get the names of all KOs we have, and set WT as the reference
+trna_levels <- c()
+for (i in 1:ncol(trna_ko)) {
+  sample_name <- colnames(trna_ko)[i]
+  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
+  if (length(strain_name) > 1) {
+    strain_name <- strain_name[1]
+  }
+  trna_levels <- c(trna_levels, strain_name)
+}
+trna_levels <- as.factor(trna_levels)
+trna_levels <- relevel(trna_levels, ref = "WT")
+
+## Generate design matrix
+mm <- model.matrix(~ 0 + trna_levels)
+colnames(mm) <- levels(trna_levels)
+
+fit <- dpcDE(y.protein, mm)
 ```
 
 Quality control
 ```{r}
+# Limpa QC plots
 plotDPC(dpcfit)
 plotMDSUsingSEs(y.protein)
 
@@ -457,7 +484,73 @@ plotMDSUsingSEs(y.protein)
 #hist(apply(y.protein, 1, var), breaks = 60)
 #mean(apply(y.protein, 1, var))
 #median(apply(y.protein, 1, var))
+
+# CV checks
+## Calculate CV
+temp <- as.data.frame(y.protein$E)
+temp$protein <- rownames(temp)
+proteomics_data_log2_long <- pivot_longer(temp, cols = !protein, names_to = "final_proteomics_colnames")
+temp_layout <- sample_layout %>%
+  dplyr::select(final_proteomics_colnames, Strain.Name)
+proteomics_data_log2_long <- left_join(proteomics_data_log2_long, temp_layout, by = "final_proteomics_colnames") %>%
+  group_by(Strain.Name) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
+  ungroup() %>%
+  group_by(protein) %>%
+  dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
+  ungroup()
+
+
+## Plot
+plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
+  dplyr::select(protein, CV_protein) %>%
+  dplyr::distinct(protein, .keep_all = T)
+
+plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
+  dplyr::select(Strain.Name, CV_strain) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
+
+
+ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
+  geom_point() +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
+        panel.grid.major.y = element_line(linewidth = .1, color="black"),  # explicitly set the horizontal lines (or they will disappear too)
+        axis.text.x=element_blank(),                                       # remove x axis labels
+        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
+  xlab("Proteins") +
+  ylab("CV per protein") +
+  labs(title = "Coefficient of variation (CV) per protein",
+       subtitle = "Across all samples") +
+  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.4),
+                  aes(x = protein, y = CV_protein, label = protein),
+                  size = 4)
+proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
+
+ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
+  geom_point() +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
+        panel.grid.major.y = element_line(linewidth=.1, color="black"),    # explicitly set the horizontal lines (or they will disappear too)
+        axis.text.x=element_blank(),                                       # remove x axis labels
+        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
+  xlab("Strains") +
+  ylab("CV per strain") +
+  labs(title = "Coefficient of variation (CV) per strain",
+       subtitle = "Across all proteins") +
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35),
+                  aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
+                  size = 4)
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
 ```
+
+CV analysis
+```{r}
+# Look at expression of each of the proteins with the high CV in detail
+temp <- temp %>%
+  dplyr::filter(protein %in% proteins_with_high_CV)
+```
+
 
 Perform the DE analysis
 ```{r}
@@ -477,7 +570,7 @@ colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str
 
 ## Introduce the contrasts and run eBayes for them, 10 at a time
 da <- list()
-batch_size <- 5
+batch_size <- 10
 n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
 
 for (i in 1:n_batches) {
@@ -511,7 +604,7 @@ for (i in 1:length(da)) {
   temp <- na.omit(temp)
   
   # Collect protein names and turn them all into systematic notation
-  general_protein_names <- rownames(temp)[(temp$adj.P.Val < 0.01) &
+  general_protein_names <- rownames(temp)[(temp$adj.P.Val < alpha) &
                                           (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
   standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
   systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
@@ -601,9 +694,9 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-#rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
-#   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-#   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
+rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, trna_levels,
+   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
+   systematic_protein_names, trna_levels, unique_KOs, trna_ko, dpcfit, y.protein)
 ```
 
 
@@ -1418,11 +1511,11 @@ ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amin
   theme_light() +
   labs(fill = "Amino acid",
        title = 'tRNA KOs Responsiveness per AA', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 100 nDEP') +
   xlab("Amino acid") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 150))
+  coord_cartesian(ylim = c(0, 100))
 
 ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromosome_letter)) +
   geom_boxplot() +
@@ -1440,11 +1533,11 @@ ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromo
   theme_light() +
   labs(fill = "Chromosome",
        title = 'tRNA KOs Responsiveness per Chromosome', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 100 nDEP') +
   xlab("Chromosome") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 150))
+  coord_cartesian(ylim = c(0, 100))
 
 
 myLetters <- letters[1:26]              # Need this to be able to re-order anticodons by amino acid
@@ -1755,8 +1848,8 @@ resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "Amino_ac
 synthetases <- fread(paste(base_dir, "Data/trna_synthetases.csv", sep=""))
 temp <- synthetases %>%
   filter(Gene.symbol != "GRS2",
-         !is.na(measured_proteomics_WTs_WT)) %>%
-  dplyr::select(Amino_acid_1_letter, measured_proteomics_WTs_WT)
+         !is.na(measured_proteomics_WT)) %>%
+  dplyr::select(Amino_acid_1_letter, measured_proteomics_WT)
   
 
 # For the rows for each amino acid, select the limiting one, the one we detect the least of (even though I don't even know if they join 1:1 to form the complex?)
@@ -1766,7 +1859,7 @@ for (i in 1:length(aas)) {
   aa <- aas[i]
   temp_2 <- temp %>%
     filter(Amino_acid_1_letter == aa)
-  temp_2 <- temp_2[which.min(temp_2$measured_proteomics_WTs_WT),]
+  temp_2 <- temp_2[which.min(temp_2$measured_proteomics_WT),]
   synthetases_to_merge <- rbind(synthetases_to_merge, temp_2)
 }
 
