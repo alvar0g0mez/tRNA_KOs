@@ -178,8 +178,8 @@ transcribe_nucleotide <- function(nt) {
   else if (nt == "C") {return("G")}
   else if (nt == "G") {return("C")}
   else if (nt == "T") {return("A")}
-  else if (nt == "U") {return("A")}                     # NEED TO ADD THIS TO THE PYTHON VERSION - FOR SOME REASON IN SOME DATA THE CODON SEQUENCES HAVE U IN THEM
-  else {return("Provided letter is not a nucleotide")}
+  #else if (nt == "U") {return("A")}                     # NEED TO ADD THIS TO THE PYTHON VERSION - FOR SOME REASON IN SOME DATA THE CODON SEQUENCES HAVE U IN THEM
+  else {return("This letter shouldn't be in a DNA seq")}
 }
 
 
@@ -198,7 +198,7 @@ reverse_transcribe_nucleotide <- function(nt) {
   else if (nt == "C") {return("G")}
   else if (nt == "G") {return("C")}
   else if (nt == "U") {return("A")}
-  else {return("Provided letter is not a nucleotide")}
+  else {return("This letter shouldn't be in a RNA seq")}
 }
 
 

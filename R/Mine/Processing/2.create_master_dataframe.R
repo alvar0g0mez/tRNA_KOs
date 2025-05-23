@@ -99,9 +99,11 @@ aas <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv",sep=""))
 aas <- as.data.frame(aas)
 
 ## Add new columns
-aas_temp <- aas %>% dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter)
-colnames(aas_temp) <- c("Isotype_from_anticodon", "Isotype_from_anticodon_1_letter")
-db <- left_join(db, aas_temp, by = "Isotype_from_anticodon")
+aas_temp <- aas %>% 
+  dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter) %>%
+  dplyr::rename(Isotype_from_anticodon = Amino_acid_3_letter)
+db <- left_join(db, aas_temp, by = "Isotype_from_anticodon") %>%
+  dplyr::rename(Amino_acid_3_letter = Isotype_from_anticodon)
 
 colnames(aas_temp) <- c("Best_isotype_model", "Best_isotype_model_1_letter")
 db <- left_join(db, aas_temp, by = "Best_isotype_model")
@@ -128,7 +130,7 @@ for (i in 1:nrow(db)) {
   
   # All other cases
   else {
-    new_name <- paste(og_name, "-", db$Isotype_from_anticodon[i], db$Anticodon[i], sep = "")
+    new_name <- paste(og_name, "-", db$Amino_acid_3_letter[i], db$Anticodon[i], sep = "")
     db$GtRNADB_name[i] <- new_name 
   }
 }
@@ -141,6 +143,8 @@ db <- db %>%
                           TRUE ~ "No")) %>%
   mutate(GtRNADB_name = case_when(grepl("iMet", GtRNADB_name) ~ gsub("iMetCAT", "MetCAT", GtRNADB_name),
                                   TRUE ~ GtRNADB_name))
+
+
 
 ## Remove unnecessary variables
 rm(og_name, new_name, i)
@@ -162,7 +166,7 @@ phenotypic_results <- fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann
 
 # 2.1. Add columns
 master_dataset <- db %>%
-  mutate(KOd = case_when(GtRNADB_name %in% phenotypic_results$GtRNADB_name ~ "Yes",
+  mutate(KOd = case_when(GtRNADB_name %in% phenotypic_results$GtRNAdb_name ~ "Yes",
                          TRUE ~ "No")) %>%
   dplyr::rename(GtRNAdb_name = GtRNADB_name) %>%
   left_join(phenotypic_results[, c("GtRNAdb_name", "Strain.Name")], by="GtRNAdb_name")
@@ -193,21 +197,25 @@ rm(trna_seqs)
 
 # 4. Add things I forgot to add and realized later
 
-## The anticodon column in this dataframe is actually codons, let's rename that and create an actual anticodon column
+## What we have in the Anticodon column is not exactly an Anticodon: it's the Anticodon sequence
+## but where there should be a U there's a T for some reason. So first I am going to fix that,
+## then create a codon column from the anticodon one
 master_dataset <- master_dataset %>%
-  mutate(anticodon = sapply(Anticodon, turn_t_to_u_in_wrong_GtRNAdb_anticodons),
-         codon = sapply(anticodon, anticodon_to_codon))
+  dplyr::mutate(Anticodon = sapply(Anticodon, turn_t_to_u_in_wrong_GtRNAdb_anticodons), 
+                Codon = sapply(Anticodon, anticodon_to_codon))
 
 ## Make the order of the columns a bit nicer
 master_dataset <- master_dataset %>%
   relocate(Strain.Name, .after = Locus) %>%
-  relocate(anticodon, .after = Strain.Name) %>%
-  relocate(codon, .after = anticodon)
+  relocate(Anticodon, .after = Strain.Name) %>%
+  relocate(Codon, .after = Anticodon) %>%
+  relocate(Amino_acid_3_letter, .after = Codon) %>%
+  relocate(Amino_acid_1_letter, .after = Amino_acid_3_letter)
 
 ## Create a chromosome column based on tRNAscan_SE_ID 
 master_dataset <- master_dataset %>%
-  mutate(chromosome = LETTERS[as.numeric(as.roman(str_extract(tRNAscan_SE_ID, "(?<=chr)[^\\.]+(?=\\.)")))]) %>%
-  relocate(chromosome, .after = codon)
+  dplyr::mutate(chromosome = LETTERS[as.numeric(as.roman(str_extract(tRNAscan_SE_ID, "(?<=chr)[^\\.]+(?=\\.)")))]) %>%
+  relocate(chromosome, .after = Codon)
 
 ## Add columns with the length of each of the sequences
 master_dataset <- master_dataset %>%
@@ -216,23 +224,23 @@ master_dataset <- master_dataset %>%
 
 ## Add column with family size
 master_dataset <- master_dataset %>%
-  group_by(anticodon) %>%
+  group_by(Anticodon) %>%
   mutate(Family_size = n())
 
 ## Add a column which contains the number of tRNAs loading each amino acid (like family_size, but for amino acid loaded, not anticodon)
 master_dataset <- master_dataset %>%
-  group_by(Isotype_from_anticodon) %>%
+  group_by(Amino_acid_3_letter) %>%
   mutate(Number_of_tRNAs_loading_this_aa = n())
 
 ## Add a column which contains the number of tRNA genes that could and couldn't be KOd which load a certain amino acid
 master_dataset <- master_dataset %>%
-  group_by(Isotype_from_anticodon) %>%
+  group_by(Amino_acid_3_letter) %>%
   mutate(Number_of_not_KOd_genes_per_aa = sum(KOd == "No"),
          Number_of_KOd_genes_per_aa = sum(KOd == "Yes"))
 
 ## Add a column which contains the number of tRNA genes that could and couldn't be KOd with a certain anticodon
 master_dataset <- master_dataset %>%
-  group_by(anticodon) %>%
+  group_by(Anticodon) %>%
   mutate(Number_of_not_KOd_genes_per_anticodon = sum(KOd == "No"),
          Number_of_KOd_genes_per_anticodon = sum(KOd == "Yes"))
 
@@ -334,36 +342,6 @@ fwrite(master_dataset, paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.c
 
 
 # ----> This continues in "C:/MyStuff/tRNAs/Scripts/Python/complete_master_trna_dataset.py"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -76,7 +76,7 @@ lfc_threshold <- 1
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
@@ -145,15 +145,6 @@ od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
 
 # Phenotypic data
 phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
-```
-
-
-## 1.2. Merge sample_layout with master_dataframe
-```{r}
-# Merge with master dataframe
-sample_layout <- sample_layout %>% 
-  dplyr::select(-Anticodon) %>%
-  left_join(master_dataset, by = c("Strain.Name"))
 ```
 
 
@@ -476,81 +467,15 @@ fit <- dpcDE(y.protein, mm)
 Quality control
 ```{r}
 # Limpa QC plots
-plotDPC(dpcfit)
-plotMDSUsingSEs(y.protein)
+#plotDPC(dpcfit)
+#plotMDSUsingSEs(y.protein)
 
 ## Average expression of each protein across all samples - need to get this working for limpa!!
 #hist(rowMeans(y.protein))
 #hist(apply(y.protein, 1, var), breaks = 60)
 #mean(apply(y.protein, 1, var))
 #median(apply(y.protein, 1, var))
-
-# CV checks
-## Calculate CV
-temp <- as.data.frame(y.protein$E)
-temp$protein <- rownames(temp)
-proteomics_data_log2_long <- pivot_longer(temp, cols = !protein, names_to = "final_proteomics_colnames")
-temp_layout <- sample_layout %>%
-  dplyr::select(final_proteomics_colnames, Strain.Name)
-proteomics_data_log2_long <- left_join(proteomics_data_log2_long, temp_layout, by = "final_proteomics_colnames") %>%
-  group_by(Strain.Name) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
-  ungroup() %>%
-  group_by(protein) %>%
-  dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
-  ungroup()
-
-
-## Plot
-plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
-  dplyr::select(protein, CV_protein) %>%
-  dplyr::distinct(protein, .keep_all = T)
-
-plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
-  dplyr::select(Strain.Name, CV_strain) %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
-
-
-ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
-  geom_point() +
-  theme_light() +
-  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
-        panel.grid.major.y = element_line(linewidth = .1, color="black"),  # explicitly set the horizontal lines (or they will disappear too)
-        axis.text.x=element_blank(),                                       # remove x axis labels
-        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
-  xlab("Proteins") +
-  ylab("CV per protein") +
-  labs(title = "Coefficient of variation (CV) per protein",
-       subtitle = "Across all samples") +
-  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.4),
-                  aes(x = protein, y = CV_protein, label = protein),
-                  size = 4)
-proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
-
-ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
-  geom_point() +
-  theme_light() +
-  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
-        panel.grid.major.y = element_line(linewidth=.1, color="black"),    # explicitly set the horizontal lines (or they will disappear too)
-        axis.text.x=element_blank(),                                       # remove x axis labels
-        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
-  xlab("Strains") +
-  ylab("CV per strain") +
-  labs(title = "Coefficient of variation (CV) per strain",
-       subtitle = "Across all proteins") +
-  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35),
-                  aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
-                  size = 4)
-strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
 ```
-
-CV analysis
-```{r}
-# Look at expression of each of the proteins with the high CV in detail
-temp <- temp %>%
-  dplyr::filter(protein %in% proteins_with_high_CV)
-```
-
 
 Perform the DE analysis
 ```{r}
@@ -694,14 +619,134 @@ DE <- list(fit = fit,
 
 
 # Remove unnecesary variables
-rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, trna_levels,
+rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_levels, contrast.matrix, design, fit3,
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-   systematic_protein_names, trna_levels, unique_KOs, trna_ko, dpcfit, y.protein)
+   systematic_protein_names, unique_KOs, trna_ko, dpcfit)
+```
+
+
+## 1.5. CV analysis
+CV QC on the data for DE analysis
+```{r}
+# Calculate CV
+proteomics <- as.data.frame(y.protein$E)
+proteomics$protein <- rownames(proteomics)
+proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to = "final_proteomics_colnames")
+proteomics_layout <- sample_layout %>%
+  dplyr::select(final_proteomics_colnames, Strain.Name)
+proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
+  group_by(Strain.Name) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
+  ungroup() %>%
+  group_by(protein) %>%
+  dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
+  ungroup()
+
+
+# Plot
+plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
+  dplyr::select(protein, CV_protein) %>%
+  dplyr::distinct(protein, .keep_all = T)
+
+plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
+  dplyr::select(Strain.Name, CV_strain) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
+
+
+ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
+  geom_point() +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
+        panel.grid.major.y = element_line(linewidth = .1, color="black"),  # explicitly set the horizontal lines (or they will disappear too)
+        axis.text.x=element_blank(),                                       # remove x axis labels
+        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
+  xlab("Proteins") +
+  ylab("CV per protein") +
+  labs(title = "Coefficient of variation (CV) per protein",
+       subtitle = "Across all samples") +
+  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.4),
+                  aes(x = protein, y = CV_protein, label = protein),
+                  size = 4)
+proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
+
+ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
+  geom_point() +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
+        panel.grid.major.y = element_line(linewidth=.1, color="black"),    # explicitly set the horizontal lines (or they will disappear too)
+        axis.text.x=element_blank(),                                       # remove x axis labels
+        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
+  xlab("Strains") +
+  ylab("CV per strain") +
+  labs(title = "Coefficient of variation (CV) per strain",
+       subtitle = "Across all proteins") +
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35 | CV_strain < 0.2),
+                  aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
+                  size = 4)
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
+```
+
+Look at expression of each of the proteins with the high CV in detail
+```{r}
+# Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated #samples
+## Come up with the averages
+n_occur <- data.frame(table(colnames(proteomics)))
+repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+
+out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics)))
+for (i in 1:length(repeated_samples)) {
+  strain <- repeated_samples[i]
+  temp <- proteomics[, colnames(proteomics) == strain]
+  temp[,1] <- as.numeric(temp[,1])
+  temp[,2] <- as.numeric(temp[,2])
+  out <- c(apply(temp, 1, mean))
+  out_temp[,i] <- out
+}
+colnames(out_temp) <- repeated_samples
+
+## Remove original columns from dataframe and add the averaged ones
+proteomics_no_repeated_columns <- proteomics[,!(colnames(proteomics) %in% repeated_samples)]
+proteomics_no_repeated_columns <- cbind(proteomics_no_repeated_columns, out_temp)
+
+
+# Create dataset for ploting
+temp_layout <- sample_layout %>%
+  dplyr::select(final_proteomics_colnames, Strain.Name, Anticodon, Amino_acid_1_letter)
+high_cv_proteins_proteomics <- proteomics_no_repeated_columns %>%
+  dplyr::filter(protein %in% proteins_with_high_CV) %>%
+  pivot_longer(cols = !protein, names_to = "final_proteomics_colnames") %>%
+  left_join(temp_layout, by = "final_proteomics_colnames") %>%
+  dplyr::mutate(Anticodon = case_when(Strain.Name == "WT" ~ "WT",
+                                      TRUE ~ Anticodon),
+                Amino_acid_1_letter = case_when(Strain.Name == "WT" ~ "WT",
+                                                            TRUE ~ Amino_acid_1_letter))
+
+# Plot
+proteins <- unique(high_cv_proteins_proteomics$protein)
+
+## Iterate over the proteins and make the same plot for all of them
+for (i in 1:length(proteins)) {
+  protein_selected <- proteins[i]
+  plot <- ggplot(data = subset(high_cv_proteins_proteomics, protein == protein_selected), aes(x = Amino_acid_1_letter, y = value)) +
+    geom_boxplot(fill = "grey") +
+    theme_light()
+  print(plot)
+  
+  myLetters <- letters[1:26]                            # Need this to be able to re-order anticodons by amino acid
+  myLetters <- c(myLetters, "wt")                       # Need to add this so it doesn't break down because "WT" is not a letter
+  
+  plot_2 <- ggplot(data = subset(high_cv_proteins_proteomics, protein == protein_selected), 
+                   aes(x = fct_reorder(Anticodon, match(tolower(Amino_acid_1_letter), myLetters)), y = value, fill = Amino_acid_1_letter)) +
+    geom_boxplot() +
+    theme_light()
+  print(plot_2)
+}
+
 ```
 
 
 
-## 1.5. Volcano plots for the differential expression
+## 1.6. Volcano plots for the differential expression
 ```{r}
 # One plot per KO and save them to a PDF - for all KOs
 ## Come up with the list of plots
@@ -853,8 +898,7 @@ ggplot(data = da, aes(x = logFC)) +
 
 
 
-
-## 1.6. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
+## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
@@ -905,7 +949,8 @@ rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_f
 ```
 
 
-## 1.7. Check number of DE proteins vs. replicates per KO
+
+## 1.8. Check number of DE proteins vs. replicates per KO
 ```{r}
 ggplot(data = responsiveness, aes(x = as.factor(Replicate_num), y = nDEP, col = as.factor(Replicate_num))) +
   geom_boxplot() +
@@ -923,8 +968,7 @@ rm(replicate_num_vs_nDEP_cor)
 
 
 
-
-## 1.8. Identify major and minor tRNA genes myself for all strains
+## 1.9. Identify major and minor tRNA genes myself for all strains
 Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
 responsiveness <- responsiveness %>%
@@ -1248,7 +1292,6 @@ rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grob
 ```
 
 
-
 This used to be in section 2, but I think it's better here:
 ```{r}
 # Just need to load resp_and_expression first
@@ -1300,7 +1343,7 @@ rm(family_sizes, resp_and_expression)
 
 
 
-## 1.9. Number of DE proteins per family, coloring by number of tRNAs in the family
+## 1.10. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
 ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
   geom_boxplot() +
@@ -1385,7 +1428,8 @@ ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
 ```
 
 
-## 1.10. Do all tRNAs with the same anticodon have exactly the same sequence throughout their whole structure?
+
+## 1.11. Do all tRNAs with the same anticodon have exactly the same sequence throughout their whole structure?
 No, they do not! Look further into this elsewhere
 ```{r}
 num_of_tRNA_versions_DNA <- c()
@@ -1407,7 +1451,8 @@ rm(temp, anticodon, anticodons, i, num_of_tRNA_versions_DNA, num_of_tRNA_version
 ```
 
 
-## 1.11. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
+
+## 1.12. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
 ```{r}
 # Plots by anticodon
 master_by_anticodon <- master_dataset %>%
@@ -1474,7 +1519,8 @@ rm(master_by_amino_acid, master_by_anticodon)
 ```
 
 
-## 1.12. Replicate Alexis' original plots - kind of my own version
+
+## 1.13. Replicate Alexis' original plots - kind of my own version
 ```{r}
 ggplot(data = responsiveness, aes(x = Strain.Name, y = nDEP, fill = Amino_acid_1_letter)) +
   geom_col() +
@@ -1567,7 +1613,8 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
 ```
 
 
-## 1.13. Quick look at the OD
+
+## 1.14. Quick look at the OD
 Join OD and responsiveness dataframes
 ```{r}
 resp_temp <- responsiveness %>%
@@ -1673,7 +1720,7 @@ ggplot(data = od_and_nDEP, aes(x = OD_processed, y = up_down_regulated_ratio_adj
 
 
 
-## 1.14. Explore phenotypic results (GR and GY)
+## 1.15. Explore phenotypic results (GR and GY)
 Compare the phenotypic results from 2014 and 2020
 ```{r}
 ggplot(data = phenotypic_data, aes(x = GR_YPD_2014, y = GR_YPD_2020)) +
@@ -1733,7 +1780,8 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
 ```
 
 
-## 1.15. Up-regulated and down-regulated proteins exploration
+
+## 1.16. Up-regulated and down-regulated proteins exploration
 ```{r}
 resp_only_no_up_regulated_strains <- responsiveness %>%
   filter(up_down_regulated_ratio_adjusted == 0)
@@ -1757,7 +1805,7 @@ mean(resp_only_no_up_regulated_strains$Major_count)
 
 
 
-## 1.16. Clean up environment
+## 1.17. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
@@ -2901,36 +2949,6 @@ chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/
 
 # Yeastmine
 yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-
-# Before I match standard to systematic names, I need to extend the rows with multiple standard names into several rows, each with one of the systematic names, since they are all meaningful and different
-chu_synths_new <- data.frame(matrix(ncol = ncol(chu_synths), nrow = 0))
-colnames(chu_synths_new) <- colnames(chu_synths)
-for (i in 1:nrow(chu_synths)) {
-  std_name <- chu_synths$Synthetase[i]
-  if (grepl("/", std_name)) {
-    std_names <- str_split_1(std_name, "/")
-    for (j in 1:length(std_names)) {
-      new_row <- chu_synths[i, ]
-      new_row$Synthetase[1] <- std_names[j]
-      chu_synths_new <- rbind(chu_synths_new, new_row)
-    }
-  }
-  else {
-    new_row <- chu_synths[i,]
-    chu_synths_new <- rbind(chu_synths_new, new_row)
-  }
-}
-chu_synths_new <- chu_synths_new %>%
-  dplyr::rename(gene_names = Synthetase)
-
-
-# Get a column with systematic gene names in the synthetase dataframe (they only have the standard naming)
-chu_synths_new <- match_systematic_and_standard_protein_names(data = chu_synths_new,
-                                                              yeastmine = yeastmine,
-                                                              input = "standard", 
-                                                              simplify = F, 
-                                                              add_extra_columns = F)
-
 ```
 
 
@@ -2940,46 +2958,7 @@ Create the dataframe with all information about synthetase - not save it yet sin
 # Load YeastMine dataset
 yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
-# Subset this into a new dataframe with only info of tRNA synthases/synthetases (remove "kinase" because there is one that says "tRNA synthase-associated kinase")
-synthetases <- yeastmine[(grepl("trna synthase", yeastmine$Gene.name, ignore.case = T)|grepl("trna synthetase", yeastmine$Gene.name, ignore.case = T)) &
-                           !grepl("kinase", yeastmine$Gene.name, ignore.case = T),]
 
-# Add a column with information on:
-#   - Whether each synthetase is mitochondrial or not 
-#   - Whether it is a synthase or a synthetase
-#   - Whether it is the actual enzyme or a cofactor
-synthetases <- synthetases %>%
-  mutate(mitochondrial = case_when(grepl("mitochondrial", Gene.name, ignore.case = T) ~ "Yes",
-                                   TRUE ~ "No"),
-         type = case_when(grepl("synthase", Gene.name, ignore.case = T) ~ "synthase",
-                          grepl("synthetase", Gene.name, ignore.case = T) ~ "synthetase"),
-         cofactor_or_enzyme = case_when(grepl("cofactor", Gene.name, ignore.case = T) ~ "cofactor",
-                                        TRUE ~ "enzyme"))
-
-# Merge this with the k_cat and other synthetase info from van der Haar et al., 2008
-check <- left_join(synthetases, chu_synths_new, by = "Gene.secondaryIdentifier") %>%
-  dplyr::select(-Gene.briefDescription)
-
-# Try to get a column with the amino acid that is loaded by each synthetase based on chu_synths_new
-temp <- chu_synths_new %>%
-  dplyr::select(Amino_acid_3_letter, Gene.secondaryIdentifier)
-synthetases <- left_join(synthetases, temp, by = "Gene.secondaryIdentifier")
-
-# Some of them need to be added manually because they are not included in chu_synths_new (got them from SGD myself)
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "GRS2"] <- "Gly"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "ISM1"] <- "Ile"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSR1"] <- "Arg"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MST1"] <- "Thr"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSW1"] <- "Trp"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSM1"] <- "Met"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSK1"] <- "Lys"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSE1"] <- "Glu"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSY1"] <- "Tyr"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSD1"] <- "Asp"
-synthetases$Amino_acid_3_letter[synthetases$Gene.symbol == "MSF1"] <- "Phe"
-
-synthetases <- synthetases %>%
-  dplyr::select(-Gene.briefDescription)
 ```
 
 Check how many synthetases exist in Sc

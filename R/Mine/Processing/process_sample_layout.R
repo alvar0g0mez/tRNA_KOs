@@ -11,12 +11,18 @@
 # Packages
 library(dplyr)
 library(data.table)
+library(stringr)
 
 
 # Set up
 working_from = "charite"
 
-
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/"
+} else
+  if (working_from == "charite") {
+    base_dir = "C:/MyStuff/"
+  }
 
 
 # Load data
@@ -25,6 +31,11 @@ if (working_from == "home") {
 } else {
   sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 }
+
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+
+
+
 
 
 # Turn all dashes to underscores
@@ -98,6 +109,11 @@ sample_layout <- sample_layout %>%
 
 
 
+
+# Merge with master dataframe - I used to do this in the main tRNA script
+sample_layout <- sample_layout %>% 
+  dplyr::select(-Anticodon) %>%
+  left_join(master_dataset, by = c("Strain.Name"))
 
 
 
