@@ -65,14 +65,11 @@ threshold_major <- 2
 working_from = "home"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  base_dir = "/home/alvaro/MyStuff/"
 } else
 if (working_from == "charite") {
-  base_dir = "C:/MyStuff/tRNA_KOs/"
+  base_dir = "C:/MyStuff/"
 }
-
-# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs
-dataset <- "batchcorrected_onWTs"
 ```
 
 
@@ -81,16 +78,16 @@ dataset <- "batchcorrected_onWTs"
 # 1. Load data
 ```{r}
 # Our proteomics data
-resp <- as.data.frame(fread(paste(base_dir, "Data/responsiveness.csv", sep="")))
+resp <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness.csv", sep="")))
 
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
 
 # Load trna_ko
-trna_ko <- as.data.frame(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep="")))
+trna_ko <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep="")))
 
 # My helper functions
-source("0.general_use_functions.R")
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
 
@@ -153,10 +150,10 @@ Important to remember that the microarray data are only for 5 tRNA families:
 ### Loading data
 ```{r}
 # Load their small microarray data: fold changes for all genes but only for 5 samples
-microarray_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
+microarray_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep="")))
 
 # Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
 
 # Need to change the colnames in the microarray data to use () instead of ..
@@ -167,7 +164,7 @@ colnames(microarray_data) <- c("gene_names", "tM(CAU)C", "tR(CCU)J", "tR(UCU)M2"
 ### Correlation heatmap between microarray and proteomics
 ```{r}
 # Get standard protein names
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 microarray_data <- match_systematic_and_standard_protein_names(data = microarray_data,
                                                                yeastmine = yeastmine,
                                                                input = "systematic",

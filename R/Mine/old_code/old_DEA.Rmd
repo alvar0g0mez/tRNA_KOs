@@ -1,0 +1,436 @@
+---
+title: "old_DEA"
+author: "Álvaro Gómez Pérez"
+date: "2025-05-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+
+############################################################################################################
+########################################## CONTENTS OF THIS FILE ###########################################
+############################################################################################################
+
+This file contains the initial steps of my analysis prior to switching to limpa, as of 24.05.2025. I loaded the protein-level data, which was processed by Boris at the precursor level and then summarized to protein level using MaxLFQ. Then I did quite a few things to this data, different processing steps and so on, to deal with the format of Boris' output, with the fact that 2 strains have 6 replicates instead of 3 or something like that, and I had to get everything ready to run the DE analysis with limma myself. 
+Now, there is a file where the protein quantification from precursor-level data is performed by limpa, then in my main script I load this protein-level data and perform the differential expression analysis with limpa directly. The precursor-level data I provide to limpa are also the ones pre-processed by Boris, which have been: 
+  - Normalized
+  - Batch-corrected
+  - Drift-corrected
+
+
+
+
+
+Packages
+```{r}
+library(dplyr)
+library(data.table)
+library(limma)
+library(ggplot2)
+library(patchwork)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(gprofiler2)
+library(xlsx)
+library(stringr)
+library(gridExtra)
+library(grid)
+suppressPackageStartupMessages(library(ComplexHeatmap))
+suppressPackageStartupMessages(library(circlize))
+library(factoextra)
+library(glue)
+library(dendextend)
+library(ggrepel)
+library(ggvenn)
+library(tidyr)
+library(interactions)
+library(performance)
+library(MASS)
+library(jsonlite)
+library(UpSetR)
+library(ComplexUpset)
+library(wesanderson)
+library(forcats)
+library(ggpubr)
+library(xtable)
+library(clusterProfiler)
+library(org.Sc.sgd.db)
+library(fgsea)
+library(limpa)
+```
+
+Set parameters
+```{r}
+# Significance level to be used for all tests and plots in this file
+alpha <- 0.05
+
+# Significance level as a plain string to use when loading or writing files
+alpha_plain <- str_replace(as.character(alpha), "\\.", "")
+
+# Minimum threshold for the average log2-expression across all samples in order to keep a protein in the data before DE analysis
+mean_log2_across_all_samples_threshold <- 2
+
+# Minimum threshold for the variance of the log2-expression across all samples in order to keep a protein in the data before DE analysis
+var_across_log2_all_samples_threshold <- 0.6
+
+# Separate significance level, the one used for the enrichment analysis
+alpha_enrichment <- 0.05
+
+# Significance level above as a plain string to use when loading or writing files
+alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
+
+# Log-fold change limit to be considered "biologically significant"
+lfc_threshold <- 1
+
+# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
+threshold_major <- 2
+
+# Set directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/tRNA_KOs/"
+}
+
+# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs -
+dataset <- "batchcorrected_onWTs"
+```
+
+
+
+
+
+################################################################################
+# 1. Load data and initial analysis
+################################################################################
+## 1.1. Load data
+```{r}
+# Proteomics data
+proteomics_raw <- read.delim2(paste(base_dir, 'tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', sep=""), 
+                              header = T)
+
+# Sample layout
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
+
+# The ODs
+od <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/OD_final.csv", sep = "")))
+
+# Phenotypic data
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+
+# Import the functions I have created in another file
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
+```
+
+
+## 1.3. Pre-process proteomics data - this is where I:
+  - Deal with the 2/3 duplicated strains
+  - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
+  - Generally do everything necessary to come up with trna_ko from proteomics_raw
+NOT NECESSARY ANYMORE SINCE I USE LIMPA - IN ANOTHER DOCUMENT - THIS IS NECESSARY BEFORE RUNNING THAT, BUT THOSE RESULTS ARE ALREADY SAVED AND LOADED BELOW
+```{r}
+# Remove annoying unnecessary (?) column (UniProt IDs)
+if (dataset == "outlier_removed") 
+  {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-sample) %>%
+    rename(genes = X) %>%
+    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
+    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
+
+if (dataset == "batchcorrected_onWTs")    
+    {proteomics_raw <- proteomics_raw %>%
+    dplyr::select(-Protein.Group) %>%
+      dplyr::rename(genes = Genes) %>%
+      column_to_rownames(var = 'genes')}
+
+
+# Come up with new colnames
+new_names <- c()
+current_names <- colnames(proteomics_raw)
+new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
+colnames(proteomics_raw) <- new_names
+
+
+# Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated samples
+## Come up with the averages
+n_occur <- data.frame(table(colnames(proteomics_raw)))
+repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+
+out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
+for (i in 1:length(repeated_samples)) {
+  strain <- repeated_samples[i]
+  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
+  temp[,1] <- as.numeric(temp[,1])
+  temp[,2] <- as.numeric(temp[,2])
+  out <- c(apply(temp, 1, mean))
+  out_temp[,i] <- out
+}
+colnames(out_temp) <- repeated_samples
+
+## Remove original columns from dataframe and add the averaged ones
+proteomics_raw <- proteomics_raw[,!(colnames(proteomics_raw) %in% repeated_samples)]
+proteomics_raw <- cbind(proteomics_raw, out_temp)
+
+
+# Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
+trna_ko <- proteomics_raw %>%                 
+  dplyr::select(!contains('QC'))                                 # Remove QCs columns
+                                
+
+# Convert to a numeric dataframe
+trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
+
+# Remove the sub-batch that went wrong
+if (dataset == "outlier_removed") {
+  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
+trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
+}
+
+# Turn the rownames to all be systematic gene names rather than standard and systematic mixed
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+old_rownames <- rownames(trna_ko)
+new_rownames <- match_systematic_and_standard_protein_names(data = old_rownames,
+                                                            yeastmine = yeastmine,
+                                                            input = "standard",
+                                                            simplify = T)
+rownames(trna_ko) <- new_rownames
+
+# Save this last dataset for later usage elsewhere
+#if (dataset == "outlier_removed") {
+#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
+#}
+#if (dataset == "batchcorrected_onWTs") {
+#  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
+#}
+fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
+
+# Remove unnecessary objects
+#rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, yeastmine)
+```
+
+
+## 1.4. Differential expression analysis - adapted from what Alexis did
+### 1.4.1. Perform DE analysis - original one, with limma
+Prepare the necessary matrices and do some quality control: remove proteins with extremely low variance across all samples, as well as those with extremely low average expression across all samples, this eases the work of eBayes. 
+```{r}
+# Get the names of all KOs we have, and set WT as the reference
+trna_levels <- c()
+for (i in 1:ncol(trna_ko)) {
+  sample_name <- colnames(trna_ko)[i]
+  strain_name <- sample_layout$Strain.Name.Dots[sample_layout$final_proteomics_colnames == sample_name]
+  if (length(strain_name) > 1) {
+    strain_name <- strain_name[1]
+  }
+  trna_levels <- c(trna_levels, strain_name)
+}
+trna_levels <- as.factor(trna_levels)
+trna_levels <- relevel(trna_levels, ref = "WT")
+
+# Generate design matrix
+mm <- model.matrix(~ 0 + trna_levels)
+colnames(mm) <- levels(trna_levels)
+voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
+
+# In order to fit linear model we need to get log2(data), but that causes log2(0) = -Inf --> I am turning 0s to 1s before log2 --> IDK HOW CORRECT THIS IS
+zeros_to_ones <- function(x) {
+  if (x == 0) {return(1)}
+  else {return(x)}
+}
+trna_ko_log <- trna_ko
+#trna_ko_log[] <- apply(trna_ko, c(1,2), zeros_to_ones)
+#trna_ko_log <- log2(trna_ko_log)
+
+
+# Quality control
+## Average expression of each protein across all samples
+hist(rowMeans(trna_ko_log))
+hist(apply(trna_ko_log, 1, var), breaks = 60)
+mean(apply(trna_ko_log, 1, var))
+median(apply(trna_ko_log, 1, var))
+
+ Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
+ Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of hose with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE nyway...
+# Remove lowly expressed proteins
+keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
+trna_ko_log_filtered <- trna_ko_log[keep, ]
+
+# Remove proteins which are extremely non-variable across all samples
+keep_var <- apply(trna_ko_log_filtered, 1, var) > var_across_log2_all_samples_threshold
+trna_ko_log_filtered <- trna_ko_log_filtered[keep_var, ]
+```
+
+Perform linear model fit, apply contrasts and compute statistics by empirical Bayes
+```{r}
+# Fit linear model
+fit <- lmFit(trna_ko_log_filtered, mm)                                 
+
+
+# Contrasts and eBayes need to be done by batches, otherwise eBayes gets overwhelmed with so many comparisons and such few replicates
+# Create all contrasts
+treatments <- colnames(fit$coefficients)
+design <- model.matrix(~ 0 + treatments)
+colnames(design) <- treatments
+contrast_list <- paste0(treatments, "-WT")
+
+# Introduce the contrasts and run eBayes for them, 10 at a time
+da <- list()
+batch_size <- 3
+n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
+
+for (i in 1:n_batches) {
+  contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
+  contrast.matrix <- makeContrasts(contrasts = contrast_subset, levels = design)
+  
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
+  
+  new_contrast_names <- c()
+  
+  # Store topTables for each contrast
+  for (contrast_name in colnames(contrast.matrix)) {
+    new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
+    if (grepl(".", new_name)) {
+        substr(new_name, 3, 3) <- "("
+        substr(new_name, 7, 7) <- ")"
+    }
+    da[[new_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
+    da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
+  }
+}
+```
+
+Save DE proteins for GO enrichment analysis
+```{r}
+yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+de_proteins_list <- list()
+for (i in 1:length(da)) {
+  temp <- da[[i]]
+  temp <- na.omit(temp)
+  
+  # Collect protein names and turn them all into systematic notation
+  general_protein_names <- rownames(temp)[(temp$adj.P.Val < 0.01) &
+                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
+  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
+  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
+  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
+                                                                                                 yeastmine = yeastmine,
+                                                                                                 input = "standard",
+                                                                                                 simplify = T))
+  
+  # Save protein names
+  de_proteins_list[[names(da)[i]]] <- final_protein_names
+}
+#output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
+#write_json(de_proteins_list, path=output_file)
+```
+
+Save all proteins for GSEA
+```{r}
+#write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+```
+
+Finish processing the DE analysis results
+```{r}
+# Format data
+da <- bind_rows(da) %>%
+  mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
+temp <- sample_layout %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
+da <- left_join(da, temp, by = "Strain.Name") %>%
+  dplyr::relocate(Strain.Name, .before = logFC) %>%
+  dplyr::relocate(protein, .after = Strain.Name) %>%
+  filter(Strain.Name != "WT")
+
+da <- da %>%
+  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
+  mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
+                                            (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
+                                            TRUE ~ "Not_significant"),
+         diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
+                                                (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
+                                                TRUE ~ "Not_significant"))
+
+da <- da %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
+
+# Add a column to da with the number of replicates per KO - by me
+unique_KOs <- unique(da$Strain.Name)
+replicates <- c()
+for (i in 1:length(unique_KOs)) {
+  KO <- unique_KOs[i]
+  replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
+}
+KOs_replicates <- data.frame(unique_KOs, replicates)
+colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
+da <- merge(da, KOs_replicates, by = "Strain.Name")
+
+# Responsiveness
+responsiveness <- da %>%
+  group_by(Strain.Name) %>%
+  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
+            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
+            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
+            Replicate_num = mean(Replicate_num)) %>%
+  mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
+         chromosome_letter = substr(Strain.Name, 8, 8),
+         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
+         up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
+         up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
+  arrange(Amino_acid_1_letter) %>%
+  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
+
+# Add all amino acid names
+amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")))
+responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
+
+# Save responsiveness dataset
+fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+
+# Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
+DE <- list(fit = fit,
+            fit2 = fit2,
+            da = da, 
+            responsiveness= responsiveness)
+
+
+
+# Remove unnecesary variables
+rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
+   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
+   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

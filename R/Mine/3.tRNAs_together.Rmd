@@ -76,17 +76,14 @@ lfc_threshold <- 1
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  base_dir = "/home/alvaro/MyStuff/"
 } else
 if (working_from == "charite") {
-  base_dir = "C:/MyStuff/tRNA_KOs/"
+  base_dir = "C:/MyStuff/"
 }
-
-# Set the dataset we are working with: outlier_removed, or batchcorrected_onWTs -
-dataset <- "batchcorrected_onWTs"
 ```
 
 
@@ -98,352 +95,64 @@ dataset <- "batchcorrected_onWTs"
 ################################################################################
 ## 1.1. Load data
 ```{r}
-if (working_from == "charite") {
-  if (dataset == "outlier_removed") {
-    # Our proteomics data 
-  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_batchcorrected.tsv', header = T)
-  }
-  else if (dataset == "batchcorrected_onWTs") {
-    # Our proteomics data 
-  proteomics_raw <- read.delim2('S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
-  }
-  
-  # The sample layout
-  sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv"))
-  
-  # The master tRNA dataset
-  master_dataset <- as.data.frame(fread("C:/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
-  
-  # Import the functions I have created in another file
-  source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
-} else 
+# Proteomics data
+proteomics_raw <- read.delim2(paste(base_dir, 'tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', sep=""), header = T)
 
-if (working_from == "home") {
-  # Proteomics data - from the S drive
-  if (dataset == "outlier_removed") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_PCAoutlier_removed_complete.tsv', header = T)
-  }
-  else if (dataset == "batchcorrected_onWTs") {
-    proteomics_raw <- read.delim2('/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', header = T)
-  }
-  
-  # Sample layout - from the S drive
-  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv"))
-  
-  
-  # My data - in the project folder - when I open the project, the directory is set to its location
-  ## The master tRNA dataset
-  master_dataset <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv"))
-  
-  ## Import the functions I have created in another file
-  source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
-}
+# Sample layout
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
 
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 # The ODs
-od <- as.data.frame(fread(paste(base_dir, "Data/OD_final.csv", sep = "")))
+od <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/OD_final.csv", sep = "")))
 
 # Phenotypic data
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+
+# UniProt dataset
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
+
+# Import the functions I have created in another file
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
+
+
+# limpa output
+dpcfit <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+
+## Set this so I don't have to change its name in the code below
+trna_ko <- y.protein$E
 ```
 
 
-## 1.3. Pre-process proteomics data - this is where I:
-  - Deal with the 2/3 duplicated strains
-  - Remove samples in the wrong subbatch (when dataset == "outlier_removed")
-  - Generally do everything necessary to come up with trna_ko from proteomics_raw
-NOT NECESSARY ANYMORE SINCE I USE LIMPA - IN ANOTHER DOCUMENT - THIS IS NECESSARY BEFORE RUNNING THAT, BUT THOSE RESULTS ARE ALREADY SAVED AND LOADED BELOW
-```{r}
-## Remove annoying unnecessary (?) column (UniProt IDs)
-#if (dataset == "outlier_removed") 
-#  {proteomics_raw <- proteomics_raw %>%
-#    dplyr::select(-sample) %>%
-#    rename(genes = X) %>%
-#    filter(!(genes %in% c('', 'Genes', 'Protein.Group'))) %>%                         # Remove rows for which "genes" column is empty or has "Genes" as value
-#    column_to_rownames(var = 'genes')}                                                # Convert gene name column to rownames
-#
-#if (dataset == "batchcorrected_onWTs")    
-#    {proteomics_raw <- proteomics_raw %>%
-#    dplyr::select(-Protein.Group) %>%
-#      dplyr::rename(genes = Genes) %>%
-#      column_to_rownames(var = 'genes')}
-#
-#
-## Come up with new colnames
-#new_names <- c()
-#current_names <- colnames(proteomics_raw)
-#new_names <- c(new_names, as.character(sample_layout$final_proteomics_colnames[match(current_names, sample_layout$raw_proteomics_colnames)]))
-#colnames(proteomics_raw) <- new_names
-#
-#
-## Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated #samples
-### Come up with the averages
-#n_occur <- data.frame(table(colnames(proteomics_raw)))
-#repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
-#
-#out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics_raw)))
-#for (i in 1:length(repeated_samples)) {
-#  strain <- repeated_samples[i]
-#  temp <- proteomics_raw[, colnames(proteomics_raw) == strain]
-#  temp[,1] <- as.numeric(temp[,1])
-#  temp[,2] <- as.numeric(temp[,2])
-#  out <- c(apply(temp, 1, mean))
-#  out_temp[,i] <- out
-#}
-#colnames(out_temp) <- repeated_samples
-#
-### Remove original columns from dataframe and add the averaged ones
-#proteomics_raw <- proteomics_raw[,!(colnames(proteomics_raw) %in% repeated_samples)]
-#proteomics_raw <- cbind(proteomics_raw, out_temp)
-#
-#
-## Format data to get a biological protein abundance dataframe with samples names as colnames and gene names as rownames
-#trna_ko <- proteomics_raw %>%                 
-#  dplyr::select(!contains('QC'))                                 # Remove QCs columns
-#                                
-#
-## Convert to a numeric dataframe
-#trna_ko <- as.data.frame(apply(trna_ko, 2, as.numeric), row.names =  rownames(trna_ko))   
-#
-## Remove the sub-batch that went wrong
-#if (dataset == "outlier_removed") {
-#  samples_in_wrong_batch <- sample_layout$final_proteomics_colnames[sample_layout$Analysis.Plate.96_Replicate == "3_2"]
-#trna_ko <- trna_ko[,!(colnames(trna_ko) %in% samples_in_wrong_batch)]
-#}
-#
-## Turn the rownames to all be systematic gene names rather than standard and systematic mixed
-#yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-#old_rownames <- rownames(trna_ko)
-#new_rownames <- match_systematic_and_standard_protein_names(data = old_rownames,
-#                                                            yeastmine = yeastmine,
-#                                                            input = "standard",
-#                                                            simplify = T)
-#rownames(trna_ko) <- new_rownames
-#
-## Save this last dataset for later usage elsewhere
-##if (dataset == "outlier_removed") {
-##  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_outlier_removed.tsv", sep=""), row.names = T)
-##}
-##if (dataset == "batchcorrected_onWTs") {
-##  fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep=""), row.names = T)
-##}
-#fwrite(trna_ko, paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep=""), row.names = T)
-#
-## Remove unnecessary objects
-##rm(proteomics_raw, n_occur, repeated_samples, out_temp, strain, temp, out, i, new_names, samples_in_wrong_batch, current_names, old_rownames, new_rownames, #yeastmine)
-```
-
-
-## 1.4. Differential expression analysis - adapted from what Alexis did
-### 1.4.1. Perform DE analysis - original one, with limma
-Prepare the necessary matrices and do some quality control: remove proteins with extremely low variance across all samples, as well as those with extremely low average expression across all samples, this eases the work of eBayes. 
-```{r}
-## Get the names of all KOs we have, and set WT as the reference
-#trna_levels <- c()
-#for (i in 1:ncol(trna_ko)) {
-#  sample_name <- colnames(trna_ko)[i]
-#  strain_name <- sample_layout$Strain.Name.Dots[sample_layout$final_proteomics_colnames == sample_name]
-#  if (length(strain_name) > 1) {
-#    strain_name <- strain_name[1]
-#  }
-#  trna_levels <- c(trna_levels, strain_name)
-#}
-#trna_levels <- as.factor(trna_levels)
-#trna_levels <- relevel(trna_levels, ref = "WT")
-#
-## Generate design matrix
-#mm <- model.matrix(~ 0 + trna_levels)
-#colnames(mm) <- levels(trna_levels)
-#voom(trna_ko, mm, plot = TRUE)                                  # This I still need to look into!
-#
-## In order to fit linear model we need to get log2(data), but that causes log2(0) = -Inf --> I am turning 0s to 1s before log2 --> IDK HOW CORRECT THIS IS
-#zeros_to_ones <- function(x) {
-#  if (x == 0) {return(1)}
-#  else {return(x)}
-#}
-#trna_ko_log <- trna_ko
-##trna_ko_log[] <- apply(trna_ko, c(1,2), zeros_to_ones)
-##trna_ko_log <- log2(trna_ko_log)
-#
-#
-## Quality control
-### Average expression of each protein across all samples
-#hist(rowMeans(trna_ko_log))
-#hist(apply(trna_ko_log, 1, var), breaks = 60)
-#mean(apply(trna_ko_log, 1, var))
-#median(apply(trna_ko_log, 1, var))
-
-# Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
-# Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of those with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE anyway...
-## Remove lowly expressed proteins
-#keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
-#trna_ko_log_filtered <- trna_ko_log[keep, ]
-
-## Remove proteins which are extremely non-variable across all samples
-#keep_var <- apply(trna_ko_log_filtered, 1, var) > var_across_log2_all_samples_threshold
-#trna_ko_log_filtered <- trna_ko_log_filtered[keep_var, ]
-```
-
-Perform linear model fit, apply contrasts and compute statistics by empirical Bayes
-```{r}
-## Fit linear model
-#fit <- lmFit(trna_ko_log_filtered, mm)                                 
-#
-#
-## Contrasts and eBayes need to be done by batches, otherwise eBayes gets overwhelmed with so many comparisons and such few replicates
-## Create all contrasts
-#treatments <- colnames(fit$coefficients)
-#design <- model.matrix(~ 0 + treatments)
-#colnames(design) <- treatments
-#contrast_list <- paste0(treatments, "-WT")
-#
-## Introduce the contrasts and run eBayes for them, 10 at a time
-#da <- list()
-#batch_size <- 3
-#n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
-#
-#for (i in 1:n_batches) {
-#  contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
-#  contrast.matrix <- makeContrasts(contrasts = contrast_subset, levels = design)
-#  
-#  fit2 <- contrasts.fit(fit, contrast.matrix)
-#  fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
-#  
-#  new_contrast_names <- c()
-#  
-#  # Store topTables for each contrast
-#  for (contrast_name in colnames(contrast.matrix)) {
-#    new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
-#    if (grepl(".", new_name)) {
-#        substr(new_name, 3, 3) <- "("
-#        substr(new_name, 7, 7) <- ")"
-#    }
-#    da[[new_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
-#    da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
-#  }
-#}
-```
-
-Save DE proteins for GO enrichment analysis
-```{r}
-#yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-#de_proteins_list <- list()
-#for (i in 1:length(da)) {
-#  temp <- da[[i]]
-#  temp <- na.omit(temp)
-#  
-#  # Collect protein names and turn them all into systematic notation
-#  general_protein_names <- rownames(temp)[(temp$adj.P.Val < 0.01) &
-#                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
-#  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
-#  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
-#  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
-#                                                                                                 yeastmine = yeastmine,
-#                                                                                                 input = "standard",
-#                                                                                                 simplify = T))
-#  
-#  # Save protein names
-#  de_proteins_list[[names(da)[i]]] <- final_protein_names
-#}
-#output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
-#write_json(de_proteins_list, path=output_file)
-```
-
-Save all proteins for GSEA
-```{r}
-#write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
-```
-
-Finish processing the DE analysis results
-```{r}
-## Format data
-#da <- bind_rows(da) %>%
-#  mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
-#  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-#temp <- sample_layout %>%
-#  dplyr::distinct(Strain.Name, .keep_all = T)
-#da <- left_join(da, temp, by = "Strain.Name") %>%
-#  dplyr::relocate(Strain.Name, .before = logFC) %>%
-#  dplyr::relocate(protein, .after = Strain.Name) %>%
-#  filter(Strain.Name != "WT")
-#
-#da <- da %>%
-#  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
-#  mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
-#                                            (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
-#                                            TRUE ~ "Not_significant"),
-#         diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
-#                                                (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
-#                                                TRUE ~ "Not_significant"))
-#
-#da <- da %>%
-#  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-#
-## Add a column to da with the number of replicates per KO - by me
-#unique_KOs <- unique(da$Strain.Name)
-#replicates <- c()
-#for (i in 1:length(unique_KOs)) {
-#  KO <- unique_KOs[i]
-#  replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
-#}
-#KOs_replicates <- data.frame(unique_KOs, replicates)
-#colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
-#da <- merge(da, KOs_replicates, by = "Strain.Name")
-#
-## Responsiveness
-#responsiveness <- da %>%
-#  group_by(Strain.Name) %>%
-#  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
-#            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
-#            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
-#            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
-#            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
-#            Replicate_num = mean(Replicate_num)) %>%
-#  mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
-#         chromosome_letter = substr(Strain.Name, 8, 8),
-#         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
-#         up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
-#         up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
-#  arrange(Amino_acid_1_letter) %>%
-#  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
-#
-## Add all amino acid names
-#amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")))
-#responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
-#
-## Save responsiveness dataset
-#fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
-#
-## Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
-#DE <- list(fit = fit,
-#            fit2 = fit2,
-#            da = da, 
-#            responsiveness= responsiveness)
-#
-#
-#
-## Remove unnecesary variables
-##rm(amino_acids, DE, de_proteins_list_001, fit, fit2, KOs_replicates, mm, temp, trna_ko_log, 
-##   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-##   systematic_protein_names, trna_levels, unique_KOs, trna_ko)
-```
-
-### 1.4.2. Perform DE analysis - with limpa! Using this one from now on
+### 1.2. Perform DE analysis - with limpa! Using this one from now on
 Load results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
 ```{r}
-# From .RData
-load(paste(base_dir, "Data/Other/limpa_analysis/limpa_analysis_results.RData", sep=""))
+# Prepare to perform the DEA
+## Change the protein names from the UniProt ones (produced by DIA-NN) to systematic Sc ones
+## Some systematic names contain 2 of them - I have to deal with that - I'M TAKING THE FIRST ONE, HOPE THAT'S NOT TOO BAD
+temp_uniprot <- uniprot_db %>%
+  dplyr::select(Entry, `Gene Names (ordered locus)`) %>%
+  dplyr::rename(Gene.secondaryIdentifier = `Gene Names (ordered locus)`)
+temp_rownames <- data.frame(rownames(y.protein$E)) 
+colnames(temp_rownames) <- "Entry"
+temp_rownames <- temp_rownames %>%
+  left_join(temp_uniprot, by = "Entry")
 
-# From .rds
-dpcfit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
-y.protein <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
-fit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/fit.rds", sep=""))
+remove_second_systematic_name <- function(name) {
+  if (grepl(";", name)) {
+    new_name <- substr(name, 0, str_locate(name, ";")[1]-1)
+  }
+  else {
+    new_name <- name
+  }
+  return(new_name)
+}
+temp_rownames$Gene.secondaryIdentifier <- sapply(temp_rownames$Gene.secondaryIdentifier, remove_second_systematic_name)
 
-# Set this so I don't have to change its name in the code below
-trna_ko <- y.protein$E
+rownames(y.protein$E) <- temp_rownames$Gene.secondaryIdentifier
 
-
-# Re-run the parts that don't take so long
 ## Get the names of all KOs we have, and set WT as the reference
 trna_levels <- c()
 for (i in 1:ncol(trna_ko)) {
@@ -478,6 +187,7 @@ Quality control
 ```
 
 Perform the DE analysis
+THERE ARE STILL WARNINGS IN THE FOR LOOP, SHOULD LOOK INTO THAT BUT RESULTS SEEM REASONABLE
 ```{r}
 # This is what they provide, I wonder if they use the kind of design matrix that Alexis used
 # I did not, so I am going to introduce contrasts here? I hope that makes sense?
@@ -522,7 +232,7 @@ for (i in 1:n_batches) {
 
 Save DE proteins for GO enrichment analysis
 ```{r}
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 de_proteins_list <- list()
 for (i in 1:length(da)) {
   temp <- da[[i]]
@@ -541,13 +251,13 @@ for (i in 1:length(da)) {
   # Save protein names
   de_proteins_list[[names(da)[i]]] <- final_protein_names
 }
-output_file <- paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
+output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
 write_json(de_proteins_list, path=output_file)
 ```
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -604,11 +314,11 @@ responsiveness <- da %>%
   mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
 # Add all amino acid names
-amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")))
+amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep="")))
 responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
 
 # Save responsiveness dataset
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 # Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
 DE <- list(fit = fit,
@@ -625,7 +335,7 @@ rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_
 ```
 
 
-## 1.5. CV analysis
+## 1.3. CV analysis
 CV QC on the data for DE analysis
 ```{r}
 # Calculate CV
@@ -708,7 +418,6 @@ colnames(out_temp) <- repeated_samples
 proteomics_no_repeated_columns <- proteomics[,!(colnames(proteomics) %in% repeated_samples)]
 proteomics_no_repeated_columns <- cbind(proteomics_no_repeated_columns, out_temp)
 
-
 # Create dataset for ploting
 temp_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name, Anticodon, Amino_acid_1_letter)
@@ -724,29 +433,39 @@ high_cv_proteins_proteomics <- proteomics_no_repeated_columns %>%
 # Plot
 proteins <- unique(high_cv_proteins_proteomics$protein)
 
-## Iterate over the proteins and make the same plot for all of them
+## Iterate over the proteins and make the same plots for all of them
 for (i in 1:length(proteins)) {
   protein_selected <- proteins[i]
+  
+  # Plot abundance of the protein per amino acid carried 
   plot <- ggplot(data = subset(high_cv_proteins_proteomics, protein == protein_selected), aes(x = Amino_acid_1_letter, y = value)) +
-    geom_boxplot(fill = "grey") +
-    theme_light()
+          geom_boxplot(fill = "grey") +
+          theme_light() +
+          xlab("Amino acid") +
+          ylab("log2(protein abundance)") +
+          labs(title = glue("Abundance of {protein_selected} by amino acid carried by the KOd tRNA"))
   print(plot)
   
   myLetters <- letters[1:26]                            # Need this to be able to re-order anticodons by amino acid
   myLetters <- c(myLetters, "wt")                       # Need to add this so it doesn't break down because "WT" is not a letter
   
+  # Plot abundance of the protein per anticodon (tRNA family)
   plot_2 <- ggplot(data = subset(high_cv_proteins_proteomics, protein == protein_selected), 
                    aes(x = fct_reorder(Anticodon, match(tolower(Amino_acid_1_letter), myLetters)), y = value, fill = Amino_acid_1_letter)) +
-    geom_boxplot() +
-    theme_light()
+            geom_boxplot() +
+            theme_light() +
+            theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+          xlab("Anticodon") +
+          ylab("log2(protein abundance)") +
+          labs(title = glue("Abundance of {protein_selected} by anticodon in the KOd tRNA"),
+               fill = "Amino acid")
   print(plot_2)
 }
-
 ```
 
 
 
-## 1.6. Volcano plots for the differential expression
+## 1.4. Volcano plots for the differential expression
 ```{r}
 # One plot per KO and save them to a PDF - for all KOs
 ## Come up with the list of plots
@@ -768,7 +487,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/Volcano_plots/volcano_plots_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -798,7 +517,7 @@ for (i in 1:length(levels(as.factor(da$Strain.Name)))) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_non_adjusted_p_values_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/Volcano_plots/volcano_plots_per_KO_all_KOs_non_adjusted_p_values_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -832,7 +551,7 @@ for (i in 1:length(KOs_with_DE_proteins)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/Volcano_plots/volcano_plots_per_KO_KOs_with_DE_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -898,7 +617,7 @@ ggplot(data = da, aes(x = logFC)) +
 
 
 
-## 1.7. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
+## 1.5. Check number of DE proteins and also volcano plots for the UCU family - minor vs. major members
 ```{r}
 # Just number of DE proteins
 UCU_major_minor <- phenotypic_data %>% 
@@ -936,7 +655,7 @@ for (i in 1:length(KOs_in_UCU_family)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_location <- paste(base_dir, "Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep="")
+output_location <- paste(base_dir, "tRNA_KOs/Output/Plots/Volcano_plots/volcano_plots_per_KO_UCU_family_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep="")
 ggsave(
    filename = output_location, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -950,7 +669,7 @@ rm(list = c("my_grobs", "plot_list", "KOs_in_UCU_family", "temp", "da_only_KOs_f
 
 
 
-## 1.8. Check number of DE proteins vs. replicates per KO
+## 1.6. Check number of DE proteins vs. replicates per KO
 ```{r}
 ggplot(data = responsiveness, aes(x = as.factor(Replicate_num), y = nDEP, col = as.factor(Replicate_num))) +
   geom_boxplot() +
@@ -968,7 +687,7 @@ rm(replicate_num_vs_nDEP_cor)
 
 
 
-## 1.9. Identify major and minor tRNA genes myself for all strains
+## 1.7. Identify major and minor tRNA genes myself for all strains
 Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
 responsiveness <- responsiveness %>%
@@ -1003,7 +722,7 @@ responsiveness <- responsiveness %>%
   dplyr::select(-family_max)
 
 # Save this new version of responsiveness
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 # Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
 colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
@@ -1071,7 +790,7 @@ for (i in 1:length(aas)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1136,19 +855,19 @@ my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
 my_grobs_not_colored <- lapply(plot_list_not_colored, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
@@ -1157,7 +876,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
 Repeat this but only for the strains with a single major tRNA gene, to have an image of the barplots only for those
@@ -1190,7 +909,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1199,7 +918,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
 Repeat this but only for the strains with more than one single major tRNA gene
@@ -1232,7 +951,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1241,7 +960,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
 Repeat this but only for the strains which have only KOs with less than 20 nDEP
@@ -1274,7 +993,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "Output/Plots/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1283,7 +1002,7 @@ ggsave(
 
 
 # Save responsiveness dataframe for further use
-fwrite(responsiveness, paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 
 
 # Remove unnecessary variables
@@ -1295,7 +1014,7 @@ rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grob
 This used to be in section 2, but I think it's better here:
 ```{r}
 # Just need to load resp_and_expression first
-resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
 temp <- resp_and_expression %>%
@@ -1343,7 +1062,7 @@ rm(family_sizes, resp_and_expression)
 
 
 
-## 1.10. Number of DE proteins per family, coloring by number of tRNAs in the family
+## 1.8. Number of DE proteins per family, coloring by number of tRNAs in the family
 ```{r}
 ggplot(data = responsiveness, aes(x = anticodon, y = nDEP, fill = Family_count)) +
   geom_boxplot() +
@@ -1429,7 +1148,7 @@ ggplot(data = responsiveness, aes(x = as.factor(Family_count), y = nDEP)) +
 
 
 
-## 1.11. Do all tRNAs with the same anticodon have exactly the same sequence throughout their whole structure?
+## 1.9. Do all tRNAs with the same anticodon have exactly the same sequence throughout their whole structure?
 No, they do not! Look further into this elsewhere
 ```{r}
 num_of_tRNA_versions_DNA <- c()
@@ -1452,7 +1171,7 @@ rm(temp, anticodon, anticodons, i, num_of_tRNA_versions_DNA, num_of_tRNA_version
 
 
 
-## 1.12. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
+## 1.10. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
 ```{r}
 # Plots by anticodon
 master_by_anticodon <- master_dataset %>%
@@ -1470,13 +1189,13 @@ ggplot(data = master_by_anticodon, aes(x = Anticodon, y = Perc_KOd_genes_per_ant
 
 
 # Plots by amino acid - for some reason distinct() is not working???
-master_by_amino_acid <- master_dataset[!duplicated(master_dataset$Isotype_from_anticodon),]
+master_by_amino_acid <- master_dataset[!duplicated(master_dataset$Amino_acid_1_letter),]
 
 ## Just the percentage of KOd genes per amino acid
-ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Perc_KOd_genes_per_amino_acid, col = Number_of_tRNAs_loading_this_aa)) +
+ggplot(data = master_by_amino_acid, aes(x = Amino_acid_1_letter, y = Perc_KOd_genes_per_amino_acid, col = Number_of_tRNAs_loading_this_aa)) +
   geom_point() +
   theme_light() +
-  geom_text_repel(data = subset(master_by_amino_acid, Perc_KOd_genes_per_amino_acid < 0.8), aes(x = Isotype_from_anticodon, y = Perc_KOd_genes_per_amino_acid, label = Isotype_from_anticodon)) +
+  geom_text_repel(data = subset(master_by_amino_acid, Perc_KOd_genes_per_amino_acid < 0.8), aes(x = Amino_acid_1_letter, y = Perc_KOd_genes_per_amino_acid, label = Amino_acid_1_letter)) +
   theme(axis.text.x = element_blank()) +
   xlab("Amino acid") +
   ylab("% of genes KOd") +
@@ -1484,14 +1203,14 @@ ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Perc_KOd
        col = "Number of tRNAs\nloading this aa")
 
 # How many tRNA genes are there for each amino acid?
-ggplot(data = master_by_amino_acid, aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa)) +
+ggplot(data = master_by_amino_acid, aes(x = Amino_acid_1_letter, y = Number_of_tRNAs_loading_this_aa)) +
   geom_point() +
   theme_light() +
   theme(axis.text.x = element_blank()) +
   labs(title = "Number of tRNA genes carrying each amino acid") +
   xlab("Amino acid") +
   ylab("Number of genes") +
-  geom_text_repel(data = subset(master_by_amino_acid, Number_of_tRNAs_loading_this_aa < 6 | Number_of_tRNAs_loading_this_aa > 20), aes(x = Isotype_from_anticodon, y = Number_of_tRNAs_loading_this_aa, label = Isotype_from_anticodon))
+  geom_text_repel(data = subset(master_by_amino_acid, Number_of_tRNAs_loading_this_aa < 6 | Number_of_tRNAs_loading_this_aa > 20), aes(x = Amino_acid_1_letter, y = Number_of_tRNAs_loading_this_aa, label = Amino_acid_1_letter))
 
 # Family sizes of the genes that couldn't be KOd
 not_included_genes <- master_dataset %>%
@@ -1520,7 +1239,7 @@ rm(master_by_amino_acid, master_by_anticodon)
 
 
 
-## 1.13. Replicate Alexis' original plots - kind of my own version
+## 1.11. Replicate Alexis' original plots - kind of my own version
 ```{r}
 ggplot(data = responsiveness, aes(x = Strain.Name, y = nDEP, fill = Amino_acid_1_letter)) +
   geom_col() +
@@ -1614,7 +1333,7 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
 
 
 
-## 1.14. Quick look at the OD
+## 1.12. Quick look at the OD
 Join OD and responsiveness dataframes
 ```{r}
 resp_temp <- responsiveness %>%
@@ -1720,7 +1439,7 @@ ggplot(data = od_and_nDEP, aes(x = OD_processed, y = up_down_regulated_ratio_adj
 
 
 
-## 1.15. Explore phenotypic results (GR and GY)
+## 1.13. Explore phenotypic results (GR and GY)
 Compare the phenotypic results from 2014 and 2020
 ```{r}
 ggplot(data = phenotypic_data, aes(x = GR_YPD_2014, y = GR_YPD_2020)) +
@@ -1781,7 +1500,7 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
 
 
 
-## 1.16. Up-regulated and down-regulated proteins exploration
+## 1.14. Up-regulated and down-regulated proteins exploration
 ```{r}
 resp_only_no_up_regulated_strains <- responsiveness %>%
   filter(up_down_regulated_ratio_adjusted == 0)
@@ -1805,7 +1524,7 @@ mean(resp_only_no_up_regulated_strains$Major_count)
 
 
 
-## 1.17. Clean up environment
+## 1.15. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
@@ -1833,11 +1552,11 @@ The main issue with this dataset (apart from the fact that they are read counts)
 Load data
 ```{r}
 # tRNa expression data from Cozen et al., 2015 - keep only genomic rows
-cozen <- read.xlsx(paste(base_dir, "Data/Other/tRNA_expression_comparative/cozen_et_al_2015.xlsx", sep=""), 1) %>%
+cozen <- read.xlsx(paste(base_dir, "tRNA_KO/Data/tRNA_expression_comparative/cozen_et_al_2015.xlsx", sep=""), 1) %>%
   filter(read.mapping..genomic.sequence.or.mature.tRNA. == "genomic")
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 ```
 
 Remove rows with NAs in relevant columns, select columns of interest, get the sum of reads per tRNA (since there are several rows for the same tRNA), and rename to merge with responsiveness dataframe
@@ -1883,9 +1602,9 @@ ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = 
 Load and prepare data
 ```{r}
 # Load data
-chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep=""))) %>%
+chu_synths <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/Articles/chu_2011/S3.csv", sep=""))) %>%
   dplyr::select(-k_cat_ref)
-chu_trnas <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S2.csv", sep="")))
+chu_trnas <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/Articles/chu_2011/S2.csv", sep="")))
 # The problem with these abundances for tRNAs is that they are for each family, not for each tRNA concretely, so I don't really know if they will be useful to me. I could collapse those from Cozen et al. by family and compare them to this to see if they point in the same direction, but might be a bit of a time waste
 
 # Join the synthetase data to the resp_and_expression dataset
@@ -1893,7 +1612,7 @@ resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "Amino_ac
 
 # Add also the synthetase abundance we detect in our WTs
 ## Remove those synthetases we didn't detect in our data, as well as GRS2 (only active under stress)
-synthetases <- fread(paste(base_dir, "Data/trna_synthetases.csv", sep=""))
+synthetases <- fread(paste(base_dir, "tRNA_KO/Data/basic/trna_synthetases.csv", sep=""))
 temp <- synthetases %>%
   filter(Gene.symbol != "GRS2",
          !is.na(measured_proteomics_WT)) %>%
@@ -2179,7 +1898,7 @@ ggplot(data = resp_and_expression, aes(x = k_cat_value*synthetase_abundance, y =
 Load and prepare data
 ```{r}
 # Get anticodon from codon and rename columns
-anticodon_freq <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S1.csv", sep="")))
+anticodon_freq <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/Articles/chu_2011/S1.csv", sep="")))
 anticodon_freq$anticodon <- lapply(anticodon_freq[,colnames(anticodon_freq) == "Codon"], codon_to_anticodon)
 anticodon_freq$anticodon <- as.character(anticodon_freq$anticodon)
 anticodon_freq$anticodon <- as.factor(anticodon_freq$anticodon)
@@ -2261,7 +1980,7 @@ ggplot(data = resp_and_expression, aes(x = codon_frequency_chu_2011, y = nDEP, c
 
 ## 2.4. Save the resp_and_expression dataset as it is at this point, and clean up the environment
 ```{r}
-fwrite(resp_and_expression, paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+fwrite(resp_and_expression, paste(base_dir, "tRNA_KO/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 rm(anticodon_freq, resp_and_expression, responsiveness)
 ```
 
@@ -2273,7 +1992,7 @@ rm(anticodon_freq, resp_and_expression, responsiveness)
 ################################################################################
 ## 3.0. Load data - so I don't have to run everything above
 ```{r}
-resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Create a new version of the dataset with prettier names for the columns so the model summary is more readable
 resp_and_expression_modelling <- resp_and_expression %>%
@@ -2284,7 +2003,7 @@ resp_and_expression_modelling <- resp_and_expression %>%
                 synthetase_abundance_our_WTs = measured_proteomics_WTs_WT)
 
 # Add info on U_34, A_34 from master_dataset
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep=""))) %>%
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/basic/master_tRNA_dataset.csv", sep=""))) %>%
   dplyr::select(Strain.Name, A_34, U_34) %>%
   mutate(A_34 = as.numeric(A_34),
          U_34 = as.numeric(A_34))
@@ -2761,7 +2480,7 @@ SHOULD I CONSIDER SOME GROUPING BY CODON HERE? LIKE, THE DIFFERENT TRNAS THAT HA
 Load data (generated in Python script "check_codon_enrichment_in_DEPs_sequences.py")
 ```{r}
 # Load list
-codon_ratios_list <- fromJSON(txt = paste(base_dir, "Data/Other/check_codon_enrichment_in_protein_sequences/codon_counts.json", sep=""))
+codon_ratios_list <- fromJSON(txt = paste(base_dir, "tRNA_KO/Data/check_codon_enrichment_in_protein_sequences/codon_counts.json", sep=""))
 
 # Remove from the list those strains where there aren't at least 4 DE proteins
 bool <- c()
@@ -2772,10 +2491,10 @@ codon_ratios_list <- codon_ratios_list[bool]
 
 
 # Load master dataset
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 # Load resp_and_expression dataset
-resp_and_expression <- as.data.frame(fread(paste(base_dir, "Data/resp_and_expression.csv", sep="")))
+resp_and_expression <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 ```
 
 Iterate over the strains and perform a test for each, testing the mean counts of DE vs. that of non_DE
@@ -2936,31 +2655,23 @@ rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, tes
 ## 5.0. Load data
 ```{r}
 # Processed KO proteomics dataframe
-trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "tRNA_KO/Data/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
 
 # List of dataframes with the proteins that were DE in each KO strain
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KO/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 
 ## Remove WT dataframe
 de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
 
 # Synthetase information
-chu_synths <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
+chu_synths <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
 
 # Yeastmine
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KO/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 ```
 
 
 ## 5.1. Evaluate some basic stuff about synthetases: how many are there, how many do I detect, etc.
-Create the dataframe with all information about synthetase - not save it yet since we need to add the information of how much of each of them we detect in our WTs
-```{r}
-# Load YeastMine dataset
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-
-
-```
-
 Check how many synthetases exist in Sc
 ```{r}
 # How many tRNA synthases
@@ -3038,23 +2749,14 @@ synthetases$quantified_in_how_many_KO_samples <- quantified_in_how_many_KO_sampl
 
 
 # Add columns with all other amino acid information
-temp <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep="")) %>%
+temp <- fread(paste(base_dir, "tRNA_KO/Data/databases/GtRNAdb/amino_acids.csv", sep="")) %>%
   dplyr::select(-molecular_weight_Da)
 synthetases <- left_join(synthetases, temp, by = "Amino_acid_3_letter")
 
 
 # One final thing - add information of which ones are included in the TS library, and which ones are included in the GFP/RFP data
-if (working_from == "charite") {
-  ts_sample_layout <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/sample_layout.csv"))
-} else {
-  ts_sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/sample_layout.csv"))
-}
-
-if (working_from == "charite") {
-  ts_fluorescence_raw_1 <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/Fluorescence/raw_1.csv"))
-} else {
-  ts_fluorescence_raw_1 <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/Fluorescence/raw_1.csv"))
-}
+ts_sample_layout <- as.data.frame(fread(paste(base_dir, "TSSC/Data/Boone_lab/sample_layout.csv", sep="")))
+ts_fluorescence_raw_1 <- as.data.frame(fread(paste(base_dir, "TSSC/Data/Boone_lab/Fluorescence/raw_1.csv", sep="")))
 
 synthetases <- synthetases %>%
   dplyr::mutate(in_ts_library = case_when(Gene.secondaryIdentifier %in% ts_sample_layout$Sys.Name ~ "Yes",
@@ -3068,7 +2770,7 @@ temp <- synthetases %>%
 
 
 # Save this dataset
-fwrite(synthetases, paste(base_dir, "Data/trna_synthetases.csv", sep=""))
+fwrite(synthetases, paste(base_dir, "tRNA_KO/Data/basic/trna_synthetases.csv", sep=""))
 ```
 
 
@@ -3133,7 +2835,7 @@ grab_de_synthetases_dfs <- function(da, de_synthetases, yeastmine) {
 }
 
 
-da <- read_json(path=paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+da <- read_json(path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
 de_synthetases_df <- grab_de_synthetases_dfs(da, de_synthetases, yeastmine)
 ```
@@ -3143,9 +2845,8 @@ Add 2 columns: one for the amino acid which the KOd tRNA carries, another for th
 add_2_columns <- function(de_synthetases_df) {
   # Amino acid carried by the KOd tRNA
   temp <- master_dataset %>%
-    dplyr::select(Strain.Name, Isotype_from_anticodon_1_letter, anticodon, codon, chromosome, Family_size)
-  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") %>%
-    dplyr::rename(Amino_acid_1_letter = Isotype_from_anticodon_1_letter)
+    dplyr::select(Strain.Name, Amino_acid_1_letter, anticodon, codon, chromosome, Family_size)
+  de_synthetases_df <- left_join(de_synthetases_df, temp, by = "Strain.Name") 
   
   temp <- amino_acids %>%
     dplyr::select(Amino_acid_1_letter, amino_acid_charge, amino_acid_type) %>%
@@ -3192,8 +2893,8 @@ add_2_columns <- function(de_synthetases_df) {
   return(de_synthetases_df)
 }
 
-amino_acids <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv", sep=""))) 
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep=""))) 
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 de_synthetases_df <- add_2_columns(de_synthetases_df)
 
@@ -3224,12 +2925,7 @@ rm(chu_synths, chu_synths_new, de_proteins_list, new_row, trna_ko, yeastmine,
 ## 5.4. Check how many synthetases we have TS alleles for in the Boone library
 There are 13 of them, none of them mitochondrial, none of them the ARC1 cofactor, one of them a synthase - 2 of them were sick when sent and did not grow
 ```{r}
-if (working_from == "charite") {
-  ts_library <- as.data.frame(fread("C:/MyStuff/TSSC/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
-} else if (working_from == "home") {
-  ts_library <- as.data.frame(fread("/home/alvaro/MyStuff/TSSc/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv"))
-}
-
+ts_library <- as.data.frame(fread(paste(base_dir, "TSSC/Data/Boone_lab/Growth/Mine/Processed_by_them/growth_agar_matched.tsv", sep="")))
 ts_library_synths <- ts_library[ts_library$Systematic_name %in% synthetases$Gene.secondaryIdentifier,]
 synths_in_ts_library_info <- synthetases[synthetases$Gene.secondaryIdentifier %in% ts_library$Systematic_name,] 
 ```
@@ -3295,8 +2991,8 @@ ggplot(data = de_synthetases_df, aes(x = Synthetase_standard, y = strains_per_sy
 ## 5.6. Save the dataframes with the information on the DE synthetases and remove everything
 ```{r}
 # Save them
-fwrite(de_synthetases_df_001, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_001.tsv", sep=""))
-fwrite(de_synthetases_df_005, paste(base_dir, "Data/Other/synthetases/de_synthetases_df_005.tsv", sep=""))
+fwrite(de_synthetases_df_001, paste(base_dir, "tRNA_KOs/Data/synthetases/de_synthetases_df_001.tsv", sep=""))
+fwrite(de_synthetases_df_005, paste(base_dir, "tRNA_KOs/Data/synthetases/de_synthetases_df_005.tsv", sep=""))
 
 # Remove everything
 rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_library_info, ts_library_synths, synthetases, WTs, master_dataset, synth, measured_proteins)
@@ -3314,16 +3010,16 @@ rm(de_synthetases_df_001, de_synthetases_df_005, ts_library, synths_in_ts_librar
 ## 6.0. Load data
 ```{r}
 # List of dataframes with the proteins that were DE in each KO strain
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 
 ## Remove WT dataframe
 de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
 
 # Load responsiveness dataset
-responsiveness <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Master dataset
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/master_tRNA_dataset.csv", sep="")))
 ```
 
 
@@ -3368,7 +3064,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 
 ## Print to PDF
 my_grobs <- lapply(plot_list, ggplotGrob)
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -3419,7 +3115,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_no_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -3468,7 +3164,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_anticodon_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=3, ncol=3), 
@@ -3518,7 +3214,7 @@ for (i in 1:length(jaccard_matrices_list)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file <- paste(base_dir, "Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_DEPs_across_KOs/jaccard/Jaccard_index_heatmaps_per_amino_acid_with_NAs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=3), 
@@ -3885,7 +3581,7 @@ DE_protein_overlaps <- DE_protein_overlaps %>%
 
 Save this dataset as of now 
 ```{r}
-fwrite(DE_protein_overlaps, paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep=""))
+fwrite(DE_protein_overlaps, paste(base_dir, "tRNA_KOs/Data/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep=""))
 ```
 
 
@@ -3962,11 +3658,11 @@ Go into the top pairs with the largest JIs and look at what are the proteins in 
 ```{r}
 # Since I want to do enrichment analysis below, I need to load some stuff beforehand - based on the enrichment analysis file
 ## List of dataframes with the proteins that were DE in each KO strain - at alpha = 0.01 - remove emtpy vectors
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 de_proteins_list <- Filter(function(x) length(x) > 0, de_proteins_list)
 
 # Full Entrez ID dataframe, with all genes
-entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
+entrez_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/entrez_reference.txt", sep="")))
 
 ## Define background
 temp <- data.frame("Protein_stable_ID" = de_proteins_list[["WT"]])
@@ -3974,7 +3670,7 @@ temp <- left_join(temp, entrez_db, by = "Protein_stable_ID")
 my_universe <- temp$`NCBI_gene_(formerly_Entrezgene)_ID`
 
 # Load YeastMine dataset
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
 
 
@@ -4263,10 +3959,10 @@ ggplot(data = p_values_large, aes(x = perc_same_across_all_pairs, y = effect_siz
 Prepare data
 ```{r}
 # Load protein overlaps dataset created in previous section, with all possible intersections
-DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "Data/Other/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep="")))
+DE_protein_overlaps <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/compare_DEPs_across_KOs/DE_protein_overlaps_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".tsv", sep="")))
 
 # Master dataset
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep = "")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep = "")))
 ```
 
 Got a bit side-tracked, exploring the correlation between the average nDEP in the pair and the JI
@@ -4310,11 +4006,11 @@ paired_major_strains <- sort(unique(c(as.character(DE_protein_overlaps_major_wit
 Look at the EA results for these strains - this is the EA done in the main file, but since I don't find anything to be enriched in most of the strains, I am going to repeat it here only for these strains trying to be more lenient with the p-values and other thresholds. I don't know if this is a great idea, these I wouldn't interpret generally as pathways or whatever that are enriched in these strains, but rather I am using it simply to summarize the proteins that are DE in these strains in a more readable way so that I can compare them within the pair, I cannot look at 2 lists of 40 proteins each and compare that myself. 
 ```{r}
 # Load GO EA results
-go_results_list <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+go_results_list <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
 # Load GSEA results (GO and KEGG)
-kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
-go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
+kegg_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/kegg_gsea_results_005.json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_gsea_results_005.json", sep=""), simplifyVector = T)
 
 # Keep only those we are interested in
 go_results_list_filtered <- go_results_list[names(go_results_list_001) %in% paired_major_strains]
@@ -4333,7 +4029,7 @@ Produce LaTex table with significant pathways in pairs of KOs with the same anti
 N <- 10
 
 # Load the GO GSEA results produced in that file
-go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
 
 # For GO GSEA results
 ## Get the unique codons to iterate over
@@ -4373,7 +4069,7 @@ for (i in 1:length(codons)) {
 N <- 10
 
 # Load the GO GSEA results produced in that file
-kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
+kegg_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
 
 # For GO GSEA results
 ## Get the unique codons to iterate over
@@ -4429,11 +4125,11 @@ for (i in 1:length(codons)) {
 
 FIGURE OUT WHAT IS GOING ON WITH THE NEW VERSION OF THE DE ANALYSIS - DELETE ONCE THAT'S DONE
 ```{r}
-da_old <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
-da_new <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+da_old <- read_json(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+da_new <- read_json(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 
-responsiveness_old <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
-responsiveness_new <- as.data.frame(fread(paste(base_dir, "Data/responsiveness_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+responsiveness_old <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+responsiveness_new <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_NEW_TRIAL_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 ```
 
 

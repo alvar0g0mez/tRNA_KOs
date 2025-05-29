@@ -15,7 +15,7 @@ library(stringr)
 
 
 # Set up
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"

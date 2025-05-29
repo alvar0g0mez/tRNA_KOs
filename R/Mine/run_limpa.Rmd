@@ -1,0 +1,169 @@
+---
+title: "try_limpa_reanalysis"
+author: "Álvaro Gómez Pérez"
+date: "2025-05-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+############################################################################################################
+########################################## CONTENTS OF THIS FILE ###########################################
+############################################################################################################
+I only run the first part of limpa here, the protein quantification from the precursor-level data, save that, and load it in the main script, where I perform the DE analysis
+
+
+
+
+
+Packages
+```{r}
+library(tidyr)
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(limpa)
+library(stringr)
+```
+
+Set up
+```{r}
+# Significance level to be used for all tests and plots in this file
+alpha <- 0.05
+
+# Significance level as a plain string to use when loading or writing files
+alpha_plain <- str_replace(as.character(alpha), "\\.", "")
+
+# Minimum threshold for the average log2-expression across all samples in order to keep a protein in the data before DE analysis
+mean_log2_across_all_samples_threshold <- 2
+
+# Minimum threshold for the variance of the log2-expression across all samples in order to keep a protein in the data before DE analysis
+var_across_log2_all_samples_threshold <- 0.6
+
+# Separate significance level, the one used for the enrichment analysis
+alpha_enrichment <- 0.05
+
+# Significance level above as a plain string to use when loading or writing files
+alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
+
+# Log-fold change limit to be considered "biologically significant"
+lfc_threshold <- 1
+
+# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
+threshold_major <- 2
+
+# Set directories to be used
+working_from = "home"
+
+if (working_from == "home") {
+  base_dir = "/home/alvaro/MyStuff/"
+} else
+if (working_from == "charite") {
+  base_dir = "C:/MyStuff/"
+}
+
+```
+
+Load data
+```{r}
+# Boris pre-processed data - normalized, batch and drift corrected
+raw_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv", sep="")))
+rownames(raw_data) <- raw_data$Precursor.Id
+
+# Sample layout - from the S drive
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+
+# Separate metadata
+metadata <- raw_data %>%
+  dplyr::select(Precursor.Id, Stripped.Sequence, Protein.Group, Genes)
+rownames(metadata) <- NULL
+raw_data <- raw_data %>%
+  dplyr::select(-c(Precursor.Id, Stripped.Sequence, Protein.Group, Genes))
+
+# Fix colnames (sample names)
+colnames(raw_data) <- sapply(colnames(raw_data), function(x) str_replace_all(x, "-", "_"))
+temp_match <- sample_layout %>%
+  dplyr::select(Sample.ID.unique, final_proteomics_colnames)
+temp_colnames <- data.frame(Sample.ID.unique = colnames(raw_data)) %>%
+  left_join(temp_match, by = "Sample.ID.unique")
+colnames(raw_data) <- temp_colnames$final_proteomics_colnames
+
+# Remove unnecessary variables
+rm(temp_match, temp_colnames)
+```
+
+Prepare limpa input
+```{r}
+# Protein labels
+protein.id <- metadata$Protein.Group
+
+# Design matrix
+## Get the names of all KOs we have, and set WT as the reference
+trna_levels <- c()
+for (i in 1:ncol(raw_data)) {
+  sample_name <- colnames(raw_data)[i]
+  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
+  if (length(strain_name) > 1) {
+    strain_name <- strain_name[1]
+  }
+  trna_levels <- c(trna_levels, strain_name)
+}
+trna_levels <- as.factor(trna_levels)
+trna_levels <- relevel(trna_levels, ref = "WT")
+
+## Generate design matrix
+mm <- model.matrix(~ 0 + trna_levels)
+colnames(mm) <- levels(trna_levels)
+```
+
+Run limpa analysis
+```{r}
+# Original code
+dpcfit <- dpc(raw_data)
+y.protein <- dpcQuant(raw_data, protein.id, dpc=dpcfit)
+```
+
+Save limpa results
+```{r}
+# As .rds
+saveRDS(dpcfit, file = paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
+saveRDS(y.protein, file = paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
+```
+
+Load limpa results 
+```{r}
+dpcfit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
+y.protein <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
+```
+
+Evaluate results with the plots from the limpa package
+```{r}
+plotDPC(dpcfit)
+plotMDSUsingSEs(y.protein)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
