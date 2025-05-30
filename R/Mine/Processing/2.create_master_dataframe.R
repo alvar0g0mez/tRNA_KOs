@@ -36,12 +36,10 @@ library(stringr)
 working_from = "charite"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
-  source("/home/alvaro/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+  base_dir = "/home/alvaro/MyStuff/"
 } else
   if (working_from == "charite") {
-    base_dir = "C:/MyStuff/tRNA_KOs/"
-    source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+    base_dir = "C:/MyStuff/"
   }
 
 #-----------------------------------------------------------------------------------------
@@ -52,8 +50,8 @@ if (working_from == "home") {
 # 1. Dealing with the database from GtRNAdb
 
 # Load data
-db <- read.xlsx(paste(base_dir, "Data/Other/GtRNAdb/GtRNAdb_gene_list.xlsx", sep=""), 1)
-source("C:/MyStuff/tRNA_KOs/Code/R/Mine/0.general_use_functions.R")
+db <- read.xlsx(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/GtRNAdb_gene_list.xlsx", sep=""), 1)
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 
 
 # 1.1. Come up with Intron and Mismatch columns from the Features column
@@ -95,7 +93,7 @@ db <- db %>%
 
 # 1.2. Match 3-letter codes to 1-letter codes
 ## Load dataframe with amino acid information
-aas <- fread(paste(base_dir, "Data/Other/GtRNAdb/amino_acids.csv",sep=""))
+aas <- fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv",sep=""))
 aas <- as.data.frame(aas)
 
 ## Add new columns
@@ -162,7 +160,7 @@ rm(og_name, new_name, i)
 
 
 # 2.0. Load phenotypic results dataset
-phenotypic_results <- fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep=""))
+phenotypic_results <- fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep=""))
 
 # 2.1. Add columns
 master_dataset <- db %>%
@@ -170,6 +168,35 @@ master_dataset <- db %>%
                          TRUE ~ "No")) %>%
   dplyr::rename(GtRNAdb_name = GtRNADB_name) %>%
   left_join(phenotypic_results[, c("GtRNAdb_name", "Strain.Name")], by="GtRNAdb_name")
+
+
+# 2.2. Add a column with the information on whether each strain grew better or worse than the WT in DTT
+# I am using 2 and -2 as a threshold here because it's what they effectively use in the article, although they say they use the 
+# WT mean +- the WT SD. The thing is that I still haven't been able to figure out how they obtained these values, how the 
+# calculated them or normalized them or anything like that, so for now I'm going with this. 
+## Need to get rid of the lethal strains before I select here
+phenotypic_data <- phenotypic_data %>%
+  filter(lethal != "Yes",
+         !(is.na(GR_DTT_2014)),
+         !is.na(GY_DTT_2014))
+
+## Actually perform the selection
+strains_better_in_DTT_GR <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 > 2]
+strains_better_in_DTT_GY <- phenotypic_data$Strain.Name[phenotypic_data$GY_DTT_2014 > 2]
+strains_worse_in_DTT_GR <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 < -2]
+strains_worse_in_DTT_GY <- phenotypic_data$Strain.Name[phenotypic_data$GY_DTT_2014 < -2]
+
+master_dataset <- master_dataset %>%
+  dplyr::mutate(GR_in_DTT_compared_to_WT = case_when(master_dataset$Strain.Name %in% strains_better_in_DTT_GR ~ "Better",
+                                                     master_dataset$Strain.Name %in% strains_worse_in_DTT_GR ~ "Worse",
+                                                     TRUE ~ "Un-affected"),
+                GY_in_DTT_compared_to_WT = case_when(master_dataset$Strain.Name %in% strains_better_in_DTT_GY ~ "Better",
+                                                     master_dataset$Strain.Name %in% strains_worse_in_DTT_GY ~ "Worse",
+                                                     TRUE ~ "Un-affected"))
+
+master_dataset <- master_dataset %>%
+  dplyr::relocate(GR_in_DTT_compared_to_WT, .after = Amino_acid_1_letter) %>%
+  dplyr::relocate(GY_in_DTT_compared_to_WT, .after = GR_in_DTT_compared_to_WT)
 
 
 ## Remove unnecessary variables
@@ -182,7 +209,7 @@ rm(phenotypic_results, db)
 
 
 # 3. Add genetic and mature tRNA sequences from the FASTA files
-trna_seqs <- read.csv(paste(base_dir, "Data/Other/GtRNAdb/gene_and_mature_tRNA_seqs.csv", sep="")) %>%
+trna_seqs <- read.csv(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/gene_and_mature_tRNA_seqs.csv", sep="")) %>%
   dplyr::rename(GtRNAdb_name = GtRNADB_name)
 master_dataset <- left_join(master_dataset, trna_seqs, by = "GtRNAdb_name")
 
@@ -335,7 +362,7 @@ master_dataset <- master_dataset %>%
 
 
 # 5. That's it for now, just save this resulting master dataframe
-fwrite(master_dataset, paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep=""))
+fwrite(master_dataset, paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep=""))
 
 
 

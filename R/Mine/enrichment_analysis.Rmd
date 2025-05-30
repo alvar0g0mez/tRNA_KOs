@@ -43,7 +43,7 @@ alpha_enrichment <- 0.1
 alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 
 # Log-fold change limit to be considered "biologically significant"
-lfc_threshold <- 0
+lfc_threshold <- 0.5
 
 # Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
 threshold_major <- 2
@@ -52,30 +52,30 @@ threshold_major <- 2
 working_from = "charite"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  base_dir = "/home/alvaro/MyStuff/"
 } else
 if (working_from == "charite") {
-  base_dir = "C:/MyStuff/tRNA_KOs/"
+  base_dir = "C:/MyStuff/"
 }
 ```
 
 ## 1.1. Load data
 ```{r}
 # List of dataframes with the proteins that were DE in each KO strain - remove emtpy vectors
-de_proteins_list <- fromJSON(paste(base_dir, "Data/Other/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), )
 de_proteins_list <- Filter(function(x) length(x) > 0, de_proteins_list)
 
 # Full Entrez ID dataframe, with all genes
-entrez_db <- as.data.frame(fread(paste(base_dir, "Data/Other/enrichment_analysis/entrez_reference.txt", sep="")))
+entrez_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/entrez_reference.txt", sep="")))
 
 # Load the dataset with that information
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 
 
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
 
@@ -153,7 +153,7 @@ de_prots_per_strain <- left_join(de_prots_per_strain, master_dataset, by = "Stra
 
 ## 2.5. Save the EA dataset so I don't have to run all of this again
 ```{r}
-write_json(go_results_list, path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), pretty = T)
+write_json(go_results_list, path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), pretty = T)
 ```
 
 
@@ -165,7 +165,7 @@ write_json(go_results_list, path = paste(base_dir, "Data/Other/enrichment_analys
 # 3. Evaluate overall results of EA before going into strain comparisons
 ## 3.1. Load data
 ```{r}
-go_results_list <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), simplifyVector = T)
+go_results_list <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), simplifyVector = T)
 ```
 
 ## 3.2. Barplots for most common EA terms
@@ -226,15 +226,15 @@ ggplot(data = temp, aes(x = fct_reorder(Description, EA_term_count), y = EA_term
 ## 4.1. Load data
 ```{r}
 # Results from GO EA
-go_results_list <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), simplifyVector = T)
+go_results_list <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_results_list_", alpha_plain, "_logFC_", as.character(lfc_threshold),  ".json", sep=""), simplifyVector = T)
 
 # Load the dataset with that information
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 
-source(paste(base_dir, "Code/R/Mine/0.general_use_functions.R", sep=""))
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
 ## 4.2. Evaluate growth in DTT and classify strains to better than WT or equal/worse
@@ -464,7 +464,7 @@ That's it! We provide gsea() with these things and with some other parameters, a
 For now, my score/rank is: sign(logFC)*(-log10(adj.P.Val))
 ```{r}
 # Load list of all dataframes (one per strain) wiht the DE results
-da <- read_json(paste(base_dir, "Data/Other/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+da <- read_json(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 da <- da[names(da) != "WT"]
 
 # Create empty list to put the named ranked gene lists in
@@ -513,6 +513,11 @@ for (i in 1:length(da)) {
   # Add them to the list where we are saving them
   ranked_genes[[names(da)[i]]] <- rankings
 }
+
+
+# Save this ranked lists so that I can use them later to pick the top 50 proteins in each strain, to look at the overlaps between major strains within families in a more unbiased manner - not really feasible for now since the distribution of the scores for the vast majority of strains is pretty much flat. I wonder how much this affects my DEA?
+write_json(ranked_genes, path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/lists_of_ranked_genes_", alpha_plain, "_logFC_", as.character(lfc_threshold), sep=""),
+           pretty = T)
 ```
 
 
@@ -543,12 +548,12 @@ DO NOT RUN AGAIN - I used this to download the .gmt file, I just need to load it
 Get a list of pathways, with each entry being a vector with the Entrez IDs for the genes involved in that pathway. Make it so that only proteins that we detect in our dataset are included here. 
 ```{r}
 # Read in the .gmt file
-gmt <- read.gmt(paste(base_dir, "Data/Other/enrichment_analysis/20250305_kegg_sce_gmt", sep=""))
+gmt <- read.gmt(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/20250305_kegg_sce_gmt", sep=""))
 gmt$term <- as.character(gmt$term)
 
 # Get a simple vector with the Entrez IDs of the proteins we detect
-trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
-yeastmine <- as.data.frame(fread(paste(base_dir, "Data/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "tRNA_KOs/Data/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 proteins_detected <- match_systematic_and_standard_protein_names(data = rownames(trna_ko),
                                                                  yeastmine = yeastmine,
                                                                  input = "standard",
@@ -592,7 +597,7 @@ bool <- sapply(kegg_gsea_results_filtered, function(x) nrow(x)>0)
 kegg_gsea_results_filtered <- kegg_gsea_results_filtered[bool]
 
 # Save these results
-write_json(kegg_gsea_results_filtered, paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), pretty = T)
+write_json(kegg_gsea_results_filtered, paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), pretty = T)
 ```
 
 
@@ -610,7 +615,7 @@ go_annotations <- getBM(attributes = c("ensembl_gene_id", "external_gene_name",
                         mart = ensembl_fungi)
 
 # This is added by me
-trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "Data/Other/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
+trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "tRNA_KOs/Data/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
 go_annotations <- go_annotations %>%
   dplyr::filter(namespace_1003 != "go") %>%                                     # Pretty sure these rows are just wrong, or at least not useful to me
   dplyr::filter(ensembl_gene_id %in% rownames(trna_ko)) %>%                     # Keep only those genes which are detected in our data, so as to prevent bias
@@ -631,14 +636,14 @@ go_annotations <- go_annotations %>%
 go_list <- split(go_annotations$entrezgene_id, go_annotations$gene_set)
 
 # Step 5: Save this named list of vectors as a JSON file
-write_json(go_list, path = paste(base_dir, "Data/Other/enrichment_analysis/go_list_gmt.json", sep=""), pretty = T)
+write_json(go_list, path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_list_gmt.json", sep=""), pretty = T)
 ```
 
 ### Load the gene set vectors created in the previous chunk
 Get a list of pathways, with each entry being a vector with the Entrez IDs for the genes involved in that pathway. Make it so that only proteins that we detect in our dataset are included here. 
 ```{r}
 # Read in the .json file
-go_gene_sets <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_list_gmt.json", sep=""), simplifyVector = T)
+go_gene_sets <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_list_gmt.json", sep=""), simplifyVector = T)
 ```
 
 ### Run GSEA
@@ -663,7 +668,7 @@ bool <- sapply(go_gsea_results_filtered, function(x) nrow(x)>0)
 go_gsea_results_filtered <- go_gsea_results_filtered[bool]
 
 # Save these results
-write_json(go_gsea_results_filtered, paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), pretty = T)
+write_json(go_gsea_results_filtered, paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), pretty = T)
 ```
 
 
@@ -676,8 +681,8 @@ Perform GSEA with Reactome annotation?? - Seeminlgy Reactome is mostly human, so
 ## 5.4. Analyze GSEA results
 ### 5.4.1. Load results
 ```{r}
-kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
-go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
+kegg_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
+go_gsea_results <- read_json(path = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
 ```
 
 
@@ -711,7 +716,7 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_cou
   theme_light() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   labs(title = "Most common KEGG GSEA terms across all strains",
-       subtitle = glue("alpha == {alpha}, logFC = {lfc_threshold}, alpha for GSEA == {alpha_enrichment}")) +
+       subtitle = glue("alpha = {alpha}, logFC = {lfc_threshold}, alpha for GSEA = {alpha_enrichment}")) +
   ylab("Strain count") +
   xlab("GSEA term")
 
@@ -720,8 +725,8 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_per
   geom_col() +
   theme_light() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  labs(title = "Most common KEGG GSEA terms",
-       subtitle = "Across all strains") +
+  labs(title = "Most common KEGG GSEA terms across all strains",
+       subtitle = glue("alpha = {alpha}, logFC = {lfc_threshold}, alpha for GSEA = {alpha_enrichment}")) +
   ylab("Strain percentage") +
   xlab("GSEA term")
 ```
@@ -775,39 +780,40 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_per
 Load data
 ```{r}
 # Load the dataset with that information
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 # Phenotypic data from Bloom-Ackermann et al., 2014
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 ```
 
 Classify strains
 ```{r}
 # Plot GR and GY in DTT
 ggplot(data = phenotypic_data, aes(x = GR_DTT_2014)) +
-  geom_histogram(binwidth = 1) +
+  geom_histogram(binwidth = 1, fill = "grey", col = "black") +
   theme_light() +
-  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)+sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red") +
-  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)-sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red")
+  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)+sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red", linewidth = 1) +
+  geom_vline(xintercept = mean(phenotypic_data$GR_DTT_2014, na.rm = T)-sd(phenotypic_data$GR_DTT_2014, na.rm = T), col = "red", linewidth = 1) +
+  geom_vline(xintercept = 2, col = "darkgreen", linewidth = 1) +
+  geom_vline(xintercept = -2, col = "darkgreen", linewidth = 1)
 
 ggplot(data = phenotypic_data, aes(x = GY_DTT_2014)) +
-  geom_histogram(binwidth = 1) +
+  geom_histogram(binwidth = 1, fill = "grey", col = "black") +
   theme_light() +
-  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)+sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red") +
-  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)-sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red")
+  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)+sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red", linewidth = 1) +
+  geom_vline(xintercept = mean(phenotypic_data$GY_DTT_2014, na.rm = T)-sd(phenotypic_data$GY_DTT_2014, na.rm = T), col = "red", linewidth = 1) +
+  geom_vline(xintercept = 2, col = "darkgreen", linewidth = 1) +
+  geom_vline(xintercept = -2, col = "darkgreen", linewidth = 1)
 
-# At first I just divided strains into those above and below 0, and grabbed those that were above 0 in both GR and GY as one group, and those that were below 0 in both GR and GY as the other group. However, I found no pattern at all, so I think it would make sense to be a bit more stringent in how I select the strains. I am going to do it based on the SD of each of the distribution above
 
-# Need to look into the original article to figure out which one to use - going with both for now, so I don't take all strains here, only those that agree on their GR and GY (not sure if that makes sense, going by vibes for now)
-## Need to get rid of the lethal strains before I select here
-phenotypic_data <- phenotypic_data %>%
-  filter(lethal != "Yes",
-         !(is.na(GR_DTT_2014)),
-         !is.na(GY_DTT_2014))
+# Selection of strains into "better", "worse" or "un-affected" w.r.t. to WT in DTT is now done in the script where I create the master_dataframe, and it's done on a threshold of 2 and -2, which is the one they effectively use in the article (because I haven't managed to understand yet how they got these data)
 
-## Actually perform the selection
-strains_better_in_DTT <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 > sd(phenotypic_data$GR_DTT_2014, na.rm = T) & phenotypic_data$GY_DTT_2014 > sd(phenotypic_data$GY_DTT_2014, na.rm = T)]
-strains_worse_or_equal_in_DTT <- phenotypic_data$Strain.Name[phenotypic_data$GR_DTT_2014 < -sd(phenotypic_data$GR_DTT_2014, na.rm = T) & phenotypic_data$GY_DTT_2014 < -sd(phenotypic_data$GY_DTT_2014, na.rm = T)]
+## Actually perform the selection, based on the master_dataset - I take as "better" any that is actually better in either GR or GY, but not worse in either of them - same for "worse"
+strains_better_in_DTT <- master_dataset$Strain.Name[(master_dataset$GR_in_DTT_compared_to_WT == "Better" & master_dataset$GY_in_DTT_compared_to_WT != "Worse") |
+                                                      (master_dataset$GR_in_DTT_compared_to_WT != "Worse" & master_dataset$GY_in_DTT_compared_to_WT == "Better")]
+
+strains_worse_in_DTT <- master_dataset$Strain.Name[(master_dataset$GR_in_DTT_compared_to_WT == "Worse" & master_dataset$GY_in_DTT_compared_to_WT != "Better") |
+                                                      (master_dataset$GR_in_DTT_compared_to_WT != "Better" & master_dataset$GY_in_DTT_compared_to_WT == "Worse")]
 ```
 
 KEGG - separate GSEA results based on this classification
@@ -821,7 +827,7 @@ for (i in 1:length(kegg_gsea_results)) {
   if (strain_name %in% strains_better_in_DTT) {
     kegg_list_better_dtt[[strain_name]] <- kegg_gsea_results[[i]]
   }
-  else if (strain_name %in% strains_worse_or_equal_in_DTT) {
+  else if (strain_name %in% strains_worse_in_DTT) {
     kegg_list_worse_dtt[[strain_name]] <- kegg_gsea_results[[i]]
   }
 }
@@ -860,8 +866,8 @@ Plot
 # For strains growing worse in DTT
 ## Grab only top 10 most common EA terms
 temp <- kegg_terms_df_worse_dtt %>%
-  distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::distinct(pathway, .keep_all = T) %>%
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -889,8 +895,8 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_per
 # For strains growing better in DTT
 ## Grab only top 10 most common EA terms
 temp <- kegg_terms_df_better_dtt %>%
-  distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::distinct(pathway, .keep_all = T) %>%
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -925,7 +931,7 @@ for (i in 1:length(go_gsea_results)) {
   if (strain_name %in% strains_better_in_DTT) {
     go_list_better_dtt[[strain_name]] <- go_gsea_results[[i]]
   }
-  else if (strain_name %in% strains_worse_or_equal_in_DTT) {
+  else if (strain_name %in% strains_worse_in_DTT) {
     go_list_worse_dtt[[strain_name]] <- go_gsea_results[[i]]
   }
 }
@@ -964,8 +970,8 @@ Plot
 # For strains growing worse in DTT
 ## Grab only top 10 most common EA terms
 temp <- go_terms_df_worse_dtt %>%
-  distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::distinct(pathway, .keep_all = T) %>%
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -993,8 +999,8 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_per
 # For strains growing better in DTT
 ## Grab only top 10 most common EA terms
 temp <- go_terms_df_better_dtt %>%
-  distinct(pathway, .keep_all = T) %>%
-  slice(1:10)
+  dplyr::distinct(pathway, .keep_all = T) %>%
+  dplyr::slice(1:10)
 
 ## Plot with total EA term count
 ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_count)) +
@@ -1022,127 +1028,7 @@ ggplot(data = temp, aes(x = fct_reorder(pathway, EA_term_count), y = EA_term_per
 
 
 ### 5.4.4. Produce LaTex table with significant pathways in pairs of KOs with the same anticodon
-  - GO
-```{r}
-# Load the GO GSEA results produced in that file
-go_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/go_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
-
-# For GO GSEA results
-## Get the unique codons to iterate over
-codons <- unique(sapply(names(go_gsea_results), extract_anticodon_from_trna_name))
-
-# Iterate over codons and create a table for each pair of KOs (for those anticodons for which we have more than 1 KO)
-for (i in 1:length(codons)) {
-  codon <- codons[i]
-  temp_go_gsea_results <- go_gsea_results[grepl(codon, names(go_gsea_results))]
-  
-  # Proceed only if there are GSEA results for at least 2 KOs with this anticodon, and if at least 2 of them are major
-  if ((length(temp_go_gsea_results) > 1) & sum(names(temp_go_gsea_results) %in% paired_major_strains) > 1) {
-    temp_list <- list()
-    temp_go_gsea_results <- temp_go_gsea_results[names(temp_go_gsea_results) %in% paired_major_strains]    # Remove the non-major subunits
-    for (j in 1:length(temp_go_gsea_results)) {
-      temp_go_gsea_results[[j]] <- temp_go_gsea_results[[j]][order(temp_go_gsea_results[[j]]$padj),]       # Order by increasing p-adj
-      temp_go_gsea_results[[j]] <- temp_go_gsea_results[[j]][1:N,]                                         # Grab only the first N pathways
-      temp_list[[names(temp_go_gsea_results)[j]]] <- sort(temp_go_gsea_results[[j]]$pathway)               # Grab the pathway names and order there them                                                                                                                     alphabetically, which makes it easier to compare them                                                                                                             between KO strains
-    }
-    out_df <- data.frame(matrix(ncol = 0, nrow = max(sapply(temp_list, length))))
-    for (j in 1:length(temp_list)) {
-      new_col <- temp_list[[j]]
-      if (length(new_col) == max(sapply(temp_list, length))) {
-        out_df[,j] <- new_col
-      } else {
-        out_df[,j] <- c(new_col, rep(NA, max(sapply(temp_list, length))-length(new_col)))
-      }
-    }
-    colnames(out_df) <- names(temp_list)
-    print(xtable(out_df), include.rownames=FALSE)
-  }
-}
-```
-
-  - KEGG
-```{r}
-# Load the GO GSEA results produced in that file
-kegg_gsea_results <- read_json(path = paste(base_dir, "Data/Other/enrichment_analysis/kegg_gsea_results_", alpha_plain, "_logFC_", as.character(lfc_threshold), "_enrichment_alpha_", alpha_enrichment_plain, ".json", sep=""), simplifyVector = T)
-
-# For GO GSEA results
-## Get the unique codons to iterate over
-codons <- unique(sapply(names(kegg_gsea_results), extract_anticodon_from_trna_name))
-
-# Iterate over codons and create a table for each pair of KOs (for those anticodons for which we have more than 1 KO)
-for (i in 1:length(codons)) {
-  codon <- codons[i]
-  temp_kegg_gsea_results <- kegg_gsea_results[grepl(codon, names(kegg_gsea_results))]
-  
-  # Proceed only if there are GSEA results for at least 2 KOs with this anticodon, and if at least 2 of them are major
-  if ((length(temp_kegg_gsea_results) > 1) & sum(names(temp_kegg_gsea_results) %in% paired_major_strains) > 1) {
-    temp_list <- list()
-    temp_kegg_gsea_results <- temp_kegg_gsea_results[names(temp_kegg_gsea_results) %in% paired_major_strains]    # Remove the non-major subunits
-    for (j in 1:length(temp_kegg_gsea_results)) {
-      temp_kegg_gsea_results[[j]] <- temp_kegg_gsea_results[[j]][order(temp_kegg_gsea_results[[j]]$padj),]       # Order by increasing p-adj
-      temp_kegg_gsea_results[[j]] <- temp_kegg_gsea_results[[j]][1:N,]                                         # Grab only the first N pathways
-      temp_list[[names(temp_kegg_gsea_results)[j]]] <- sort(temp_kegg_gsea_results[[j]]$pathway)               # Grab the pathway names and order there them                                                                                                                     alphabetically, which makes it easier to compare them                                                                                                             between KO strains
-    }
-    out_df <- data.frame(matrix(ncol = 0, nrow = max(sapply(temp_list, length))))
-    for (j in 1:length(temp_list)) {
-      new_col <- temp_list[[j]]
-      if (length(new_col) == max(sapply(temp_list, length))) {
-        out_df[,j] <- new_col
-      } else {
-        out_df[,j] <- c(new_col, rep(NA, max(sapply(temp_list, length))-length(new_col)))
-      }
-    }
-    colnames(out_df) <- names(temp_list)
-    print(xtable(out_df), include.rownames=FALSE)
-  }
-}
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## 2.5. THIS IS WHAT I HAD WRITTEN ABOVE BEFORE (WITHIN GO ENRICHMENT ANALYSIS) BEFORE REALIZING I NEEDED TO DO GSEA SEPARATELY, JUST IN CASE I CAN REUSE THE TEXT, EVEN IF NOT THE CODE
-
-### For SC strains: pathways related to proteotoxic stress were significantly induced w.r.t. to the MC group!! That is not what I am checking here, keep that in mind. These include:
-  - Proteasome
-  - Protein processing in endoplasmic reticulum
-```{r}
-SC_strains <- phenotypic_data$gene_name[phenotypic_data$MC_or_SC == "SC"]
-
-for (i in 1:length(go_results_list_001)) {
-  if (names(go_results_list_001)[i] %in% SC_strains) {
-    print(go_results_list_001[[i]][["Description"]])
-  }
-}
-```
-
-### For MC strains: pathways related to translation were significantly induced w.r.t. to the SC group!! That is not what I am checking here, keep that in mind. These include:
-  - Ribosome biogenesis
-  - Ribosome
-```{r}
-MC_strains <- phenotypic_data$gene_name[phenotypic_data$MC_or_SC == "MC"]
-
-for (i in 1:length(go_results_list_001)) {
-  if (names(go_results_list_001)[i] %in% MC_strains) {
-    print(go_results_list_001[[i]][["Description"]])
-  }
-}
-```
+This is done in the main tRNA script. 
 
 
 
