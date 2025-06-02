@@ -73,7 +73,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -2079,7 +2079,7 @@ resp_and_expression_modelling <- resp_and_expression %>%
                 codon_frequency = codon_frequency_chu_2011,
                 tRNA_expression = mean_reads_per_tRNA,
                 synthetase_abundance_literature = synthetase_abundance,
-                synthetase_abundance_our_WTs = measured_proteomics_WTs_WT)
+                synthetase_abundance_our_WTs = measured_proteomics_WT)
 
 # Add info on U_34, A_34 from master_dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep=""))) %>%
@@ -2194,7 +2194,7 @@ fit <- glmmadmb(data = resp_and_expression_modelling,
                 formula = nDEP ~ synthetase_abundance_literature*catalytic_constant*codon_frequency,
                 family = "nbinom")
 summary(fit)
-check_overdispersion(fit)
+#check_overdispersion(fit)
 
 
 
