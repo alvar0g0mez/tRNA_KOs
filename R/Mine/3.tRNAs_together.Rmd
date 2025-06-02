@@ -261,7 +261,7 @@ Finish processing the DE analysis results
 ```{r}
 # Format data
 da <- bind_rows(da) %>%
-  mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
+  dplyr::mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
   dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
 temp <- sample_layout %>%
   dplyr::distinct(Strain.Name, .keep_all = T)
@@ -272,7 +272,7 @@ da <- left_join(da, temp, by = "Strain.Name") %>%
 
 da <- da %>%
   dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
-  mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
+  dplyr::mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
                                             (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
                                             TRUE ~ "Not_significant"),
          diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
@@ -1083,6 +1083,10 @@ anticodon_freq <- anticodon_freq %>%
 
 # Merge to resp_and_expression
 resp_and_expression <- left_join(resp_and_expression, anticodon_freq, by = "anticodon")
+
+
+# Save the dataset
+fwrite(resp_and_expression, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
 
@@ -1548,6 +1552,10 @@ od_and_phenotypic_data <- left_join(temp_phenotypic, temp_od, by = "Strain.Name"
 ggplot(data = od_and_phenotypic_data, aes(x = OD_processed, y = GR_low_glucose_2014)) +
   geom_point() +
   theme_light()
+
+# After talking to Julia I decided to get rid of the 2020 values, since they strongly correlate with the 2014 ones and they don't provide any new insight, seemingly it's always better to use published data
+od_and_phenotypic_data <- od_and_phenotypic_data %>%
+  dplyr::select(!contains("2020"))
 
 # Get correlations - actually let me add nDEP here and get a more complete view
 temp_resp <- responsiveness %>%
@@ -2556,7 +2564,7 @@ codon_ratios_list <- fromJSON(txt = paste(base_dir, "tRNA_KOs/Data/check_codon_e
 # Remove from the list those strains where there aren't at least 4 DE proteins
 bool <- c()
 for (i in 1:length(codon_ratios_list)) {
-  bool <- c(bool, length(codon_ratios_list[[i]][["DE"]]) > 4)
+  bool <- c(bool, length(codon_ratios_list[[i]][["DE_up_regulated"]])+length(codon_ratios_list[[i]][["DE_down_regulated"]]) > 4)
 }
 codon_ratios_list <- codon_ratios_list[bool]
 
@@ -2571,66 +2579,163 @@ resp_and_expression <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produc
 Iterate over the strains and perform a test for each, testing the mean counts of DE vs. that of non_DE
 ```{r}
 strains <- names(codon_ratios_list)
-p.values_wmw <- c()
-mean_de <- c()
+p.values_wmw_total <- c()
+p.values_wmw_up_non <- c()
+p.values_wmw_up_down <- c()
+p.values_wmw_down_non <- c()
+mean_de_total <- c()
+mean_de_up <- c()
+mean_de_down <- c()
 mean_non_de <- c()
-num_de <- c()
+num_de_total <- c()
+num_de_up <- c()
+num_de_down <- c()
 num_non_de <- c()
 for (i in 1:length(codon_ratios_list)) {
   # Grab data for this strain
   strain_name <- names(codon_ratios_list)[i]
-  de <- codon_ratios_list[[strain_name]][["DE"]]
+  de_up <- codon_ratios_list[[strain_name]][["DE_up_regulated"]]
+  de_down <- codon_ratios_list[[strain_name]][["DE_down_regulated"]]
+  de_total <- c(as.numeric(de_up), as.numeric(de_down))
   non_de <- codon_ratios_list[[strain_name]][["non_DE"]]
-  de_df <- data.frame(codon_ratios_list[[strain_name]][["DE"]])
+  de_df_up <- data.frame(codon_ratios_list[[strain_name]][["DE_up_regulated"]])
+  de_df_down <- data.frame(codon_ratios_list[[strain_name]][["DE_down_regulated"]])
+  de_df_total <- data.frame(de_total)
   non_de_df <- data.frame(codon_ratios_list[[strain_name]][["non_DE"]])
+  print(strain_name)
   
-  # Plot overlapping histograms - not worth it I think
-  ggplot() +
-    geom_histogram(data = de_df, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "red", alpha = 0.9) +
-    geom_histogram(data = non_de_df, aes(x = log2(codon_ratios_list..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+  # It's possible that either de_up or de_down (and hence de_df_up or de_df_down) are empty, so I need to account for that if I don't want to get an error
+  de_up_empty <- length(de_up) == 0
+  de_down_empty <- length(de_down) == 0
   
-  # Test - WMW
-  p.values_wmw <- c(p.values_wmw, wilcox.test(de, non_de)$p.value)
-  
-  # Test - log2 transform (need to take care of 0s) and use t-test - is this worth doing?
-  
-  
-  # Save the mean of each group to the output vectors as well
-  mean_de <- c(mean_de, mean(de))
-  mean_non_de <- c(mean_non_de, mean(non_de))
-  
-  # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
-  num_de <- c(num_de, length(de))
-  num_non_de <- c(num_non_de, length(non_de))
+  if (de_up_empty) {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_down, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "blue", alpha = 0.9)
+      geom_histogram(data = non_de_df, aes(x = log2(codon_ratios_list..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, NA)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, NA)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, wilcox.test(de_down, non_de)$p.value)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, NA)
+    mean_de_down <- c(mean_de_down, mean(de_down))
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
+  else if (de_down_empty) {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_up, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "red", alpha = 0.9) +
+      geom_histogram(data = non_de_df, aes(x = log2(codon_ratios_list..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, wilcox.test(de_up, non_de)$p.value)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, NA)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, NA)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, mean(de_up))
+    mean_de_down <- c(mean_de_down, NA)
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
+  else {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_up, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "red", alpha = 0.9) +
+      geom_histogram(data = de_df_down, aes(x = log2(codon_ratios_list..strain_name.....DE...)), fill = "blue", alpha = 0.9)
+      geom_histogram(data = non_de_df, aes(x = log2(codon_ratios_list..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, wilcox.test(de_up, non_de)$p.value)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, wilcox.test(de_up, de_down)$p.value)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, wilcox.test(de_down, non_de)$p.value)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, mean(de_up))
+    mean_de_down <- c(mean_de_down, mean(de_down))
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
 }
 
-p.values.adj <- p.adjust(p.values_wmw, method = "fdr")
+p.values.adj_total <- p.adjust(p.values_wmw_total, method = "fdr")
+p.values.adj_up_non <- p.adjust(p.values_wmw_up_non, method = "fdr")
+p.values.adj_up_down <- p.adjust(p.values_wmw_up_down, method = "fdr")
+p.values.adj_down_non <- p.adjust(p.values_wmw_down_non, method = "fdr")
 
-test_codon_enrichment <- data.frame(Strain.Name = strains, p.values_wmw, p.values.adj, mean_de, mean_non_de, num_de, num_non_de) %>%
-  mutate(direction = case_when(mean_de > mean_non_de ~ "DE",
-                               TRUE ~ "non_DE"),
-         FC = mean_de/mean_non_de)
+test_codon_enrichment <- data.frame(Strain.Name = strains, p.values_wmw_up_non, p.values.adj_up_non, p.values_wmw_total, p.values.adj_total,
+                                    p.values_wmw_up_down, p.values.adj_up_down, p.values_wmw_down_non, p.values.adj_down_non,
+                                    mean_de_total, mean_de_up, mean_de_down, mean_non_de, num_de_total, num_de_up, num_de_down, num_non_de) %>%
+  dplyr::mutate(direction_up_non = case_when(mean_de_up > mean_non_de ~ "DE_up",
+                                      TRUE ~ "non_DE"),
+         direction_up_down = case_when(mean_de_up > mean_de_down ~ "DE_up",
+                                       TRUE ~ "DE_down"),
+         direction_down_non = case_when(mean_de_down > mean_non_de ~ "DE_down",
+                                        TRUE ~ "non_DE"),
+         FC_total = mean_de_total/mean_non_de,
+         FC_up_non = mean_de_up/mean_non_de,
+         FC_up_down = mean_de_up/mean_de_down,
+         FC_down_non = mean_de_down/mean_non_de,
+         logFC_total = log2(FC_total),
+         logFC_up_non = log2(FC_up_non),
+         logFC_up_down = log2(FC_up_down),
+         logFC_down_non = log2(FC_down_non))
 
 # Get the logFC - need to deal with the negative values in the FC - there is definitely a better way to do this but oh well
-logFC <- c()
-for (i in 1:nrow(test_codon_enrichment)) {
-  FC <- test_codon_enrichment$FC[i]
-  if (FC < 1) {
-    out <- -log10(abs(FC))
-  }
-  else if (FC > 1) {
-    out <- log10(FC)
-  }
-  else if (FC == 0) {
-    out <- 0
-  }
-  logFC <- c(logFC, out)
-}
-test_codon_enrichment$logFC <- log10(test_codon_enrichment$FC)
+# THIS IS NOW INCLUDED IN THE MUTATE ABOVE
+#logFC <- c()
+#for (i in 1:nrow(test_codon_enrichment)) {
+#  FC <- test_codon_enrichment$FC[i]
+#  if (FC < 1) {
+#    out <- -log10(abs(FC))
+#  }
+#  else if (FC > 1) {
+#    out <- log10(FC)
+#  }
+#  else if (FC == 0) {
+#    out <- 0
+#  }
+#  logFC <- c(logFC, out)
+#}
+#test_codon_enrichment$logFC <- log10(test_codon_enrichment$FC)
 
 
 # Remove unnecessary variables
-rm(bool, strains, p.values_wmw, mean_de, mean_non_de, p.values.adj, logFC, FC, out, num_de, num_non_de)
+#rm(bool, strains, p.values_wmw, mean_de, mean_non_de, p.values.adj, logFC, FC, out, num_de, num_non_de)
 ```
 
 Add some information to this plot to be able to color plots by it (amino acid, codon, etc.)
@@ -2646,68 +2751,268 @@ test_codon_enrichment <- left_join(test_codon_enrichment, temp, by = "Strain.Nam
 rm(temp)
 ```
 
-"Volcano plot"
+"Volcano plot" - total DE proteins vs. non-DE proteins
 ```{r}
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj))) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total))) +
   geom_point() +
   geom_hline(yintercept = -log10(0.05), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, (((FC < 0.5 | FC > 1.5) & -log10(p.values.adj) > -log10(0.05)))|-log10(p.values.adj) > -log10(0.05)),
-                  aes(x = FC, y = -log10(p.values.adj), label = Strain.Name))
+  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_total > 0.5 | logFC_total < -0.5) &
+                                                           -log10(p.values.adj_total) > -log10(0.05)))|-log10(p.values.adj_total) > -log10(0.05)),
+                  aes(x = logFC_total, y = -log10(p.values.adj_total), label = Strain.Name)) +
+  xlab("logFC") +
+  ylab("-log10(p-value)") +
+  labs(title = "Testing results for target codon proportion in DE vs. non-DE proteins",
+       subtitle = "Each dot represents a strain")
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj))) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total))) +
   geom_point() +
   geom_hline(yintercept = -log10(0.05), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, FC < 0.5 | FC > 1.5), 
-                  aes(x = FC, y = -log10(p.values.adj), label = Strain.Name))
+  geom_text_repel(data = subset(test_codon_enrichment, logFC_total > 0.5 | logFC_total < -0.5), 
+                  aes(x = logFC_total, y = -log10(p.values.adj_total), label = Strain.Name))
 
 # Color by count of DE proteins
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = num_de)) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = num_de_total)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light()
 
 # Color by family
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = Anticodon)) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = Anticodon)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light()
 
 # Color by family size
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = Family_size)) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = Family_size)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light()
 
 # Color by amino acid
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = AA)) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = AA)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light()
 
 # Color by codon frequency
-ggplot(data = test_codon_enrichment, aes(x = FC, y = -log10(p.values.adj), col = codon_frequency_chu_2011)) +
+ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = codon_frequency_chu_2011)) +
   geom_point() +
   geom_hline(yintercept = -log10(alpha), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
-  geom_vline(xintercept = 1.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
   theme_light()
 ```
+
+"Volcano plot" - up-regulated vs. non-DE proteins
+```{r}
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_up_non > 0.5 | logFC_up_non < -0.5) &
+                                                           -log10(p.values.adj_up_non) > -log10(0.05)))|-log10(p.values.adj_up_non) > -log10(0.05)),
+                  aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), label = Strain.Name))
+
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, logFC_up_non > 0.5 | logFC_up_non < -0.5), 
+                  aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), label = Strain.Name))
+
+# Color by count of DE proteins
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), col = num_de_up)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by family
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), col = Anticodon)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by family size
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), col = Family_size)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by amino acid
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), col = AA)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by codon frequency
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), col = codon_frequency_chu_2011)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+```
+
+"Volcano plot" - dowm-regulated vs. non-DE proteins
+```{r}
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_down_non > 0.5 | logFC_down_non < -0.5) &
+                                                           -log10(p.values.adj_down_non) > -log10(0.05)))|-log10(p.values.adj_down_non) > -log10(0.05)),
+                  aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), label = Strain.Name))
+
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, logFC_down_non > 0.5 | logFC_down_non < -0.5), 
+                  aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), label = Strain.Name))
+
+# Color by count of DE proteins
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), col = num_de_down)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by family
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), col = Anticodon)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by family size
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), col = Family_size)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by amino acid
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), col = AA)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by codon frequency
+ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), col = codon_frequency_chu_2011)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+```
+
+"Volcano plot" - up-regulated vs. down-regulated proteins
+```{r}
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_up_down > 0.5 | logFC_up_down < -0.5) &
+                                                           -log10(p.values.adj_up_down) > -log10(0.05)))|-log10(p.values.adj_up_down) > -log10(0.05)),
+                  aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), label = Strain.Name))
+
+# Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down))) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light() +
+  geom_text_repel(data = subset(test_codon_enrichment, logFC_up_down > 0.5 | logFC_up_down < -0.5), 
+                  aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), label = Strain.Name))
+
+# Color by count of DE proteins
+#ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), col = num_de_total)) +
+#  geom_point() +
+#  geom_hline(yintercept = -log10(alpha), col = "red") +
+#  geom_vline(xintercept = 0.5, col = "red") +
+#  geom_vline(xintercept = -0.5, col = "red") +
+#  theme_light()
+
+# Color by family
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), col = Anticodon)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by family size
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), col = Family_size)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by amino acid
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), col = AA)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+
+# Color by codon frequency
+ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), col = codon_frequency_chu_2011)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(alpha), col = "red") +
+  geom_vline(xintercept = 0.5, col = "red") +
+  geom_vline(xintercept = -0.5, col = "red") +
+  theme_light()
+```
+
+
+
 
 Remove unnecessary variables
 ```{r}
@@ -2845,8 +3150,6 @@ fwrite(synthetases, paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", 
 ```
 
 
-
-
 ## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
 ```{r}
 de_synthetases <- list()
@@ -2866,7 +3169,6 @@ sort(table(temp))
 rm(de_proteins, temp)
 ```
 All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
-
 
 
 ## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains
@@ -3055,8 +3357,6 @@ ggplot(data = de_synthetases_df, aes(x = Synthetase_standard, y = strains_per_sy
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   guides(col=guide_legend(ncol=2))
 ```
-
-
 
 
 ## 5.6. Save the dataframes with the information on the DE synthetases and remove everything
@@ -4042,7 +4342,6 @@ Got a bit side-tracked, exploring the correlation between the average nDEP in th
 DE_protein_overlaps_same_family <- DE_protein_overlaps %>%
   filter(anticodon_1 == anticodon_2)
 
-
 # JI vs. average nDEP
 ggplot(data = DE_protein_overlaps, aes(x = protein_number_avg, y = Jaccard_index)) +
   geom_point(size = 0.2) +
@@ -4109,7 +4408,6 @@ codons <- unique(sapply(names(go_gsea_results), extract_anticodon_from_trna_name
 for (i in 1:length(codons)) {
   codon <- codons[i]
   temp_go_gsea_results <- go_gsea_results[grepl(codon, names(go_gsea_results))]
-  print(names(temp_go_gsea_results))
   
   # Proceed only if there are GSEA results for at least 2 KOs with this anticodon, and if at least 2 of them are major
   if ((length(temp_go_gsea_results) > 1) & sum(names(temp_go_gsea_results) %in% paired_major_strains) > 1) {
@@ -4150,7 +4448,6 @@ codons <- unique(sapply(names(kegg_gsea_results), extract_anticodon_from_trna_na
 for (i in 1:length(codons)) {
   codon <- codons[i]
   temp_kegg_gsea_results <- kegg_gsea_results[grepl(codon, names(kegg_gsea_results))]
-  print(names(temp_kegg_gsea_results))
   
   # Proceed only if there are GSEA results for at least 2 KOs with this anticodon, and if at least 2 of them are major
   if ((length(temp_kegg_gsea_results) > 1) & sum(names(temp_kegg_gsea_results) %in% paired_major_strains) > 1) {
