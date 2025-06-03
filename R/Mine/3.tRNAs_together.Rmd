@@ -254,7 +254,8 @@ write_json(de_proteins_list, path=output_file)
 
 Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+#write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+# MOVED THIS HALFWAY THROUGH THE NEXT CHUNK SO IT WOULD CONTAIN UP- OR DOWN-REGULATED INFORMATION - HOPE THIS DOESN'T BREAK ANYTHING - 03.06.2025
 ```
 
 Finish processing the DE analysis results
@@ -281,6 +282,9 @@ da <- da %>%
 
 da <- da %>%
   dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
+
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+
 
 # Add a column to da with the number of replicates per KO - by me
 unique_KOs <- unique(da$Strain.Name)
@@ -3041,9 +3045,13 @@ de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
 
 # Synthetase information
 chu_synths <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
+synthetases <- fread(paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", sep=""))
 
 # Yeastmine
 yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+
+# Responsiveness
+
 ```
 
 
@@ -3153,11 +3161,20 @@ fwrite(synthetases, paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", 
 ## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
 ```{r}
 de_synthetases <- list()
+direction <- list()
 for (i in 1:length(de_proteins_list)) {
+  strain <- names(de_proteins_list)[i]
   de_proteins <- de_proteins_list[[i]]
-  temp <- de_proteins[de_proteins %in% chu_synths_new$Gene.secondaryIdentifier]
+  temp <- de_proteins[de_proteins %in% synthetases$Gene.secondaryIdentifier]
   if (length(temp) > 0) {
     de_synthetases[[names(de_proteins_list)[i]]] <- temp
+    
+    direction_this_strain <- c()
+    for (j in 1:length(temp)) {
+      protein <- temp[j]
+      direction_this_strain <- c(direction_this_strain, da$diffexpressed_adjusted[da$protein == protein & da$Strain.Name == strain])
+    }
+    direction[[names(de_proteins_list)[i]]] <- direction_this_strain
   }
 }
 
@@ -3165,10 +3182,13 @@ for (i in 1:length(de_proteins_list)) {
 temp <- unlist(de_synthetases)
 sort(table(temp))
 
+# Are these up- or down-regulated?
+
+
 # Remove unnecessary variables
 rm(de_proteins, temp)
 ```
-All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
+--> At alpha = 0.05 and logFC = 0 I think --> All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
 
 
 ## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains
