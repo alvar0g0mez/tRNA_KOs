@@ -73,7 +73,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -252,10 +252,9 @@ output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_li
 write_json(de_proteins_list, path=output_file)
 ```
 
-Save all proteins for GSEA
+Save all proteins for GSEA - da as a list
 ```{r}
-#write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
-# MOVED THIS HALFWAY THROUGH THE NEXT CHUNK SO IT WOULD CONTAIN UP- OR DOWN-REGULATED INFORMATION - HOPE THIS DOESN'T BREAK ANYTHING - 03.06.2025
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
 ```
 
 Finish processing the DE analysis results
@@ -283,7 +282,8 @@ da <- da %>%
 da <- da %>%
   dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
 
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+# Now I have da as a dataframe, with the addition that it contains information on which proteins are up- or down-regulated
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_df_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
 
 
 # Add a column to da with the number of replicates per KO - by me
@@ -346,8 +346,8 @@ proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to 
 proteomics_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name)
 proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
-  group_by(Strain.Name) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
+  group_by(Strain.Name, protein) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for each protein, across the samples of the same family (biological replicates), across all proteins
   ungroup() %>%
   group_by(protein) %>%
   dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
@@ -359,9 +359,10 @@ plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dat
   dplyr::select(protein, CV_protein) %>%
   dplyr::distinct(protein, .keep_all = T)
 
-plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
-  dplyr::select(Strain.Name, CV_strain) %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
+plot_cv_per_strain <- proteomics_data_log2_long %>%
+  dplyr::select(protein, Strain.Name, CV_strain)
+
+
 
 
 ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
@@ -380,20 +381,11 @@ ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
                   size = 4)
 proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
 
+
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
-  geom_point() +
-  theme_light() +
-  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
-        panel.grid.major.y = element_line(linewidth=.1, color="black"),    # explicitly set the horizontal lines (or they will disappear too)
-        axis.text.x=element_blank(),                                       # remove x axis labels
-        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
-  xlab("Strains") +
-  ylab("CV per strain") +
-  labs(title = "Coefficient of variation (CV) per strain",
-       subtitle = "Across all proteins") +
-  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35 | CV_strain < 0.2),
-                  aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
-                  size = 4)
+  geom_boxplot() +
+  theme_light()
+
 strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
 ```
 
