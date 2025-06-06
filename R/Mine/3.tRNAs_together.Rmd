@@ -183,6 +183,68 @@ Quality control
 #median(apply(y.protein, 1, var))
 ```
 
+
+
+MANUAL DE ANALYSIS FOR ONE SINGLE STRAIN - DELETE ONCE I'VE FIGURED OUT WHAT'S GOING ON WITH THE VOLCANO PLOTS
+```{r}
+df_wts <- as.data.frame(y.protein$E) %>%
+  dplyr::select(contains("WT"))
+df_strain <- as.data.frame(y.protein$E) %>%
+  dplyr::select(contains("tA(AGC)D"))
+
+p.vals <- c()
+logFCs <- c()
+for (i in 1:nrow(df_wts)) {
+  wts <- as.numeric(df_wts[i,])
+  strain <- as.numeric(df_strain[i,])
+  
+  p.vals <- c(p.vals, wilcox.test(wts, strain)$p.value)
+  logFCs <- c(logFCs, log2(mean(strain)/mean(wts)))
+}
+p.adjusted <- p.adjust(p.vals, method = "BH")
+
+plot_df <- data.frame(p.vals, logFCs, p.adjusted) %>%
+  dplyr::mutate(status_adjusted = case_when(p.adjusted < 0.05 & logFCs > 0.5 ~ "Up-regulated",
+                                   p.adjusted < 0.05 & logFCs < 0.5 ~ "Down-regulated",
+                                   TRUE ~ "Un-affected"),
+                status_unadjusted = case_when(p.vals < 0.05 & logFCs > 0.5 ~ "Up-regulated",
+                                   p.vals < 0.05 & logFCs < 0.5 ~ "Down-regulated",
+                                   TRUE ~ "Un-affected")) %>%
+  dplyr::arrange(p.vals) %>%
+  dplyr::mutate(rank = seq(1, nrow(plot_df), 1),
+                BH_threshold = (2949/rank)*p.vals, 
+                significant_manually = case_when(p.vals < BH_threshold ~ "Yes",
+                                                 TRUE ~ "No"))
+
+# Get the manually corrected p-values
+p.adjusted.manually <- c()
+
+for (i in 1:nrow(plot_df)) {
+  this_rank <- plot_df$rank[i]
+  p.adjusted.manually <- c(p.adjusted.manually, min(1, min(plot_df$BH_threshold[plot_df$rank >= this_rank])))
+}
+plot_df$p.adjusted.manually <- p.adjusted.manually
+
+ggplot(data = plot_df, aes(x = logFCs, y = -log10(p.adjusted), col = status_adjusted)) +
+  geom_point() +
+  geom_vline(xintercept = 0.5, linetype = "dashed", col = "grey", linewidth = 1) +
+  geom_vline(xintercept = -0.5, linetype = "dashed", col = "grey", linewidth = 1) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", col = "grey", linewidth = 1) +
+  theme_light() + 
+  labs(title = "Adjusted p-values")
+
+ggplot(data = plot_df, aes(x = logFCs, y = -log10(p.vals), col = status_unadjusted)) +
+  geom_point() +
+  geom_vline(xintercept = 0.5, linetype = "dashed", col = "grey", linewidth = 1) +
+  geom_vline(xintercept = -0.5, linetype = "dashed", col = "grey", linewidth = 1) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", col = "grey", linewidth = 1) +
+  theme_light() + 
+  labs(title = "Raw p-values")
+```
+
+
+
+
 Perform the DE analysis
 THERE ARE STILL WARNINGS IN THE FOR LOOP, SHOULD LOOK INTO THAT BUT RESULTS SEEM REASONABLE
 ```{r}
@@ -225,6 +287,34 @@ for (i in 1:n_batches) {
     da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
   }
 }
+
+
+# Plot p-value distribution per strain - another check for the volcano plots
+strains <- unique(da$Strain.Name)
+plot_list <- list()
+
+for (i in 1:length(strains)) {
+  strain <- strains[i]
+  temp <- da %>%
+    dplyr::filter(Strain.Name == strain)
+  plot_list[[i]] <- ggplot(data = temp, aes(x = P.Value)) +
+    geom_histogram(col = "black", fill = "grey") +
+    theme_light() +
+    xlab("Raw p-value") +
+    ylab("Count") +
+    labs(title = glue("{strain}"))
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/p_value_histograms/pval_hists_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
 ```
 
 Save DE proteins for GO enrichment analysis
@@ -383,7 +473,7 @@ proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_prot
 
 
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
-  geom_boxplot() +
+  geom_boxplot(outliers = F) +
   theme_light()
 
 strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
