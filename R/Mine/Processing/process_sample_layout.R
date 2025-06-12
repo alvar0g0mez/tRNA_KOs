@@ -15,7 +15,7 @@ library(stringr)
 
 
 # Set up
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -32,7 +32,7 @@ if (working_from == "home") {
   sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 }
 
-master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 
 
@@ -40,34 +40,39 @@ master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Other/GtRNA
 
 # Turn all dashes to underscores
 sample_layout <- sample_layout %>%
-  mutate(Sample.ID = str_replace_all(Sample.ID, "-", "_"),
+  dplyr::mutate(Sample.ID = str_replace_all(Sample.ID, "-", "_"),
          Sample.ID.unique = str_replace_all(Sample.ID.unique, "-", "_"))
 
 # Grab the position within plate from the Plate.Position column, so that I can use it to obtain plate images with platetools
 sample_layout <- sample_layout %>%
-  mutate(Position.Within.Plate.384 = case_when(nchar(as.character(Analysis.Column.384)) == 2 ~ paste(Analysis.Row.384, Analysis.Column.384, sep=""),
+  dplyr::mutate(Position.Within.Plate.384 = case_when(nchar(as.character(Analysis.Column.384)) == 2 ~ paste(Analysis.Row.384, Analysis.Column.384, sep=""),
                                                nchar(as.character(Analysis.Column.384)) == 1 ~ paste(Analysis.Row.384, 0, Analysis.Column.384, sep="")),
          Position.Within.Plate.96 = case_when(nchar(as.character(Analysis.Column.96)) == 2 ~ paste(Analysis.Row.96, Analysis.Column.96, sep=""),
                                               nchar(as.character(Analysis.Column.96)) == 1 ~ paste(Analysis.Row.96, 0, Analysis.Column.96, sep="")))
 
 # Create a column that can match the colnames of the proteomics data as I get it from Boris
 sample_layout <- sample_layout %>%
-  mutate(raw_proteomics_colnames = case_when(Strain.Name == "WT" ~ paste(str_replace_all(Sample.ID, "_", "."), ".0", Replicate, sep=""),
+  dplyr::mutate(raw_proteomics_colnames = case_when(Strain.Name == "WT" ~ paste(str_replace_all(Sample.ID, "_", "."), ".0", Replicate, sep=""),
                                              Strain.Name == "QC" ~ str_replace_all(Sample.ID.unique, "_", "."),
                                              TRUE ~ paste("X", Strain.ID, ".0", Replicate, sep="")))
 
 
 # Create a column with the column IDs of the shape I want to be working with for my proteomics data
+# Here I also deal with the  strains that are present twice! Label their replicates from 1 to 6 instead of 1 to 3 twice, which made it a bit hard to work with them
 sample_layout <- sample_layout %>%
-  mutate(final_proteomics_colnames = case_when(Strain.Name == "WT" ~ Sample.ID.unique,
-                                              Strain.Name == "QC" ~ Sample.ID.unique,
-                                              TRUE ~ paste(Strain.Name, "_0", Replicate, sep="")))
+  dplyr::mutate(final_proteomics_colnames = case_when(Strain.Name == "WT" ~ Sample.ID.unique,
+                                                      Strain.Name == "QC" ~ Sample.ID.unique,
+                                                      Strain.Name == "tV(AAC)J" & Strain.ID == 85 ~ paste(Strain.Name, "_0", Replicate, sep=""),
+                                                      Strain.Name == "tV(AAC)J" & Strain.ID == 87 ~ paste(Strain.Name, "_0", Replicate+3, sep=""),
+                                                      Strain.Name == "tA(AGC)K1" & Strain.ID == 96 ~ paste(Strain.Name, "_0", Replicate, sep=""),
+                                                      Strain.Name == "tA(AGC)K1" & Strain.ID == 97 ~ paste(Strain.Name, "_0", Replicate+3, sep=""),
+                                                      TRUE ~ paste(Strain.Name, "_0", Replicate, sep="")))
 
 
 # Add some columns - I used to do this in my main analysis file
 ## Fix the QC rows to say "QC" instead of "NA" in the columns that don't apply
 sample_layout <- sample_layout %>%
-  mutate(Analysis.Plate.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
+  dplyr::mutate(Analysis.Plate.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
                                                   TRUE ~ as.character(Analysis.Plate.384))),
          Analysis.Row.384 = as.factor(case_when(Plate.Position == "QC" ~ "QC",
                                                 TRUE ~ as.character(Analysis.Row.384))),
@@ -82,28 +87,28 @@ sample_layout <- sample_layout %>%
 
 ## Extract the date for when each sample was run, as well as Date_Injection
 sample_layout <- sample_layout %>% 
-  mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)")) %>%
-  mutate(Injection_Order = str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"), 
+  dplyr::mutate(date = str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)")) %>%
+  dplyr::mutate(Injection_Order = str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"), 
          Date_Injection_Order = paste(str_extract(File.Name, "(?<=/30-0092/).*?(?=_Z2_KTT_)"), str_extract(File.Name, "(?<=KTT_).*?(?=_30-0092_tRNA)"),
                                       sep="_"))
 
 ## Create a column that simply has the info of if each sample is a KO strain or a WT replicate
 sample_layout <- sample_layout %>% 
-  mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
+  dplyr::mutate(Strain.Type = case_when(Strain.Name == "WT" ~ "WT",
                                  TRUE ~ "KO"))
 
 ## Add a column with the following format: Analysis.Plate.96_Replicate
 sample_layout <- sample_layout %>%
-  mutate(Analysis.Plate.96_Replicate = paste(Analysis.Plate.96, Replicate, sep="_"))
+  dplyr::mutate(Analysis.Plate.96_Replicate = paste(Analysis.Plate.96, Replicate, sep="_"))
 
 ## Add a column which identifies samples in Analysis.Plate.96 = 3, Replicate = 2
 sample_layout <- sample_layout %>%
-  mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
+  dplyr::mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
                                  TRUE ~ "No"))
 
 # Add a column with Strain.Name but using "." instead of "_", for makeContrasts()
 sample_layout <- sample_layout %>%
-  mutate(Strain.Name.Dots.Delete = str_replace_all(Strain.Name, "\\(", "."),
+  dplyr::mutate(Strain.Name.Dots.Delete = str_replace_all(Strain.Name, "\\(", "."),
          Strain.Name.Dots = str_replace_all(Strain.Name.Dots.Delete, "\\)", ".")) %>%
   dplyr::select(-Strain.Name.Dots.Delete)
 
