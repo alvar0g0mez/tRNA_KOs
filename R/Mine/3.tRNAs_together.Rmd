@@ -209,7 +209,8 @@ plot_df <- data.frame(p.vals, logFCs, p.adjusted) %>%
                                    TRUE ~ "Un-affected"),
                 status_unadjusted = case_when(p.vals < 0.05 & logFCs > 0.5 ~ "Up-regulated",
                                    p.vals < 0.05 & logFCs < 0.5 ~ "Down-regulated",
-                                   TRUE ~ "Un-affected")) %>%
+                                   TRUE ~ "Un-affected"))
+plot_df <- plot_df %>%
   dplyr::arrange(p.vals) %>%
   dplyr::mutate(rank = seq(1, nrow(plot_df), 1),
                 BH_threshold = (2949/rank)*p.vals, 
@@ -290,13 +291,12 @@ for (i in 1:n_batches) {
 
 
 # Plot p-value distribution per strain - another check for the volcano plots
-strains <- unique(da$Strain.Name)
+strains <- unique(names(da))
 plot_list <- list()
 
 for (i in 1:length(strains)) {
   strain <- strains[i]
-  temp <- da %>%
-    dplyr::filter(Strain.Name == strain)
+  temp <- da[[strain]]
   plot_list[[i]] <- ggplot(data = temp, aes(x = P.Value)) +
     geom_histogram(col = "black", fill = "grey") +
     theme_light() +
@@ -436,15 +436,17 @@ proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to 
 proteomics_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name)
 proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
+  dplyr::mutate(value = case_when(value < 0 ~ 0,              # Make all negative values 0!!! To avoid issues with crazy CV values. Only 319 - values out of 2,353,302
+                                  TRUE ~ value)) %>%  
   group_by(Strain.Name, protein) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for each protein, across the samples of the same family (biological replicates), across all proteins
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%             # CV for each protein, across the samples of the same family (biological replicates), across all proteins
   ungroup() %>%
   group_by(protein) %>%
-  dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
+  dplyr::mutate(CV_protein = robust_cv(value)) %>%            # CV for a protein, across all samples
   ungroup()
 
 
-# Plot
+# Prepare data for plots
 plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
   dplyr::select(protein, CV_protein) %>%
   dplyr::distinct(protein, .keep_all = T)
@@ -452,9 +454,7 @@ plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dat
 plot_cv_per_strain <- proteomics_data_log2_long %>%
   dplyr::select(protein, Strain.Name, CV_strain)
 
-
-
-
+# Plot CV per protein across all samples
 ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
   geom_point() +
   theme_light() +
@@ -471,12 +471,19 @@ ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
                   size = 4)
 proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
 
-
+# Boxplots for the distribution of CVs of all proteins in each strain
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   geom_boxplot(outliers = F) +
-  theme_light()
-
-strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
+  geom_hline(yintercept = median(plot_cv_per_strain$CV_strain, na.rm = T), col = "orange") +
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
+        panel.grid.major.y = element_line(linewidth = .1, color="grey"),  # explicitly set the horizontal lines (or they will disappear too)
+        axis.text.x=element_blank(),                                       # remove x axis labels
+        axis.ticks.x=element_blank()) +                                    # remove x axis ticks
+  labs(title = "Boxplots for the CV within each strain",
+       subtitle = "At protein level - quantified from log2 precursor data") +
+  xlab("Strain") +
+  ylab("Coefficient of variation")
 ```
 
 Look at expression of each of the proteins with the high CV in detail
@@ -545,6 +552,77 @@ for (i in 1:length(proteins)) {
   print(plot_2)
 }
 ```
+
+Correlation between CV and nDEP - are the more variable strains the ones that we find no DEPs for, precisely due to the variability within them?
+```{r}
+# Get the average CV per strain (across the proteins) and add that information to the responsiveness dataset
+mean_cv_per_strain <- plot_cv_per_strain %>%
+  group_by(Strain.Name) %>%
+  summarise_at(vars(CV_strain), list(mean_cv_per_strain = mean)) 
+
+responsiveness <- left_join(responsiveness, mean_cv_per_strain, by = "Strain.Name")
+
+# Plot
+ggplot(data = responsiveness, aes(x = mean_cv_per_strain, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  xlab("Average CV per strain") +
+  geom_text_repel(data = subset(responsiveness, mean_cv_per_strain > 0.08 | nDEP > 500), aes(x = mean_cv_per_strain, y = nDEP, label = Strain.Name))
+
+# Let's also calculate the correlation, just to be sure
+cor(responsiveness$mean_cv_per_strain, responsiveness$nDEP, use = "pairwise.complete.obs")
+# Correlation comes out positive but probably driven by the couple strains with over 500 DE proteins - let's see what happens if I remove those
+temp <- responsiveness %>%
+  filter(nDEP < 500)
+cor(temp$mean_cv_per_strain, temp$nDEP, use = "pairwise.complete.obs")
+# Still positive correlation after that, so yeah, I think it's safe to say that high within-strain variability is not driving the lack of nDEPs
+
+
+# On this note, let's also get the MAD heatmap Julia suggested, see what I can find there - kind of a visual representation of how variable each protein is in each strain
+proteomics_data_log2_long <- proteomics_data_log2_long %>%
+  group_by(Strain.Name, protein) %>%
+  dplyr::mutate(mad_per_strain_per_protein = mad(value)) %>%
+  ungroup()
+
+df_for_heatmap <- proteomics_data_log2_long %>%
+  dplyr::select(protein, Strain.Name, mad_per_strain_per_protein) %>%
+  dplyr::distinct(protein, Strain.Name, mad_per_strain_per_protein)
+
+ggplot(data = df_for_heatmap, aes(x=Strain.Name, y=protein, fill=mad_per_strain_per_protein)) + 
+  geom_tile() +
+  scale_fill_viridis_c(name="MAD per protein\nper strain") +
+  xlab("Strain") +
+  ylab("Protein") +
+  labs(title = "Heatmap of the MAD across the 3 replicates of a strain, for each protein") +
+  theme(axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank()) 
+
+# Let's do the same with CV instead of MAD, I think it makes more sense
+proteomics_data_log2_long <- proteomics_data_log2_long %>%
+  group_by(Strain.Name, protein) %>%
+  dplyr::mutate(CV_per_strain_per_protein = robust_cv(value)) %>%
+  ungroup()
+
+df_for_heatmap <- proteomics_data_log2_long %>%
+  dplyr::select(protein, Strain.Name, CV_per_strain_per_protein) %>%
+  dplyr::distinct(protein, Strain.Name, CV_per_strain_per_protein)
+
+ggplot(data = df_for_heatmap, aes(x=Strain.Name, y=protein, fill=CV_per_strain_per_protein)) + 
+  geom_tile() +
+  scale_fill_viridis_c(name="CV per protein\nper strain") +
+  xlab("Strain") +
+  ylab("Protein") +
+  labs(title = "Heatmap of the CV across the 3 replicates of a strain, for each protein") +
+  theme(axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank()) 
+```
+
 
 
 
