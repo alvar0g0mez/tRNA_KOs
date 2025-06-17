@@ -73,7 +73,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -183,69 +183,6 @@ Quality control
 #median(apply(y.protein, 1, var))
 ```
 
-
-
-MANUAL DE ANALYSIS FOR ONE SINGLE STRAIN - DELETE ONCE I'VE FIGURED OUT WHAT'S GOING ON WITH THE VOLCANO PLOTS
-```{r}
-df_wts <- as.data.frame(y.protein$E) %>%
-  dplyr::select(contains("WT"))
-df_strain <- as.data.frame(y.protein$E) %>%
-  dplyr::select(contains("tA(AGC)D"))
-
-p.vals <- c()
-logFCs <- c()
-for (i in 1:nrow(df_wts)) {
-  wts <- as.numeric(df_wts[i,])
-  strain <- as.numeric(df_strain[i,])
-  
-  p.vals <- c(p.vals, wilcox.test(wts, strain)$p.value)
-  logFCs <- c(logFCs, log2(mean(strain)/mean(wts)))
-}
-p.adjusted <- p.adjust(p.vals, method = "BH")
-
-plot_df <- data.frame(p.vals, logFCs, p.adjusted) %>%
-  dplyr::mutate(status_adjusted = case_when(p.adjusted < 0.05 & logFCs > 0.5 ~ "Up-regulated",
-                                   p.adjusted < 0.05 & logFCs < 0.5 ~ "Down-regulated",
-                                   TRUE ~ "Un-affected"),
-                status_unadjusted = case_when(p.vals < 0.05 & logFCs > 0.5 ~ "Up-regulated",
-                                   p.vals < 0.05 & logFCs < 0.5 ~ "Down-regulated",
-                                   TRUE ~ "Un-affected"))
-plot_df <- plot_df %>%
-  dplyr::arrange(p.vals) %>%
-  dplyr::mutate(rank = seq(1, nrow(plot_df), 1),
-                BH_threshold = (2949/rank)*p.vals, 
-                significant_manually = case_when(p.vals < BH_threshold ~ "Yes",
-                                                 TRUE ~ "No"))
-
-# Get the manually corrected p-values
-p.adjusted.manually <- c()
-
-for (i in 1:nrow(plot_df)) {
-  this_rank <- plot_df$rank[i]
-  p.adjusted.manually <- c(p.adjusted.manually, min(1, min(plot_df$BH_threshold[plot_df$rank >= this_rank])))
-}
-plot_df$p.adjusted.manually <- p.adjusted.manually
-
-ggplot(data = plot_df, aes(x = logFCs, y = -log10(p.adjusted), col = status_adjusted)) +
-  geom_point() +
-  geom_vline(xintercept = 0.5, linetype = "dashed", col = "grey", linewidth = 1) +
-  geom_vline(xintercept = -0.5, linetype = "dashed", col = "grey", linewidth = 1) +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", col = "grey", linewidth = 1) +
-  theme_light() + 
-  labs(title = "Adjusted p-values")
-
-ggplot(data = plot_df, aes(x = logFCs, y = -log10(p.vals), col = status_unadjusted)) +
-  geom_point() +
-  geom_vline(xintercept = 0.5, linetype = "dashed", col = "grey", linewidth = 1) +
-  geom_vline(xintercept = -0.5, linetype = "dashed", col = "grey", linewidth = 1) +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", col = "grey", linewidth = 1) +
-  theme_light() + 
-  labs(title = "Raw p-values")
-```
-
-
-
-
 Perform the DE analysis
 THERE ARE STILL WARNINGS IN THE FOR LOOP, SHOULD LOOK INTO THAT BUT RESULTS SEEM REASONABLE
 ```{r}
@@ -288,33 +225,6 @@ for (i in 1:n_batches) {
     da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
   }
 }
-
-
-# Plot p-value distribution per strain - another check for the volcano plots
-strains <- unique(names(da))
-plot_list <- list()
-
-for (i in 1:length(strains)) {
-  strain <- strains[i]
-  temp <- da[[strain]]
-  plot_list[[i]] <- ggplot(data = temp, aes(x = P.Value)) +
-    geom_histogram(col = "black", fill = "grey") +
-    theme_light() +
-    xlab("Raw p-value") +
-    ylab("Count") +
-    labs(title = glue("{strain}"))
-}
-
-## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
-my_grobs <- lapply(plot_list, ggplotGrob)
-
-## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/p_value_histograms/pval_hists_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
-ggsave(
-   filename = output_file, 
-   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
-   width = 15, height = 9
-)
 ```
 
 Save DE proteins for GO enrichment analysis
@@ -342,9 +252,10 @@ output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_li
 write_json(de_proteins_list, path=output_file)
 ```
 
-Save all proteins for GSEA - da as a list
+Save all proteins for GSEA
 ```{r}
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+#write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+# MOVED THIS HALFWAY THROUGH THE NEXT CHUNK SO IT WOULD CONTAIN UP- OR DOWN-REGULATED INFORMATION - HOPE THIS DOESN'T BREAK ANYTHING - 03.06.2025
 ```
 
 Finish processing the DE analysis results
@@ -372,8 +283,7 @@ da <- da %>%
 da <- da %>%
   dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
 
-# Now I have da as a dataframe, with the addition that it contains information on which proteins are up- or down-regulated
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_df_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
 
 
 # Add a column to da with the number of replicates per KO - by me
@@ -436,25 +346,24 @@ proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to 
 proteomics_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name)
 proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
-  dplyr::mutate(value = case_when(value < 0 ~ 0,              # Make all negative values 0!!! To avoid issues with crazy CV values. Only 319 - values out of 2,353,302
-                                  TRUE ~ value)) %>%  
-  group_by(Strain.Name, protein) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%             # CV for each protein, across the samples of the same family (biological replicates), across all proteins
+  group_by(Strain.Name) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
   ungroup() %>%
   group_by(protein) %>%
-  dplyr::mutate(CV_protein = robust_cv(value)) %>%            # CV for a protein, across all samples
+  dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
   ungroup()
 
 
-# Prepare data for plots
+# Plot
 plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
   dplyr::select(protein, CV_protein) %>%
   dplyr::distinct(protein, .keep_all = T)
 
-plot_cv_per_strain <- proteomics_data_log2_long %>%
-  dplyr::select(protein, Strain.Name, CV_strain)
+plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
+  dplyr::select(Strain.Name, CV_strain) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
 
-# Plot CV per protein across all samples
+
 ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
   geom_point() +
   theme_light() +
@@ -471,19 +380,21 @@ ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
                   size = 4)
 proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
 
-# Boxplots for the distribution of CVs of all proteins in each strain
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
-  geom_boxplot(outliers = F) +
-  geom_hline(yintercept = median(plot_cv_per_strain$CV_strain, na.rm = T), col = "orange") +
+  geom_point() +
   theme_light() +
   theme(panel.grid.major.x = element_blank(),                              # remove the vertical grid lines
-        panel.grid.major.y = element_line(linewidth = .1, color="grey"),  # explicitly set the horizontal lines (or they will disappear too)
+        panel.grid.major.y = element_line(linewidth=.1, color="black"),    # explicitly set the horizontal lines (or they will disappear too)
         axis.text.x=element_blank(),                                       # remove x axis labels
         axis.ticks.x=element_blank()) +                                    # remove x axis ticks
-  labs(title = "Boxplots for the CV within each strain",
-       subtitle = "At protein level - quantified from log2 precursor data") +
-  xlab("Strain") +
-  ylab("Coefficient of variation")
+  xlab("Strains") +
+  ylab("CV per strain") +
+  labs(title = "Coefficient of variation (CV) per strain",
+       subtitle = "Across all proteins") +
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35 | CV_strain < 0.2),
+                  aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
+                  size = 4)
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
 ```
 
 Look at expression of each of the proteins with the high CV in detail
@@ -552,77 +463,6 @@ for (i in 1:length(proteins)) {
   print(plot_2)
 }
 ```
-
-Correlation between CV and nDEP - are the more variable strains the ones that we find no DEPs for, precisely due to the variability within them?
-```{r}
-# Get the average CV per strain (across the proteins) and add that information to the responsiveness dataset
-mean_cv_per_strain <- plot_cv_per_strain %>%
-  group_by(Strain.Name) %>%
-  summarise_at(vars(CV_strain), list(mean_cv_per_strain = mean)) 
-
-responsiveness <- left_join(responsiveness, mean_cv_per_strain, by = "Strain.Name")
-
-# Plot
-ggplot(data = responsiveness, aes(x = mean_cv_per_strain, y = nDEP)) +
-  geom_point() +
-  theme_light() +
-  xlab("Average CV per strain") +
-  geom_text_repel(data = subset(responsiveness, mean_cv_per_strain > 0.08 | nDEP > 500), aes(x = mean_cv_per_strain, y = nDEP, label = Strain.Name))
-
-# Let's also calculate the correlation, just to be sure
-cor(responsiveness$mean_cv_per_strain, responsiveness$nDEP, use = "pairwise.complete.obs")
-# Correlation comes out positive but probably driven by the couple strains with over 500 DE proteins - let's see what happens if I remove those
-temp <- responsiveness %>%
-  filter(nDEP < 500)
-cor(temp$mean_cv_per_strain, temp$nDEP, use = "pairwise.complete.obs")
-# Still positive correlation after that, so yeah, I think it's safe to say that high within-strain variability is not driving the lack of nDEPs
-
-
-# On this note, let's also get the MAD heatmap Julia suggested, see what I can find there - kind of a visual representation of how variable each protein is in each strain
-proteomics_data_log2_long <- proteomics_data_log2_long %>%
-  group_by(Strain.Name, protein) %>%
-  dplyr::mutate(mad_per_strain_per_protein = mad(value)) %>%
-  ungroup()
-
-df_for_heatmap <- proteomics_data_log2_long %>%
-  dplyr::select(protein, Strain.Name, mad_per_strain_per_protein) %>%
-  dplyr::distinct(protein, Strain.Name, mad_per_strain_per_protein)
-
-ggplot(data = df_for_heatmap, aes(x=Strain.Name, y=protein, fill=mad_per_strain_per_protein)) + 
-  geom_tile() +
-  scale_fill_viridis_c(name="MAD per protein\nper strain") +
-  xlab("Strain") +
-  ylab("Protein") +
-  labs(title = "Heatmap of the MAD across the 3 replicates of a strain, for each protein") +
-  theme(axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_blank(),
-        axis.text.y = element_blank()) 
-
-# Let's do the same with CV instead of MAD, I think it makes more sense
-proteomics_data_log2_long <- proteomics_data_log2_long %>%
-  group_by(Strain.Name, protein) %>%
-  dplyr::mutate(CV_per_strain_per_protein = robust_cv(value)) %>%
-  ungroup()
-
-df_for_heatmap <- proteomics_data_log2_long %>%
-  dplyr::select(protein, Strain.Name, CV_per_strain_per_protein) %>%
-  dplyr::distinct(protein, Strain.Name, CV_per_strain_per_protein)
-
-ggplot(data = df_for_heatmap, aes(x=Strain.Name, y=protein, fill=CV_per_strain_per_protein)) + 
-  geom_tile() +
-  scale_fill_viridis_c(name="CV per protein\nper strain") +
-  xlab("Strain") +
-  ylab("Protein") +
-  labs(title = "Heatmap of the CV across the 3 replicates of a strain, for each protein") +
-  theme(axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_blank(),
-        axis.text.y = element_blank()) 
-```
-
 
 
 

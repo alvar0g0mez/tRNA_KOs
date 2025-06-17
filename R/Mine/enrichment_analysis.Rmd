@@ -463,7 +463,7 @@ That's it! We provide gsea() with these things and with some other parameters, a
 ## 5.1. Prepare ranked gene lists
 For now, my score/rank is: sign(logFC)*(-log10(adj.P.Val))
 ```{r}
-# Load list of all dataframes (one per strain) wiht the DE results
+# Load list of all dataframes (one per strain) with the DE results
 da <- read_json(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
 da <- da[names(da) != "WT"]
 

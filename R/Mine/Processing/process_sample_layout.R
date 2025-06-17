@@ -15,7 +15,7 @@ library(stringr)
 
 
 # Set up
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -27,7 +27,7 @@ if (working_from == "home") {
 
 # Load data
 if (working_from == "home") {
-  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_Boris.tsv"))
+  sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/basic/sample_layout_Boris.tsv"))
 } else {
   sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_filename_annotations.tsv"))
 }
@@ -129,7 +129,7 @@ sample_layout <- sample_layout %>%
 
 # Save final version
 if (working_from == "home") {
-  fwrite(sample_layout, "/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv")
+  fwrite(sample_layout, "/home/alvaro/MyStuff/tRNA_KOs/Data/basic/sample_layout_alvaro.tsv")
 } else {
   fwrite(sample_layout, "S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv")
 }
