@@ -871,23 +871,6 @@ Heatmap(mat_log2FC,
 
 
 
-Check the number of replicates
-```{r}
-report <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity.tsv"))
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

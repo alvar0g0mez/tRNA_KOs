@@ -73,7 +73,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -127,29 +127,6 @@ trna_ko <- y.protein$E
 Load results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
 ```{r}
 # Prepare to perform the DEA
-## Change the protein names from the UniProt ones (produced by DIA-NN) to systematic Sc ones
-## Some systematic names contain 2 of them - I have to deal with that - I'M TAKING THE FIRST ONE, HOPE THAT'S NOT TOO BAD
-temp_uniprot <- uniprot_db %>%
-  dplyr::select(Entry, `Gene Names (ordered locus)`) %>%
-  dplyr::rename(Gene.secondaryIdentifier = `Gene Names (ordered locus)`)
-temp_rownames <- data.frame(rownames(y.protein$E)) 
-colnames(temp_rownames) <- "Entry"
-temp_rownames <- temp_rownames %>%
-  left_join(temp_uniprot, by = "Entry")
-
-remove_second_systematic_name <- function(name) {
-  if (grepl(";", name)) {
-    new_name <- substr(name, 0, str_locate(name, ";")[1]-1)
-  }
-  else {
-    new_name <- name
-  }
-  return(new_name)
-}
-temp_rownames$Gene.secondaryIdentifier <- sapply(temp_rownames$Gene.secondaryIdentifier, remove_second_systematic_name)
-
-rownames(y.protein$E) <- temp_rownames$Gene.secondaryIdentifier
-
 ## Get the names of all KOs we have, and set WT as the reference
 trna_levels <- c()
 for (i in 1:ncol(trna_ko)) {
@@ -334,6 +311,7 @@ rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
    systematic_protein_names, unique_KOs, trna_ko, dpcfit)
 ```
+
 
 
 ## 1.3. CV analysis
@@ -1607,7 +1585,207 @@ mean(resp_only_no_up_regulated_strains$Major_count)
 
 
 
-## 1.15. Clean up environment
+## 1.15. Correlation analysis
+Load necessary data
+```{r}
+# Protein abundances - limpa output 
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+trna_ko <- as.data.frame(y.protein$E)
+rm(y.protein)
+
+# Sample layout
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+
+# Import the functions I have created in another file
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
+```
+
+Correlate the protein abundance across all samples in the study
+```{r}
+# Set the columns in the order I want to have them - by amino acid loaded and by anticodon
+sample_layout <- sample_layout %>%
+  dplyr::arrange(Amino_acid_1_letter, Anticodon)
+desired_order <- as.character(sample_layout$final_proteomics_colnames)
+desired_order <- desired_order[desired_order %in% colnames(trna_ko)]
+trna_ko <- trna_ko %>%
+  dplyr::select(desired_order)
+
+# Remove highly unvariable proteins - NOT SURE IF THIS IS A GOOD IDEA, I'M JUST TRYING TO GET SOME LOWER CORRELATIONS
+protein_variability <- apply(trna_ko, 1, function(x) var(x, na.rm = T))
+hist(protein_variability)
+most_variable_proteins <- rownames(trna_ko)[protein_variability > 0.4]
+trna_ko_high_var <- trna_ko[rownames(trna_ko) %in% most_variable_proteins,]
+
+# Prepare heatmap data: correlation and melt
+## Standard, full dataset
+cormat <- cor(trna_ko)
+melted_cormat <- melt(cormat)
+
+## Keeping only highly variable proteins
+cormat_high_var <- cor(trna_ko_high_var)
+melted_cormat_high_var <- melt(cormat_high_var)
+
+
+# All correlations are extremely high, I guess this is why we use Z-scores or whatever for clustering and heatmaps with the whole dataset?? Because all correlations are really high because the vast majority of proteins will have similar abundances across all samples??
+
+# Plot - full dataset
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(min(melted_cormat$value),max(melted_cormat$value)), 
+                       name="Correlation",
+                       midpoint = mean(c(min(melted_cormat$value),max(melted_cormat$value)))) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 0.1),
+        axis.text.y = element_text(vjust = 1, hjust = 1, size = 0.1)) +
+  labs(title = "Correlation matrix between full proteomes",
+       subtitle = "With full dataset")
+
+# Look at the distribution of the correlations - full dataset
+ggplot(data = melted_cormat, aes(x = value)) +
+  geom_histogram(fill = "grey", col = "black") +
+  theme_light() +
+  labs(title = "Distribution of the correlation scores between full proteome of all pairs of samples",
+       subtitle = "With full dataset") +
+  xlab("Correlation") +
+  ylab("Count")
+
+
+# Plot - only highly variable proteins
+ggplot(data = melted_cormat_high_var, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(min(melted_cormat_high_var$value),max(melted_cormat_high_var$value)), 
+                       name="Correlation",
+                       midpoint = mean(c(min(melted_cormat_high_var$value),max(melted_cormat_high_var$value)))) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 0.1),
+        axis.text.y = element_text(vjust = 1, hjust = 1, size = 0.1)) +
+  labs(title = "Correlation matrix between full proteomes",
+       subtitle = "With only highly variable proteins")
+
+# Look at the distribution of the correlations - only highly variable proteins
+ggplot(data = melted_cormat_high_var, aes(x = value)) +
+  geom_histogram(fill = "grey", col = "black") +
+  theme_light() +
+  labs(title = "Distribution of the correlation scores between full proteome of all pairs of samples",
+       subtitle = "With only highly variable proteins") +
+  xlab("Correlation") +
+  ylab("Count")
+```
+
+
+
+## 1.16. Clustering analysis
+Perform hierarchical clustering
+```{r}
+# Elbow method - try to figure out what number of clusters is appropriate 
+clust_df <- trna_ko
+clust_df <- as.data.frame(t(clust_df))         
+clust_df <- scale(clust_df)
+
+fviz_nbclust(clust_df, kmeans, method = "wss", k.max = 15)
+
+
+# Create a function that can be used to perform clustering with different k values 
+perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, want_dendrogram = T, want_clust_plot = T) {
+  # Get distance matrix based on Euclidean distance
+  dist.euc <- dist(tmp, method = dist_method)
+  
+  # Perform clustering
+  tree.complete <- hclust(dist.euc, method = clust_method)
+  
+  # Plot dendrogram
+  if (want_dendrogram) {
+    plot(tree.complete, cex = 0.3, 
+         main = glue("Dendrogram for clustering with {clust_method} link"),
+         xlab = glue("{dist_method} distance"))
+    rect.hclust(tree.complete , k = num_of_clusters)
+  }
+  
+  if (want_dendrogram) {
+    dend_obj <- as.dendrogram(tree.complete)
+    col_dend <- color_branches(dend_obj, k = num_of_clusters)
+    labels_cex(col_dend)
+    plot(col_dend)
+  }
+  
+  # Visualize clusters
+  my_clusters <- cutree(tree.complete, k = num_of_clusters)
+  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), main = glue("Clustering by {clust_method} link")))}
+  
+  return(my_clusters)
+}
+
+
+# Use this function to do clustering: k = 2
+my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 2)
+```
+
+Heatmaps
+```{r}
+# Heatmap on the original log2 proteomics data
+mat = as.matrix(trna_ko)
+
+col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
+
+Heatmap(mat,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "black",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+
+
+
+# Heatmap with z-score based on median per row
+# So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein
+mat_zscore = t(apply(trna_ko, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
+col_fun = colorRamp2(c(-4, -2, 0, 2, 4), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_zscore,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #column_labels = grepl("QC", colnames(mat_zscore)),
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+
+
+# Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
+# Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
+temp = t(apply(trna_ko, 1, function(x) x/median(x, na.rm = T)))
+mat_log2FC = log2(temp)
+col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_log2FC,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                # When I use this, rows are not ordered by abundance anymore :(
+        column_names_gp = gpar(fontsize = 5))
+```
+
+
+
+
+## 1.17. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)

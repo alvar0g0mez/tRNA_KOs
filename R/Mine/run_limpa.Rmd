@@ -58,7 +58,7 @@ lfc_threshold <- 1
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -92,6 +92,9 @@ temp_match <- sample_layout %>%
 temp_colnames <- data.frame(Sample.ID.unique = colnames(raw_data)) %>%
   left_join(temp_match, by = "Sample.ID.unique")
 colnames(raw_data) <- temp_colnames$final_proteomics_colnames
+
+# UniProt dataset
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
 
 # Remove unnecessary variables
 rm(temp_match, temp_colnames)
@@ -128,17 +131,58 @@ dpcfit <- dpc(raw_data)
 y.protein <- dpcQuant(raw_data, protein.id, dpc=dpcfit)
 ```
 
+Change protein names - from UniProt IDs to systematic yeast naming
+```{r}
+# Change the protein names from the UniProt ones (produced by DIA-NN) to systematic Sc ones
+## For the rownames of y.protein$E
+temp_uniprot <- uniprot_db %>%
+  dplyr::select(Entry, `Gene Names (ordered locus)`) %>%
+  dplyr::rename(Gene.secondaryIdentifier = `Gene Names (ordered locus)`)
+temp_rownames <- data.frame(rownames(y.protein$E)) 
+colnames(temp_rownames) <- "Entry"
+temp_rownames <- temp_rownames %>%
+  left_join(temp_uniprot, by = "Entry")
+
+## For the protein names (they are the same and should be in the same order, but I do it separately just in case), stored in y.protein$genes$Protein
+temp_protein_names <- data.frame(y.protein$genes$Protein)
+colnames(temp_protein_names) <- "Entry"
+temp_protein_names <- temp_protein_names %>%
+  left_join(temp_uniprot, by = "Entry")
+
+
+# Some systematic names contain 2 of them - I have to deal with that - I'M TAKING THE FIRST ONE, HOPE THAT'S NOT TOO BAD
+remove_second_systematic_name <- function(name) {
+  if (grepl(";", name)) {
+    new_name <- substr(name, 0, str_locate(name, ";")[1]-1)
+  }
+  else {
+    new_name <- name
+  }
+  return(new_name)
+}
+
+
+# Remove the second systematic names wherever it's present and set the new names to the limpa output object to be saved
+## For y.protein$E rownames
+temp_rownames$Gene.secondaryIdentifier <- sapply(temp_rownames$Gene.secondaryIdentifier, remove_second_systematic_name)
+rownames(y.protein$E) <- temp_rownames$Gene.secondaryIdentifier
+
+## For y.protein$genes$Protein
+temp_protein_names$Gene.secondaryIdentifier <- sapply(temp_protein_names$Gene.secondaryIdentifier, remove_second_systematic_name)
+y.protein$genes$Protein <- temp_protein_names$Gene.secondaryIdentifier
+```
+
 Save limpa results
 ```{r}
 # As .rds
-saveRDS(dpcfit, file = paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
-saveRDS(y.protein, file = paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
+saveRDS(dpcfit, file = paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
+saveRDS(y.protein, file = paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
 ```
 
 Load limpa results 
 ```{r}
-dpcfit <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/dpcfit.rds", sep=""))
-y.protein <- readRDS(paste(base_dir, "Data/Other/limpa_analysis/y.protein.rds", sep=""))
+dpcfit <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
 ```
 
 Evaluate results with the plots from the limpa package
