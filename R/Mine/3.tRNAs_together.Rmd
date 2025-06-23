@@ -342,12 +342,13 @@ CV QC on the data for DE analysis
 # Calculate CV
 proteomics <- as.data.frame(y.protein$E)
 proteomics$protein <- rownames(proteomics)
-proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to = "final_proteomics_colnames")
+proteomics_data_non_log2_long <- pivot_longer(proteomics, cols = !protein, names_to = "final_proteomics_colnames") %>%
+  dplyr::mutate(value = 2^(value))
 proteomics_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name)
-proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
-  group_by(Strain.Name) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
+proteomics_data_non_log2_long <- left_join(proteomics_data_non_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
+  group_by(Strain.Name, protein) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for each protein across samples of the same family (biological replicates)
   ungroup() %>%
   group_by(protein) %>%
   dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
@@ -355,13 +356,14 @@ proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_lay
 
 
 # Plot
-plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
+plot_cv_per_protein <- proteomics_data_non_log2_long %>%                       # dataset for plotting CV per protein
   dplyr::select(protein, CV_protein) %>%
   dplyr::distinct(protein, .keep_all = T)
 
-plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
+plot_cv_per_strain <- proteomics_data_non_log2_long %>%                        # dataset for plotting CV per sample
   dplyr::select(Strain.Name, CV_strain) %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
+  group_by(Strain.Name) %>%
+  summarise_at(vars(CV_strain), list(CV_strain = mean))
 
 
 ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
@@ -375,10 +377,10 @@ ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
   ylab("CV per protein") +
   labs(title = "Coefficient of variation (CV) per protein",
        subtitle = "Across all samples") +
-  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.4),
+  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.6),
                   aes(x = protein, y = CV_protein, label = protein),
                   size = 4)
-proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
+proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.6]
 
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   geom_point() +
@@ -391,11 +393,29 @@ ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   ylab("CV per strain") +
   labs(title = "Coefficient of variation (CV) per strain",
        subtitle = "Across all proteins") +
-  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35 | CV_strain < 0.2),
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.9 | CV_strain < 0.7),
                   aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
                   size = 4)
-strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.9]
 ```
+
+CV vs. nDEP - are the strains with flat volcano plots due to high CVs?
+```{r}
+resp_temp <- responsiveness %>%
+  dplyr::select(Strain.Name, nDEP)
+
+plot_cv_per_strain <- left_join(plot_cv_per_strain, resp_temp, by = "Strain.Name")
+
+ggplot(data = plot_cv_per_strain, aes(x = CV_strain, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  xlab("Average CV per strain") +
+  ylab("nDEP") +
+  labs(title = "Average CV per strain (at protein level) vs. nDEP") +
+  geom_text_repel(data = subset(plot_cv_per_strain, nDEP > 500|CV_strain > 0.4), 
+                  aes(x = CV_strain, y = nDEP, label = Strain.Name))
+```
+
 
 Look at expression of each of the proteins with the high CV in detail
 ```{r}
@@ -1607,11 +1627,214 @@ mean(resp_only_no_up_regulated_strains$Major_count)
 
 
 
-## 1.15. Clean up environment
+## 1.15. Correlation analysis
+Load necessary data
+```{r}
+# Protein abundances - limpa output 
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+trna_ko <- as.data.frame(y.protein$E)
+rm(y.protein)
+
+# Sample layout
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+
+# Import the functions I have created in another file
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
+```
+
+Correlate the protein abundance across all samples in the study
+```{r}
+# Set the columns in the order I want to have them - by amino acid loaded and by anticodon
+sample_layout <- sample_layout %>%
+  dplyr::arrange(Amino_acid_1_letter, Anticodon)
+desired_order <- as.character(sample_layout$final_proteomics_colnames)
+desired_order <- desired_order[desired_order %in% colnames(trna_ko)]
+trna_ko <- trna_ko %>%
+  dplyr::select(desired_order)
+
+# Remove highly unvariable proteins - NOT SURE IF THIS IS A GOOD IDEA, I'M JUST TRYING TO GET SOME LOWER CORRELATIONS
+protein_variability <- apply(trna_ko, 1, function(x) var(x, na.rm = T))
+hist(protein_variability)
+most_variable_proteins <- rownames(trna_ko)[protein_variability > 0.4]
+trna_ko_high_var <- trna_ko[rownames(trna_ko) %in% most_variable_proteins,]
+
+# Prepare heatmap data: correlation and melt
+## Standard, full dataset
+cormat <- cor(trna_ko)
+melted_cormat <- melt(cormat)
+
+## Keeping only highly variable proteins
+cormat_high_var <- cor(trna_ko_high_var)
+melted_cormat_high_var <- melt(cormat_high_var)
+
+
+# All correlations are extremely high, I guess this is why we use Z-scores or whatever for clustering and heatmaps with the whole dataset?? Because all correlations are really high because the vast majority of proteins will have similar abundances across all samples??
+
+# Plot - full dataset
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(min(melted_cormat$value),max(melted_cormat$value)), 
+                       name="Correlation",
+                       midpoint = mean(c(min(melted_cormat$value),max(melted_cormat$value)))) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 0.1),
+        axis.text.y = element_text(vjust = 1, hjust = 1, size = 0.1)) +
+  labs(title = "Correlation matrix between full proteomes",
+       subtitle = "With full dataset")
+
+# Look at the distribution of the correlations - full dataset
+ggplot(data = melted_cormat, aes(x = value)) +
+  geom_histogram(fill = "grey", col = "black") +
+  theme_light() +
+  labs(title = "Distribution of the correlation scores between full proteome of all pairs of samples",
+       subtitle = "With full dataset") +
+  xlab("Correlation") +
+  ylab("Count")
+
+
+# Plot - only highly variable proteins
+ggplot(data = melted_cormat_high_var, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(min(melted_cormat_high_var$value),max(melted_cormat_high_var$value)), 
+                       name="Correlation",
+                       midpoint = mean(c(min(melted_cormat_high_var$value),max(melted_cormat_high_var$value)))) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 0.1),
+        axis.text.y = element_text(vjust = 1, hjust = 1, size = 0.1)) +
+  labs(title = "Correlation matrix between full proteomes",
+       subtitle = "With only highly variable proteins")
+
+# Look at the distribution of the correlations - only highly variable proteins
+ggplot(data = melted_cormat_high_var, aes(x = value)) +
+  geom_histogram(fill = "grey", col = "black") +
+  theme_light() +
+  labs(title = "Distribution of the correlation scores between full proteome of all pairs of samples",
+       subtitle = "With only highly variable proteins") +
+  xlab("Correlation") +
+  ylab("Count")
+```
+
+
+
+## 1.16. Clustering analysis
+Perform hierarchical clustering
+```{r}
+# Elbow method - try to figure out what number of clusters is appropriate 
+clust_df <- trna_ko
+clust_df <- as.data.frame(t(clust_df))         
+clust_df <- scale(clust_df)
+
+fviz_nbclust(clust_df, kmeans, method = "wss", k.max = 15)
+
+
+# Create a function that can be used to perform clustering with different k values 
+perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, want_dendrogram = T, want_clust_plot = T) {
+  # Get distance matrix based on Euclidean distance
+  dist.euc <- dist(tmp, method = dist_method)
+  
+  # Perform clustering
+  tree.complete <- hclust(dist.euc, method = clust_method)
+  
+  # Plot dendrogram
+  if (want_dendrogram) {
+    plot(tree.complete, cex = 0.3, 
+         main = glue("Dendrogram for clustering with {clust_method} link"),
+         xlab = glue("{dist_method} distance"))
+    rect.hclust(tree.complete , k = num_of_clusters)
+  }
+  
+  if (want_dendrogram) {
+    dend_obj <- as.dendrogram(tree.complete)
+    col_dend <- color_branches(dend_obj, k = num_of_clusters)
+    labels_cex(col_dend)
+    plot(col_dend)
+  }
+  
+  # Visualize clusters
+  my_clusters <- cutree(tree.complete, k = num_of_clusters)
+  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), main = glue("Clustering by {clust_method} link")))}
+  
+  return(my_clusters)
+}
+
+
+# Use this function to do clustering: k = 2
+my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 2)
+```
+
+Heatmaps
+```{r}
+# Heatmap on the original log2 proteomics data
+mat = as.matrix(trna_ko)
+
+col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
+
+Heatmap(mat,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "black",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+
+
+
+# Heatmap with z-score based on median per row
+# So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein
+mat_zscore = t(apply(trna_ko, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
+col_fun = colorRamp2(c(-4, -2, 0, 2, 4), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_zscore,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #column_labels = grepl("QC", colnames(mat_zscore)),
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                
+        column_names_gp = gpar(fontsize = 5))
+
+
+# Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
+# Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
+temp = t(apply(trna_ko, 1, function(x) x/median(x, na.rm = T)))
+mat_log2FC = log2(temp)
+col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
+
+Heatmap(mat_log2FC,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        row_title = "Proteins",
+        column_title = "Samples",
+        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
+        column_dend_height = unit(2, "cm"), 
+        show_row_names = FALSE,                # When I use this, rows are not ordered by abundance anymore :(
+        column_names_gp = gpar(fontsize = 5))
+```
+
+
+
+
+## 1.17. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
 ```
+
+
+
 
 
 
