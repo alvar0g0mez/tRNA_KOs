@@ -321,12 +321,13 @@ CV QC on the data for DE analysis
 # Calculate CV
 proteomics <- as.data.frame(y.protein$E)
 proteomics$protein <- rownames(proteomics)
-proteomics_data_log2_long <- pivot_longer(proteomics, cols = !protein, names_to = "final_proteomics_colnames")
+proteomics_data_non_log2_long <- pivot_longer(proteomics, cols = !protein, names_to = "final_proteomics_colnames") %>%
+  dplyr::mutate(value = 2^(value))
 proteomics_layout <- sample_layout %>%
   dplyr::select(final_proteomics_colnames, Strain.Name)
-proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
-  group_by(Strain.Name) %>%
-  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for samples of the same family (biological replicates), across all proteins
+proteomics_data_non_log2_long <- left_join(proteomics_data_non_log2_long, proteomics_layout, by = "final_proteomics_colnames") %>%
+  group_by(Strain.Name, protein) %>%
+  dplyr::mutate(CV_strain = robust_cv(value)) %>%                    # CV for each protein across samples of the same family (biological replicates)
   ungroup() %>%
   group_by(protein) %>%
   dplyr::mutate(CV_protein = robust_cv(value)) %>%                   # CV for a protein, across all samples
@@ -334,13 +335,14 @@ proteomics_data_log2_long <- left_join(proteomics_data_log2_long, proteomics_lay
 
 
 # Plot
-plot_cv_per_protein <- proteomics_data_log2_long %>%                       # dataset for plotting CV per protein
+plot_cv_per_protein <- proteomics_data_non_log2_long %>%                       # dataset for plotting CV per protein
   dplyr::select(protein, CV_protein) %>%
   dplyr::distinct(protein, .keep_all = T)
 
-plot_cv_per_strain <- proteomics_data_log2_long %>%                        # dataset for plotting CV per sample
+plot_cv_per_strain <- proteomics_data_non_log2_long %>%                        # dataset for plotting CV per sample
   dplyr::select(Strain.Name, CV_strain) %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
+  group_by(Strain.Name) %>%
+  summarise_at(vars(CV_strain), list(CV_strain = mean))
 
 
 ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
@@ -354,10 +356,10 @@ ggplot(data = plot_cv_per_protein, aes(x = protein, y = CV_protein)) +
   ylab("CV per protein") +
   labs(title = "Coefficient of variation (CV) per protein",
        subtitle = "Across all samples") +
-  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.4),
+  geom_text_repel(data = subset(plot_cv_per_protein, CV_protein > 0.6),
                   aes(x = protein, y = CV_protein, label = protein),
                   size = 4)
-proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.4]
+proteins_with_high_CV <- plot_cv_per_protein$protein[plot_cv_per_protein$CV_protein > 0.6]
 
 ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   geom_point() +
@@ -370,11 +372,29 @@ ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   ylab("CV per strain") +
   labs(title = "Coefficient of variation (CV) per strain",
        subtitle = "Across all proteins") +
-  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.35 | CV_strain < 0.2),
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.9 | CV_strain < 0.7),
                   aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
                   size = 4)
-strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.35]
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.9]
 ```
+
+CV vs. nDEP - are the strains with flat volcano plots due to high CVs?
+```{r}
+resp_temp <- responsiveness %>%
+  dplyr::select(Strain.Name, nDEP)
+
+plot_cv_per_strain <- left_join(plot_cv_per_strain, resp_temp, by = "Strain.Name")
+
+ggplot(data = plot_cv_per_strain, aes(x = CV_strain, y = nDEP)) +
+  geom_point() +
+  theme_light() +
+  xlab("Average CV per strain") +
+  ylab("nDEP") +
+  labs(title = "Average CV per strain (at protein level) vs. nDEP") +
+  geom_text_repel(data = subset(plot_cv_per_strain, nDEP > 500|CV_strain > 0.4), 
+                  aes(x = CV_strain, y = nDEP, label = Strain.Name))
+```
+
 
 Look at expression of each of the proteins with the high CV in detail
 ```{r}
@@ -1727,6 +1747,7 @@ perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, 
 my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 2)
 ```
 
+
 Filter out proteins with low variability, towards the heatmaps
 ```{r}
 protein_variability <- apply(trna_ko, 1, function(x) var(x, na.rm = T))
@@ -1741,6 +1762,8 @@ Heatmaps
 ```{r}
 mat <- 2^(as.matrix(trna_ko))
 
+# Heatmap on the original log2 proteomics data
+mat = as.matrix(trna_ko)
 col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
 
 Heatmap(mat,
@@ -1836,6 +1859,8 @@ dev.off()
 - Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
 Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
 ```{r}
+# Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
+# Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
 temp = t(apply(trna_ko, 1, function(x) x/median(x, na.rm = T)))
 col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
 
@@ -1859,6 +1884,9 @@ Next section loads all the data it needs, so I can delete everything except the 
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
 ```
+
+
+
 
 
 

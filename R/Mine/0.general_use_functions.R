@@ -517,10 +517,12 @@ extract_anticodon_from_trna_name <- function(trna) {
 ################################################################################
 robust_cv <- function(x, na.rm = TRUE) {
   # Get rid of NAs in the input if specified 
-  if (na.rm) x <- x[!is.na(x)]
+  if (na.rm) {
+    x <- x[!is.na(x)]
+  }
   
   # Return NA if there's only one value in the input
-  if (length(x) == 1) {
+  if (length(x) < 2) {
     return(NA)
   }
   
