@@ -47,6 +47,7 @@ library(clusterProfiler)
 library(org.Sc.sgd.db)
 library(fgsea)
 library(limpa)
+library(viridisLite)
 ```
 
 Set parameters
@@ -1726,10 +1727,19 @@ perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, 
 my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 2)
 ```
 
-Heatmaps
+Filter out proteins with low variability, towards the heatmaps
 ```{r}
-# Heatmap on the original log2 proteomics data
-mat = as.matrix(trna_ko)
+protein_variability <- apply(trna_ko, 1, function(x) var(x, na.rm = T))
+hist(protein_variability)
+most_variable_proteins <- rownames(trna_ko)[protein_variability > 0.4]
+trna_ko_high_var <- trna_ko[rownames(trna_ko) %in% most_variable_proteins,]
+```
+
+
+Heatmaps
+- Heatmap on the original raw proteomics data
+```{r}
+mat <- 2^(as.matrix(trna_ko))
 
 col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
 
@@ -1743,14 +1753,20 @@ Heatmap(mat,
         column_dend_height = unit(2, "cm"), 
         show_row_names = FALSE,                
         column_names_gp = gpar(fontsize = 5))
+```
 
+- Heatmap with Z-score based on median per protein
+So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein?
+```{r}
+# Prepare data matrix
+mat <- 2^(as.matrix(trna_ko_high_var))
 
+# Calculate z-score
+mat_zscore = t(apply(mat, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
 
-# Heatmap with z-score based on median per row
-# So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein
-mat_zscore = t(apply(trna_ko, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
-col_fun = colorRamp2(c(-4, -2, 0, 2, 4), c("blue", "blue", "white", "red", "red"))
-
+# Create heatmap 
+## Samples clustered by the heatmap algorithm
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
 Heatmap(mat_zscore,
         name = "Heatmap",
         #col = col_fun,
@@ -1762,12 +1778,65 @@ Heatmap(mat_zscore,
         column_dend_height = unit(2, "cm"), 
         show_row_names = FALSE,                
         column_names_gp = gpar(fontsize = 5))
+dev.off()
 
 
-# Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
-# Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
+
+## Samples ordered based on families
+### Order samples
+ordered_samples <- sample_layout %>%
+  dplyr::arrange(Amino_acid_1_letter, Anticodon, chromosome) %>%
+  dplyr::filter(final_proteomics_colnames %in% colnames(mat_zscore)) %>%
+  dplyr::pull(final_proteomics_colnames)
+mat_ordered <- mat_zscore[, ordered_samples]
+
+sample_layout_ordered <- sample_layout %>%
+  dplyr::filter(final_proteomics_colnames %in% colnames(mat_ordered)) %>%
+  dplyr::slice(match(colnames(mat_ordered), final_proteomics_colnames))
+
+
+### Create Heatmap Annotation
+#### Arrange and extract grouping variable (amino acid carried)
+group_vals <- sample_layout_ordered$Amino_acid_1_letter
+group_levels <- unique(group_vals)
+
+#### Generate viridis colors
+group_colors <- plasma(length(group_levels))
+names(group_colors) <- group_levels
+
+#### Create the column annotation
+col_anno <- HeatmapAnnotation(
+  `Amino acid` = group_vals,
+  col = list(`Amino acid` = group_colors)
+)
+
+
+### Create the Heatmap
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_ordered_samples_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
+ht <- Heatmap(mat_ordered,
+              name = "Heatmap",
+              na_col = "green",
+              top_annotation = col_anno,
+              row_title = "Proteins",
+              column_title = "Samples",
+              cluster_columns = F,
+              show_column_dend = F,
+              show_row_names = FALSE,
+              show_column_names = T,
+              column_names_gp = gpar(fontsize = 0.5),             # size of X axis labels
+              row_dend_gp = gpar(lwd = 0.5))                      # thinner dendrogram lines Y axis
+
+draw(ht,
+     heatmap_legend_side = "right",
+     annotation_legend_side = "right",  # both on the right
+     merge_legend = T)
+dev.off()
+```
+
+- Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
+Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
+```{r}
 temp = t(apply(trna_ko, 1, function(x) x/median(x, na.rm = T)))
-mat_log2FC = log2(temp)
 col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
 
 Heatmap(mat_log2FC,
