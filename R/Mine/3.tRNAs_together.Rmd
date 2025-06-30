@@ -48,6 +48,7 @@ library(org.Sc.sgd.db)
 library(fgsea)
 library(limpa)
 library(viridisLite)
+library(staplr)                       # contains rotate_pdf
 ```
 
 Set parameters
@@ -1699,6 +1700,32 @@ ggplot(data = melted_cormat_high_var, aes(x = value)) +
   ylab("Count")
 ```
 
+Look into the strains showing low correlation with others in general
+```{r}
+# Look at the top 15 strains that show up the most among pairs with correlation less than 0.6
+melted_cormat_low_cor <- melted_cormat_high_var %>%
+  dplyr::filter(value < 0.6)
+low_cor_strains <- c(as.character(melted_cormat_low_cor$Var1), as.character(melted_cormat_low_cor$Var2))
+head(sort(table(low_cor_strains), decreasing = T), 15)
+
+# Actually probably better to get the average correlation for each strain with all others?
+melted_cormat_high_var_avg <- melted_cormat_high_var %>%
+  group_by(Var1) %>%
+  summarise_at(vars(value), list(avg_corr_strain_1 = mean))
+
+# Fix colnames to take a screenshot
+colnames(melted_cormat_high_var_avg) <- c("Strain", "Average correlation")
+
+# Get a histogram of the averages
+ggplot(data = melted_cormat_high_var_avg, aes(x = `Average correlation`)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light() +
+  labs(title = "Histogram of average correlations betweeen each strain and all others",
+       subtitle = "Only using high-variability proteins") +
+  xlab("Correlation")
+```
+
+
 
 
 ## 1.16. Clustering analysis
@@ -1737,14 +1764,46 @@ perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, 
   
   # Visualize clusters
   my_clusters <- cutree(tree.complete, k = num_of_clusters)
-  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), main = glue("Clustering by {clust_method} link")))}
+  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), 
+                                           main = glue("Clustering by {clust_method} link"),
+                                           ggtheme = theme_light()))}
   
   return(my_clusters)
 }
 
 
 # Use this function to do clustering: k = 2
-my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 2)
+my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 5)
+```
+
+Clustering to save dendrogram to PDF
+```{r}
+# Set up parameters
+distance_method <- "euclidean"
+clustering_method <- "complete"
+
+# Perform clustering and create dendrogram - CLUST_DF IS SCALED IN THE PREVIOUS CHUNK! IS THAT OKAY???
+dist_mat <- dist(clust_df, method = distance_method)
+tree <- hclust(dist_mat, method = clustering_method)
+plot(tree, cex = 0.3)
+hcd <- as.dendrogram(tree)
+
+# Open a PDF for plotting; units are inches by default
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""), width=40, height=15)
+
+# Plot the tree into the PDF
+plot(tree, cex = 0.3)
+
+# Close the PDF file's associated graphics device (necessary to finalize the output)
+dev.off()
+
+# Rotate PDF
+rotate_pdf(
+  page_rotation = 90,
+  input_filepath = paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""),
+  output_filepath = paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""),
+  overwrite = TRUE
+)
 ```
 
 
@@ -1782,31 +1841,13 @@ Heatmap(mat,
 So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein?
 ```{r}
 # Prepare data matrix
-mat <- 2^(as.matrix(trna_ko_high_var))
+mat <- 2^(as.matrix(trna_ko))
 
 # Calculate z-score
 mat_zscore = t(apply(mat, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
 
-# Create heatmap 
-## Samples clustered by the heatmap algorithm
-pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
-Heatmap(mat_zscore,
-        name = "Heatmap",
-        #col = col_fun,
-        na_col = "green",
-        row_title = "Proteins",
-        column_title = "Samples",
-        #column_labels = grepl("QC", colnames(mat_zscore)),
-        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
-        column_dend_height = unit(2, "cm"), 
-        show_row_names = FALSE,                
-        column_names_gp = gpar(fontsize = 5))
-dev.off()
-
-
-
-## Samples ordered based on families
-### Order samples
+# Order samples based on families
+## Order samples
 ordered_samples <- sample_layout %>%
   dplyr::arrange(Amino_acid_1_letter, Anticodon, chromosome) %>%
   dplyr::filter(final_proteomics_colnames %in% colnames(mat_zscore)) %>%
@@ -1834,7 +1875,29 @@ col_anno <- HeatmapAnnotation(
 )
 
 
-### Create the Heatmap
+# Create heatmap - letting the algorithm cluster the samples
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
+ht <- Heatmap(mat_zscore,
+        name = "Heatmap",
+        #col = col_fun,
+        na_col = "green",
+        top_annotation = col_anno,
+        row_title = "Proteins",
+        column_title = "Samples",
+        column_dend_height = unit(2, "cm"),
+        show_row_names = FALSE,
+        show_column_names = T,
+        column_names_gp = gpar(fontsize = 0.5),             # size of X axis labels
+        row_dend_gp = gpar(lwd = 0.5))                      # thinner dendrogram lines Y axis
+
+draw(ht,
+     heatmap_legend_side = "right",
+     annotation_legend_side = "right",  # both on the right
+     merge_legend = T)
+dev.off()
+
+
+# Create the Heatmap - order samples based on amino acid carried (per strain also)
 pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_ordered_samples_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
 ht <- Heatmap(mat_ordered,
               name = "Heatmap",
@@ -1878,8 +1941,67 @@ Heatmap(mat_log2FC,
 
 
 
+## 1.17. PCA
+Prepare PCA data
+```{r}
+# Load the sample layout and add a column that allows us to tag our strains of interest in the PCA
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep=""))) %>%
+  dplyr::mutate(outlying_strains = case_when(Strain.Name == "tR(CCU)J" ~ "tR(CCU)J",
+                                                Strain.Name == "tA(UGC)L" ~ "tA(UGC)L",
+                                                Strain.Name == "tE(UUC)G1" ~ "tE(UUC)G1",
+                                                Strain.Name == "tR(ACG)L" ~ "tR(ACG)L",
+                                                TRUE ~ "Other"))
 
-## 1.17. Clean up environment
+# Get data PCA-ready
+PCA_data <- as.data.frame(t(trna_ko))
+
+# Get PCA tags for different cases - define a function for this, then call it before running the corresponding plot
+get_PCA_tags <- function(PCA_data, sample_layout, type_of_tags) {
+  out <- c()
+  for (i in 1:nrow(PCA_data)) {
+    rowname <- rownames(PCA_data)[i]
+    out <- c(out, sample_layout[sample_layout$final_proteomics_colnames == rowname, type_of_tags][1])
+  }
+  return(out)
+}
+
+# Get the tags for some of the PCA plot versions
+PCA_tags_outlying_strains <- get_PCA_tags(PCA_data, sample_layout, "outlying_strains")
+```
+
+Run PCA
+```{r}
+#calculate principal components
+results_PCA <- prcomp(PCA_data, scale = TRUE)
+
+#reverse the signs
+results_PCA$rotation <- -1*results_PCA$rotation
+
+#calculate total variance explained by each principal component
+var_explained =  results_PCA$sdev^2 / sum(results_PCA$sdev^2)
+var_exp_PC1 = format(round(var_explained[1]*100, 3), nsmall = 3)
+var_exp_PC2 = format(round(var_explained[2]*100, 3), nsmall = 3)
+```
+
+Plot PCA
+```{r}
+# Label by outlying strains
+PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Replicate")
+PC <- as.data.frame(results_PCA$x)
+PC$Label<- as.factor(PCA_tags_outlying_strains)
+
+ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
+  geom_point(size = 2) +
+  xlab(glue("PC1 - {var_exp_PC1}%")) +
+  ylab(glue("PC2 - {var_exp_PC2}%")) +
+  labs(title = "PCA plot - color outlying strains") +
+  theme_light()
+```
+
+
+
+
+## 1.18. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
