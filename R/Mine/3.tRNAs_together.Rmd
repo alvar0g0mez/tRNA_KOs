@@ -1876,7 +1876,7 @@ col_anno <- HeatmapAnnotation(
 
 
 # Create heatmap - letting the algorithm cluster the samples
-pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
 ht <- Heatmap(mat_zscore,
         name = "Heatmap",
         #col = col_fun,
@@ -3431,9 +3431,6 @@ rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, tes
 ################################################################################
 ## 5.0. Load data
 ```{r}
-# Processed KO proteomics dataframe
-trna_ko <- as.data.frame(as.matrix(fread(paste(base_dir, "tRNA_KOs/Data/proteomics_data/processed_proteomics_dataframe.tsv", sep="")), rownames = 1))
-
 # List of dataframes with the proteins that were DE in each KO strain
 de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 
@@ -3448,7 +3445,20 @@ synthetases <- fread(paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv",
 yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
 # Responsiveness
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
+# limpa output
+dpcfit <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+
+## Set this so I don't have to change its name in the code below
+trna_ko <- y.protein$E
+
+# da
+da <- read_json(path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
+
+# Import the functions I have created in another file
+source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 ```
 
 
@@ -3555,34 +3565,64 @@ fwrite(synthetases, paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", 
 ```
 
 
-## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them
+## 5.2. Go over the KO strains and see if any of the synthetases are DE in any of them - get this information into a dataframe
 ```{r}
-de_synthetases <- list()
-direction <- list()
+strains_for_df <- c()
+synths_for_df <- c()
+status_for_df <- c()
+
+de_synthetases_df <- as.data.frame(matrix(nrow = 0, ncol = 3))
+synthetase_names <- synthetases$Gene.secondaryIdentifier
+
+# Iterate over strains - check DE proteins for each
 for (i in 1:length(de_proteins_list)) {
-  strain <- names(de_proteins_list)[i]
-  de_proteins <- de_proteins_list[[i]]
-  temp <- de_proteins[de_proteins %in% synthetases$Gene.secondaryIdentifier]
-  if (length(temp) > 0) {
-    de_synthetases[[names(de_proteins_list)[i]]] <- temp
-    
-    direction_this_strain <- c()
-    for (j in 1:length(temp)) {
-      protein <- temp[j]
-      direction_this_strain <- c(direction_this_strain, da$diffexpressed_adjusted[da$protein == protein & da$Strain.Name == strain])
+  strain <- names(de_proteins_list)[i]                                            # Grab the name of the strain
+  de_proteins <- de_proteins_list[[strain]]                                       # Grab the proteins that are DE in this strain
+  de_synthetases_this_strain <- de_proteins[de_proteins %in% synthetase_names]    # Grab the synthetases that are DE in this strain
+  
+  # If this strain has DE proteins
+  if (length(de_synthetases_this_strain) > 0) {
+    for (j in 1:length(synthetase_names)) {                                       # Iterate over the names of the synthetases        
+      protein <- synthetase_names[j]                                              # For each of them, add a row to the output df, 
+      strains_for_df <- c(strains_for_df, strain)
+      synths_for_df <- c(synths_for_df, protein)
+      
+      if (protein %in% da$protein & strain %in% da$Strain.Name) {
+        status_for_df <- c(status_for_df, da$diffexpressed_adjusted[da$protein == protein & da$Strain.Name == strain])
+      } else {
+        status_for_df <- c(status_for_df, "Not_detected")
+      }
     }
-    direction[[names(de_proteins_list)[i]]] <- direction_this_strain
+  }
+  
+  # If this strain doesn't have any DE proteins
+  else {
+    for (j in 1:length(synthetase_names)) {
+      protein <- synthetase_names[j]   
+      strains_for_df <- c(strains_for_df, strain)
+      synths_for_df <- c(synths_for_df, protein)
+      if (protein %in% da$protein & strain %in% da$Strain.Name) {
+        status_for_df <- c(status_for_df, da$diffexpressed_adjusted[da$protein == protein & da$Strain.Name == strain])
+      } else {
+        status_for_df <- c(status_for_df, "Not_detected")
+      }
+    }
   }
 }
+de_synthetases_df <- data.frame(strains_for_df, synths_for_df, status_for_df)
+colnames(de_synthetases_df) <- c("Strain", "Synthetase", "Expression")
 
-# Get a table summarizing this
-temp <- unlist(de_synthetases)
-sort(table(temp))
+# Get a heatmap from this
+ggplot(de_synthetases_df, aes(Strain, Synthetase)) +
+                      geom_tile(aes(fill = Expression)) +
+                      scale_fill_viridis_d() +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
-# Are these up- or down-regulated?
 
-
-# Remove unnecessary variables
+# Remove unnecessary variables - NEED TO UPDATE THIS
 rm(de_proteins, temp)
 ```
 --> At alpha = 0.05 and logFC = 0 I think --> All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
