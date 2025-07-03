@@ -75,7 +75,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -205,6 +205,12 @@ for (i in 1:n_batches) {
   }
 }
 ```
+
+Dynamically define DE proteins in each strain, taking into account the SD of the logFC instead of a fixed threshold
+```{r}
+# Iterate over the dfs in the list "da", for each plot the distribution of the logFC and add some vertical lines, probably at mean+2*SD or something like that and see what that looks like, to start figuring out at how many SD we want to set the threshold - also maybe vertical line at logFC = 0.5 and -0.5, to compare to that? Since that is what I am using right now
+```
+
 
 Save DE proteins for GO enrichment analysis
 ```{r}
