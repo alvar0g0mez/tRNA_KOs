@@ -75,7 +75,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -3468,7 +3468,7 @@ source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep="")
 ```
 
 
-## 5.1. Evaluate some basic stuff about synthetases: how many are there, how many do I detect, etc.
+## 5.1. Evaluate some basic stuff about synthetases: how many there are, how many do I detect, etc.
 Check how many synthetases exist in Sc
 ```{r}
 # How many tRNA synthases
@@ -3517,20 +3517,23 @@ quantified_in_how_many_WTs <- c()
 quantified_in_how_many_KO_samples <- c()
 for (i in 1:nrow(synthetases)) {
   synth <- synthetases$Gene.secondaryIdentifier[i]
+  synth_definition <- synthetases$Gene.name[i]
   
   # If the synthetase is detected at all, present in the dataset
   if (synth %in% rownames(WTs)) {
     ## Get the average expression of this synthetase across WTs
     synth_quant_across_WTs <- as.numeric(WTs[rownames(WTs) == synth,])
     measured_proteomics_WTs <- c(measured_proteomics_WTs, mean(synth_quant_across_WTs, na.rm = T))
-    hist(as.numeric(WTs[rownames(WTs) == synth,]))
+    hist(as.numeric(WTs[rownames(WTs) == synth,]),
+         main = glue("{synth} - {synth_definition}"),
+         xlab = "log2(Abundance)")
     
     ## In how many WT samples is this synthetase actually detected? (value != 0)
     quantified_in_how_many_WTs <- c(quantified_in_how_many_WTs, sum(synth_quant_across_WTs != 0))
     
     ## In how many samples in total is this synthetase actually detected? (value != 0)
     synth_quant_across_KO_samples <- as.numeric(KOs[rownames(KOs) == synth,])
-    quantified_in_how_many_KO_samples <- c(quantified_in_how_many_KO_samples, sum(synth_quant_across_all_samples != 0))
+    quantified_in_how_many_KO_samples <- c(quantified_in_how_many_KO_samples, sum(synth_quant_across_KO_samples != 0))
   }
   
   # If it is not
@@ -3632,6 +3635,8 @@ ggplot(de_synthetases_df, aes(Strain, Synthetase)) +
 rm(de_proteins, temp)
 ```
 --> At alpha = 0.05 and logFC = 0 I think --> All the DE synthetases I observe are in 33 (or something like that) out of the 197 KO strains! That's gotta mean something, I have to check what is special about those strains (maybe they are just the ones with the most DE proteins or something like that, who knows, but still, need to check if there is something special about the amino acid they carry or whatever)
+
+--> At alpha = 0.05 and logFC = 0.5 --> 
 
 
 ## 5.3. Use the information obtained in the previous chunk, of which synthetases are DE in which KO strains, to capture the information from those genes in those strains
