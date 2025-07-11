@@ -411,7 +411,7 @@ StatBin2 <- ggproto(
 
 
 ################################################################################
-# My version of reshape2::melt (not working anymore)
+# My version of reshape2::melt (which is not working anymore)
 ################################################################################
 #' Take a correlation matrix and return its long format, where the first 2 columns
 #' are "Var1" and "Var2", with all the possible combinations that we have in the 
@@ -533,6 +533,35 @@ robust_cv <- function(x, na.rm = TRUE) {
     return(mad_x/median_x)
   }
 }
+
+
+
+
+
+
+################################################################################
+# Get plate well IDs from column numbers and row letters
+################################################################################
+add_well_IDs <- function(df, 
+                         column_numbers_col, 
+                         row_letters_col) {
+  df <- df %>%
+    dplyr::mutate(Well_ID = case_when(nchar(as.character(df[[column_numbers_col]])) == 2 ~ paste(df[[row_letters_col]], df[[column_numbers_col]], sep=""),
+                                      nchar(as.character(df[[column_numbers_col]])) == 1 ~ paste(df[[row_letters_col]], 0, df[[column_numbers_col]], sep="")))
+  
+  return(df)
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 
