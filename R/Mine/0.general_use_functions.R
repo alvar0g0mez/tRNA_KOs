@@ -556,12 +556,36 @@ add_well_IDs <- function(df,
 
 
 
+################################################################################
+# Fix well IDs with no 0s
+################################################################################
+#' This is the first part of the function, the part that will be applied to each
+#' of the IDs individually in the following part
+fix_one_id_at_a_time <- function(id) {
+  letter <- substr(id, 1, 1)
+  number <- substr(id, 2, nchar(id))
+  if (nchar(number) < 2) {
+    new_id <- paste(letter, "0", number, sep ="")
+    return(new_id)
+  } 
+  else {
+    return(id)
+  }
+}
 
 
-
-
-
-
+#' So basically well IDs need to look like this "A12" or "B06" in order to work
+#' in the raw_map function. However, sometimes they look like this "B6" instead.
+#' This function takes a dataframe (and a column) containing IDs of the type 
+#' "B6" and fixes them to be "B06", while leaving the "B12" ones intact. 
+#' 
+#' 
+fix_well_ids_with_no_0s <- function(df, column_name) {
+  ids <- as.character(df[[column_name]])
+  new_ids <- sapply(ids, fix_one_id_at_a_time, simplify = T)
+  df[[column_name]] <- new_ids
+  return(df)
+}
 
 
 
