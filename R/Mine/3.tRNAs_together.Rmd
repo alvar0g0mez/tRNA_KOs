@@ -49,6 +49,7 @@ library(fgsea)
 library(limpa)
 library(viridisLite)
 library(staplr)                       # contains rotate_pdf
+library(svglite)                      # to same images as .svg (vector based)
 ```
 
 Set parameters
@@ -75,7 +76,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -797,7 +798,7 @@ for (i in 1:length(aas)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_per_families/histograms/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -862,19 +863,19 @@ my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
 my_grobs_not_colored <- lapply(plot_list_not_colored, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
    width = 15, height = 9
 )
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
@@ -916,7 +917,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -958,7 +959,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1000,7 +1001,7 @@ for (i in 1:length(anticodons)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1016,6 +1017,122 @@ fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/r
 rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grobs_mature, plot_list_DNA_seq, plot_list_mature_seq, temp,
    anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file, temp_resp)
 ```
+
+### 1.7.2. Better version of these barplots
+Dot matrix heatmap
+```{r}
+# Get a column classifiying the tRNA genes into types of families, so I can sort by that and have them ordered in the plot
+responsiveness <- responsiveness %>%
+  dplyr::mutate(Family_type = case_when(Major_count == 1 ~ "One major",
+                                        Major_count > 1 ~ "More than one major",
+                                        Major_count < 1 ~ "All low"))
+responsiveness <- responsiveness %>%                    # This sadly doesn't change the order in the plot :( - that's why I need to turn columns into factors with a certain order
+  dplyr::arrange(Family_type, anticodon, nDEP)
+
+responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
+responsiveness$Strain.Name <- factor(responsiveness$Strain.Name, levels = unique(responsiveness$Strain.Name))
+
+# Divide the data into 2 pieces so we can plot each of them separately for better readability
+## First part
+temp_1 <- responsiveness %>%
+  dplyr::filter(Family_type == "All low" | Family_type == "More than one major")
+
+ggplot(temp_1, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
+  geom_point(size = 2) +
+  scale_color_gradient(low = "lightblue", high = "firebrick",
+                       limits = c(0, max(responsiveness$nDEP))) +
+  labs(
+    title = "Differential Expression per tRNA KO",
+    x = "tRNA Gene",
+    y = "tRNA Family",
+    color = "# DE Proteins"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+## Second part
+temp_2 <- responsiveness %>%
+  dplyr::filter(Family_type == "One major")
+
+ggplot(temp_2, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
+  geom_point(size = 2) +
+  scale_color_gradient(low = "lightblue", high = "firebrick",
+                       limits = c(0, max(responsiveness$nDEP))) +
+  labs(
+    title = "Differential Expression per tRNA KO",
+    x = "tRNA Gene",
+    y = "tRNA Family",
+    color = "# DE Proteins"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+Lollipop plot
+```{r}
+# Make sure families appear in the order I want them to in the plot
+responsiveness <- responsiveness %>%                    
+  dplyr::arrange(desc(Family_type), anticodon, nDEP)
+responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
+
+# Create background annotation data - for colored sidebar
+annotation_data <- responsiveness %>%
+  dplyr::select(anticodon, Family_type) %>%
+  dplyr::distinct() %>%
+  dplyr::mutate(x = -10)
+
+# Plot
+ggplot(responsiveness, aes(x = nDEP, y = anticodon, group = anticodon)) +
+  geom_line(aes(group = anticodon), color = "grey70") +  # Connects dots within family
+  geom_point(aes(color = nDEP), size = 2) +
+  scale_color_gradient(low = "lightblue", high = "darkred") +
+  labs(
+    title = "Differential Expression per tRNA KO (by Family)",
+    x = "Number of Differentially Expressed Proteins",
+    y = "tRNA Family",
+    color = "# DE Proteins"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+
+lollipop_plot_final <- ggplot(responsiveness, aes(x = nDEP, y = anticodon)) +
+  # Background color block
+  geom_tile(data = annotation_data, aes(fill = Family_type), x = x, width = 20, height = 0.8) +
+  
+  # Lollipop line and point
+  geom_line(aes(group = anticodon), color = "grey70") +
+  geom_point(aes(color = nDEP), size = 2.5) +
+  
+  # Scales and labels
+  scale_color_gradient(low = "lightblue", high = "darkred") +
+  scale_fill_manual(values = c("All low" = "#BFD3E6", 
+                               "More than one major" = "#F6BD60", 
+                               "One major" = "#F28482")) +
+  
+  labs(
+    title = "DE Proteins per tRNA KO (Grouped by Family Type)",
+    x = "Number of Differentially Expressed Proteins",
+    y = "tRNA Family",
+    color = "# DE Proteins",
+    fill = "Family Type"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "right"
+  )
+
+ggsave(filename = "lollipop.svg",
+       plot = lollipop_plot_final,
+       path = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/", sep = ""),
+       width = 10, height = 8, units = "in",       
+       dpi = 600)
+```
+
 
 
 This used to be in section 2, but I think it's better here:
