@@ -76,7 +76,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -798,7 +798,7 @@ for (i in 1:length(aas)) {
 my_grobs <- lapply(plot_list, ggplotGrob)
 
 ## Print to PDF
-output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_per_families/histograms/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
@@ -1023,9 +1023,10 @@ Dot matrix heatmap
 ```{r}
 # Get a column classifiying the tRNA genes into types of families, so I can sort by that and have them ordered in the plot
 responsiveness <- responsiveness %>%
-  dplyr::mutate(Family_type = case_when(Major_count == 1 ~ "One major",
-                                        Major_count > 1 ~ "More than one major",
-                                        Major_count < 1 ~ "All low"))
+  dplyr::mutate(Family_type = case_when(Major_count == 1 & Family_count > 1 ~ "One major tRNA",
+                                        Major_count == 1 & Family_count == 1 ~ "Single tRNA family",
+                                        Major_count > 1 ~ "Multiple major tRNAs",
+                                        Major_count < 1 ~ "All minor tRNAs"))
 responsiveness <- responsiveness %>%                    # This sadly doesn't change the order in the plot :( - that's why I need to turn columns into factors with a certain order
   dplyr::arrange(Family_type, anticodon, nDEP)
 
@@ -1035,7 +1036,7 @@ responsiveness$Strain.Name <- factor(responsiveness$Strain.Name, levels = unique
 # Divide the data into 2 pieces so we can plot each of them separately for better readability
 ## First part
 temp_1 <- responsiveness %>%
-  dplyr::filter(Family_type == "All low" | Family_type == "More than one major")
+  dplyr::filter(Family_type == "All minor tRNAs" | Family_type == "Multiple major tRNAs")
 
 ggplot(temp_1, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
   geom_point(size = 2) +
@@ -1054,7 +1055,7 @@ ggplot(temp_1, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
 
 ## Second part
 temp_2 <- responsiveness %>%
-  dplyr::filter(Family_type == "One major")
+  dplyr::filter(Family_type == "One major tRNA")
 
 ggplot(temp_2, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
   geom_point(size = 2) +
@@ -1075,15 +1076,19 @@ ggplot(temp_2, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
 Lollipop plot
 ```{r}
 # Make sure families appear in the order I want them to in the plot
+#responsiveness <- responsiveness %>%                    
+#  dplyr::arrange(desc(Family_type), anticodon, nDEP)
+#responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
+
+# Try to order based on amino acid instead
 responsiveness <- responsiveness %>%                    
-  dplyr::arrange(desc(Family_type), anticodon, nDEP)
+  dplyr::arrange(Amino_acid_1_letter, desc(Family_type), anticodon, nDEP)
 responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
 
 # Create background annotation data - for colored sidebar
 annotation_data <- responsiveness %>%
-  dplyr::select(anticodon, Family_type) %>%
-  dplyr::distinct() %>%
-  dplyr::mutate(x = -10)
+  dplyr::select(Amino_acid_1_letter , anticodon, Family_type) %>%
+  dplyr::distinct()
 
 # Plot
 ggplot(responsiveness, aes(x = nDEP, y = anticodon, group = anticodon)) +
@@ -1100,19 +1105,26 @@ ggplot(responsiveness, aes(x = nDEP, y = anticodon, group = anticodon)) +
 
 
 
+
+
+
+tile_x <- -100
+tile_x_2 <- -200
+
 lollipop_plot_final <- ggplot(responsiveness, aes(x = nDEP, y = anticodon)) +
   # Background color block
-  geom_tile(data = annotation_data, aes(fill = Family_type), x = x, width = 20, height = 0.8) +
+  geom_tile(data = annotation_data, aes(fill = Amino_acid_1_letter), x = tile_x_2, width = 30, height = 0.8) +
+  geom_tile(data = annotation_data, aes(fill = Family_type), x = tile_x, width = 30, height = 0.8) +
   
   # Lollipop line and point
   geom_line(aes(group = anticodon), color = "grey70") +
-  geom_point(aes(color = nDEP), size = 2.5) +
+  geom_point(color = "black",
+             fill = "white",
+             alpha = 0.5,
+             size = 3) +
   
   # Scales and labels
-  scale_color_gradient(low = "lightblue", high = "darkred") +
-  scale_fill_manual(values = c("All low" = "#BFD3E6", 
-                               "More than one major" = "#F6BD60", 
-                               "One major" = "#F28482")) +
+  scale_fill_viridis_d(name = "Family type") +
   
   labs(
     title = "DE Proteins per tRNA KO (Grouped by Family Type)",
@@ -1132,6 +1144,52 @@ ggsave(filename = "lollipop.svg",
        width = 10, height = 8, units = "in",       
        dpi = 600)
 ```
+
+
+
+TRYING OTHER VERSIONS OF THE PLOT FROM CHATGPT
+```{r}
+lollipop_plot_final <- ggplot(responsiveness, aes(x = nDEP, y = anticodon)) +
+  # First tile column
+  geom_tile(data = annotation_data, aes(fill = Amino_acid_1_letter), x = tile_x_2, width = 30, height = 0.8) +
+  scale_fill_viridis_d(name = "Amino Acid") +
+
+  # Reset fill scale
+  new_scale_fill() +
+
+  # Second tile column
+  geom_tile(data = annotation_data, aes(fill = Family_type), x = tile_x, width = 30, height = 0.8) +
+  scale_fill_viridis_d(name = "Family Type") +
+
+  # Lollipop
+  geom_line(aes(group = anticodon), color = "grey70") +
+  geom_point(color = "black",
+             fill = "white",
+             alpha = 0.5,
+             size = 3) +
+
+  # Labels
+  labs(
+    title = "DE Proteins per tRNA KO (Grouped by Family Type)",
+    x = "Number of Differentially Expressed Proteins",
+    y = "tRNA Family"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "right"
+  )
+
+ggsave(filename = "lollipop.svg",
+       plot = lollipop_plot_final,
+       path = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/", sep = ""),
+       width = 10, height = 8, units = "in",       
+       dpi = 600)
+```
+
+
+
+
+
 
 
 
@@ -3278,8 +3336,8 @@ rm(temp)
 "Volcano plot" - total DE proteins vs. non-DE proteins
 ```{r}
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
-ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total))) +
-  geom_point() +
+p <- ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total))) +
+  geom_point(size = 3) +
   geom_hline(yintercept = -log10(0.05), col = "red") +
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = -0.5, col = "red") +
@@ -3289,8 +3347,14 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.ad
                   aes(x = logFC_total, y = -log10(p.values.adj_total), label = Strain.Name)) +
   xlab("logFC") +
   ylab("-log10(p-value)") +
-  labs(title = "Testing results for target codon proportion in DE vs. non-DE proteins",
+  labs(title = "Target codon proportion in DE vs. non-DE proteins",
        subtitle = "Each dot represents a strain")
+
+ggsave(filename = "target_codon_proportion_volcano_plot.svg",
+       plot = p,
+       path = paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/", sep=""),
+       width = 12, height = 8, units = "in",       
+       dpi = 600)
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
 ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total))) +
