@@ -76,7 +76,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -698,6 +698,9 @@ rm(replicate_num_vs_nDEP_cor)
 ## 1.7. Identify major and minor tRNA genes myself for all strains
 Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
+# Load responsiveness dataset
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+
 responsiveness <- responsiveness %>%
   group_by(anticodon) %>% 
   summarize(Family_count = n(), across()) %>%
@@ -1082,7 +1085,7 @@ Lollipop plot
 
 # Try to order based on amino acid instead
 responsiveness <- responsiveness %>%                    
-  dplyr::arrange(Amino_acid_1_letter, desc(Family_type), anticodon, nDEP)
+  dplyr::arrange(desc(Amino_acid_1_letter), Family_type, anticodon, nDEP)
 responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
 
 # Create background annotation data - for colored sidebar
@@ -1108,13 +1111,12 @@ ggplot(responsiveness, aes(x = nDEP, y = anticodon, group = anticodon)) +
 
 
 
-tile_x <- -100
+tile_x <- -30
 tile_x_2 <- -200
 
-lollipop_plot_final <- ggplot(responsiveness, aes(x = nDEP, y = anticodon)) +
+lollipop_plot_final <- ggplot(data = responsiveness, aes(x = nDEP, y = anticodon)) +
   # Background color block
-  geom_tile(data = annotation_data, aes(fill = Amino_acid_1_letter), x = tile_x_2, width = 30, height = 0.8) +
-  geom_tile(data = annotation_data, aes(fill = Family_type), x = tile_x, width = 30, height = 0.8) +
+  geom_tile(data = annotation_data, aes(x = tile_x, fill = Family_type),  width = 30, height = 0.8) +
   
   # Lollipop line and point
   geom_line(aes(group = anticodon), color = "grey70") +
@@ -1149,35 +1151,82 @@ ggsave(filename = "lollipop.svg",
 
 TRYING OTHER VERSIONS OF THE PLOT FROM CHATGPT
 ```{r}
-lollipop_plot_final <- ggplot(responsiveness, aes(x = nDEP, y = anticodon)) +
-  # First tile column
-  geom_tile(data = annotation_data, aes(fill = Amino_acid_1_letter), x = tile_x_2, width = 30, height = 0.8) +
-  scale_fill_viridis_d(name = "Amino Acid") +
+tile_x <- -50
 
-  # Reset fill scale
-  new_scale_fill() +
+# Define grid lines
+## Define the y-values where you want horizontal lines
+grid_lines_y <- seq(0.5, 35.5, by = 2.5)
 
-  # Second tile column
-  geom_tile(data = annotation_data, aes(fill = Family_type), x = tile_x, width = 30, height = 0.8) +
-  scale_fill_viridis_d(name = "Family Type") +
+## Create a dataframe for horizontal line segments
+grid_lines_df <- data.frame(
+  x = 0,
+  xend = 1750,
+  y = grid_lines_y,
+  yend = grid_lines_y
+)
 
-  # Lollipop
+# First, calculate y-coordinates for each amino acid group
+bracket_data <- annotation_data %>%
+  dplyr::arrange(desc(Amino_acid_1_letter)) %>%
+  group_by(Amino_acid_1_letter) %>%
+  summarise(
+    y_min = min(as.numeric(factor(anticodon, levels = unique(responsiveness$anticodon)))),
+    y_max = max(as.numeric(factor(anticodon, levels = unique(responsiveness$anticodon)))),
+    .groups = 'drop'
+  )
+
+# Add bracket lines to left side (adjust x as needed)
+lollipop_plot_final <- ggplot(data = responsiveness, aes(x = nDEP, y = anticodon)) +
+  # Background color block
+  geom_tile(data = annotation_data, aes(x = tile_x, fill = Family_type),  width = 30, height = 0.8) +
+  
+  # Lollipop line and point
   geom_line(aes(group = anticodon), color = "grey70") +
   geom_point(color = "black",
              fill = "white",
              alpha = 0.5,
              size = 3) +
-
-  # Labels
+  
+  # Scales and labels
+  scale_fill_viridis_d(name = "Family type") +
+  
   labs(
     title = "DE Proteins per tRNA KO (Grouped by Family Type)",
     x = "Number of Differentially Expressed Proteins",
-    y = "tRNA Family"
+    y = "tRNA Family",
+    color = "# DE Proteins",
+    fill = "Family Type"
   ) +
   theme_minimal(base_size = 11) +
   theme(
-    legend.position = "right"
-  )
+    legend.position = "right",
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    plot.title = element_text(size = 20, face = "bold"),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  ) +
+  geom_segment(data = bracket_data,
+               aes(x = -90, xend = -90, y = y_min, yend = y_max),
+               inherit.aes = FALSE, linewidth = 1) +
+  geom_segment(data = bracket_data,
+               aes(x = -90, xend = -82, y = y_min, yend = y_min),
+               inherit.aes = FALSE) +
+  geom_segment(data = bracket_data,
+               aes(x = -90, xend = -82, y = y_max, yend = y_max),
+               inherit.aes = FALSE) +
+  geom_text(data = bracket_data,
+          aes(x = -105, y = (y_min + y_max) / 2, label = Amino_acid_1_letter),
+          inherit.aes = FALSE, hjust = 1) +
+  geom_segment(data = grid_lines_df,
+               aes(x = x, xend = xend, y = y, yend = yend),
+               color = "gray80", 
+               linetype = "solid",
+               alpha = 0.5)
 
 ggsave(filename = "lollipop.svg",
        plot = lollipop_plot_final,
@@ -3599,6 +3648,265 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.
   theme_light()
 ```
 
+Create fake data that follows our hypothesis - for comparison to the real results
+```{r}
+# Create fake data
+fake_data <- list()
+for (i in 1:length(codon_ratios_list)) {
+  strain <- names(codon_ratios_list)[i]
+  length_up <- length(codon_ratios_list[[strain]][["DE_up_regulated"]])
+  length_down <- length(codon_ratios_list[[strain]][["DE_down_regulated"]])
+  length_non <- length(codon_ratios_list[[strain]][["non_DE"]])
+  
+  # Up-regulated proteins
+  ## If there are no such proteins - return empty vector
+  if (length_up == 0) {
+    fake_data[[strain]][["DE_up_regulated"]] <- c()
+  }
+  
+  ## If there is only one such protein
+  else if (length_up == 1) {
+    # If I try to generate a distribution when I only have ratios = 0, I get NaN
+    ifelse(mean(codon_ratios_list[[strain]][["DE_up_regulated"]]) == 0,
+       fake_data[[strain]][["DE_up_regulated"]] <- rnorm(length_up, 
+                                                         0.05, 
+                                                         0.05),
+       
+       # If there is only one observation, I have to calculate the SD differently
+       fake_data[[strain]][["DE_up_regulated"]] <- rnorm(length_up, 
+                                                         mean(codon_ratios_list[[strain]][["DE_up_regulated"]], na.omit = T)*1.5, 
+                                                         mean(codon_ratios_list[[strain]][["DE_up_regulated"]], na.omit = T)))
+  }
+  
+  ## If there are 2 such proteins or more
+  else if (length_up > 1) {
+    # If I try to generate a distribution when I only have ratios = 0, I get NaN
+    ifelse(mean(codon_ratios_list[[strain]][["DE_up_regulated"]]) == 0,
+           fake_data[[strain]][["DE_up_regulated"]] <- rnorm(length_up, 
+                                                             0.05, 
+                                                             0.05),
+           fake_data[[strain]][["DE_up_regulated"]] <- rnorm(length_up, 
+                                                             mean(codon_ratios_list[[strain]][["DE_up_regulated"]], na.omit = T)*1.5, 
+                                                             sd(codon_ratios_list[[strain]][["DE_up_regulated"]])*1.5))
+  }
+
+  
+  # Down-regulated proteins
+  ## If there are no such proteins - return empty vector
+  if (length_down == 0) {
+    fake_data[[strain]][["DE_down_regulated"]] <- c()
+  }
+  
+  ## If there is only one such protein
+  else if (length_down == 1) {
+    # If I try to generate a distribution when I only have ratios = 0, I get NaN
+    ifelse(mean(codon_ratios_list[[strain]][["DE_down_regulated"]]) == 0,
+       fake_data[[strain]][["DE_down_regulated"]] <- rnorm(length_down, 
+                                                           0.05, 
+                                                           0.05),
+       
+       # If there is only one observation, I have to calculate the SD differently
+       fake_data[[strain]][["DE_down_regulated"]] <- rnorm(length_down, 
+                                                           mean(codon_ratios_list[[strain]][["DE_down_regulated"]], na.omit = T)*1.5, 
+                                                           mean(codon_ratios_list[[strain]][["DE_down_regulated"]], na.omit = T)))
+  }
+  
+  ## If there are 2 such proteins or more
+  else if (length_down > 1) {
+    # If I try to generate a distribution when I only have ratios = 0, I get NaN
+    ifelse(mean(codon_ratios_list[[strain]][["DE_down_regulated"]]) == 0,
+           fake_data[[strain]][["DE_down_regulated"]] <- rnorm(length_down, 
+                                                               0.05, 
+                                                               0.05),
+           fake_data[[strain]][["DE_down_regulated"]] <- rnorm(length_down, 
+                                                               mean(codon_ratios_list[[strain]][["DE_down_regulated"]], na.omit = T)*1.5, 
+                                                               sd(codon_ratios_list[[strain]][["DE_down_regulated"]])*1.5))
+  }
+  
+  # Non DE proteins
+  if (length_non > 0) {
+    fake_data[[strain]][["non_DE"]] <- codon_ratios_list[[strain]][["non_DE"]]
+  }
+  else {
+    fake_data[[strain]][["non_DE"]] <- c()
+  }
+}
+
+
+# Test and get p-values and logFC for fake data
+strains <- names(fake_data)
+p.values_wmw_total <- c()
+p.values_wmw_up_non <- c()
+p.values_wmw_up_down <- c()
+p.values_wmw_down_non <- c()
+mean_de_total <- c()
+mean_de_up <- c()
+mean_de_down <- c()
+mean_non_de <- c()
+num_de_total <- c()
+num_de_up <- c()
+num_de_down <- c()
+num_non_de <- c()
+for (i in 1:length(fake_data)) {
+  # Grab data for this strain
+  strain_name <- names(fake_data)[i]
+  de_up <- fake_data[[strain_name]][["DE_up_regulated"]]
+  de_down <- fake_data[[strain_name]][["DE_down_regulated"]]
+  de_total <- c(as.numeric(de_up), as.numeric(de_down))
+  non_de <- fake_data[[strain_name]][["non_DE"]]
+  de_df_up <- data.frame(fake_data[[strain_name]][["DE_up_regulated"]])
+  de_df_down <- data.frame(fake_data[[strain_name]][["DE_down_regulated"]])
+  de_df_total <- data.frame(de_total)
+  non_de_df <- data.frame(fake_data[[strain_name]][["non_DE"]])
+  print(strain_name)
+  
+  # It's possible that either de_up or de_down (and hence de_df_up or de_df_down) are empty, so I need to account for that if I don't want to get an error
+  de_up_empty <- length(de_up) == 0
+  de_down_empty <- length(de_down) == 0
+  
+  if (de_up_empty) {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_down, aes(x = log2(fake_data..strain_name.....DE...)), fill = "blue", alpha = 0.9)
+      geom_histogram(data = non_de_df, aes(x = log2(fake_data..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, NA)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, NA)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, wilcox.test(de_down, non_de)$p.value)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, NA)
+    mean_de_down <- c(mean_de_down, mean(de_down))
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
+  else if (de_down_empty) {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_up, aes(x = log2(fake_data..strain_name.....DE...)), fill = "red", alpha = 0.9) +
+      geom_histogram(data = non_de_df, aes(x = log2(fake_data..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, wilcox.test(de_up, non_de)$p.value)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, NA)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, NA)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, mean(de_up))
+    mean_de_down <- c(mean_de_down, NA)
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
+  else {
+    # Plot overlapping histograms - not worth it I think
+    ggplot() +
+      geom_histogram(data = de_df_up, aes(x = log2(fake_data..strain_name.....DE...)), fill = "red", alpha = 0.9) +
+      geom_histogram(data = de_df_down, aes(x = log2(fake_data..strain_name.....DE...)), fill = "blue", alpha = 0.9)
+      geom_histogram(data = non_de_df, aes(x = log2(fake_data..strain_name.....non_DE...)), fill = "orange", alpha = 0.4)
+    
+    # Test - WMW
+    p.values_wmw_total <- c(p.values_wmw_total, wilcox.test(de_total, non_de)$p.value)
+    p.values_wmw_up_non <- c(p.values_wmw_up_non, wilcox.test(de_up, non_de)$p.value)
+    p.values_wmw_up_down <- c(p.values_wmw_up_down, wilcox.test(de_up, de_down)$p.value)
+    p.values_wmw_down_non <- c(p.values_wmw_down_non, wilcox.test(de_down, non_de)$p.value)
+    
+    # Test - log2 transform and t-test (need to take care of 0s) and use t-test - is this worth doing?
+    
+    
+    # Save the mean of each group to the output vectors as well
+    mean_de_total <- c(mean_de_total, mean(de_total))
+    mean_de_up <- c(mean_de_up, mean(de_up))
+    mean_de_down <- c(mean_de_down, mean(de_down))
+    mean_non_de <- c(mean_non_de, mean(non_de))
+    
+    # Save the number of proteins in each of the two groups - probably will explain the significance bc of low power with small DE protein counts
+    num_de_total <- c(num_de_total, length(de_total))
+    num_de_up <- c(num_de_up, length(de_up))
+    num_de_down <- c(num_de_down, length(de_down))
+    num_non_de <- c(num_non_de, length(non_de))
+  }
+}
+
+p.values.adj_total <- p.adjust(p.values_wmw_total, method = "fdr")
+p.values.adj_up_non <- p.adjust(p.values_wmw_up_non, method = "fdr")
+p.values.adj_up_down <- p.adjust(p.values_wmw_up_down, method = "fdr")
+p.values.adj_down_non <- p.adjust(p.values_wmw_down_non, method = "fdr")
+
+test_codon_enrichment_fake <- data.frame(Strain.Name = strains, p.values_wmw_up_non, p.values.adj_up_non, p.values_wmw_total, p.values.adj_total,
+                                    p.values_wmw_up_down, p.values.adj_up_down, p.values_wmw_down_non, p.values.adj_down_non,
+                                    mean_de_total, mean_de_up, mean_de_down, mean_non_de, num_de_total, num_de_up, num_de_down, num_non_de) %>%
+  dplyr::mutate(direction_up_non = case_when(mean_de_up > mean_non_de ~ "DE_up",
+                                      TRUE ~ "non_DE"),
+         direction_up_down = case_when(mean_de_up > mean_de_down ~ "DE_up",
+                                       TRUE ~ "DE_down"),
+         direction_down_non = case_when(mean_de_down > mean_non_de ~ "DE_down",
+                                        TRUE ~ "non_DE"),
+         FC_total = mean_de_total/mean_non_de,
+         FC_up_non = mean_de_up/mean_non_de,
+         FC_up_down = mean_de_up/mean_de_down,
+         FC_down_non = mean_de_down/mean_non_de,
+         logFC_total = log2(FC_total),
+         logFC_up_non = log2(FC_up_non),
+         logFC_up_down = log2(FC_up_down),
+         logFC_down_non = log2(FC_down_non))
+```
+
+
+Barplot - better version of these "volcano plots"
+```{r}
+# Sort real data
+test_codon_enrichment <- test_codon_enrichment %>%
+  dplyr::arrange(logFC_total)
+test_codon_enrichment$Strain.Name <- factor(test_codon_enrichment$Strain.Name, levels = unique(test_codon_enrichment$Strain.Name))
+
+# Sort fake data
+test_codon_enrichment_fake <- test_codon_enrichment_fake %>%
+  dplyr::arrange(logFC_total)
+test_codon_enrichment_fake$Strain.Name <- factor(test_codon_enrichment_fake$Strain.Name, levels = unique(test_codon_enrichment_fake$Strain.Name))
+
+horizontal_barplot <- ggplot(data = test_codon_enrichment, aes(x = Strain.Name, y = logFC_total, fill = p.values.adj_total)) +
+  geom_col(col = "black") +
+  geom_col(data = test_codon_enrichment_fake,
+           aes(x = Strain.Name, y = logFC_total, fill = p.values.adj_total),
+           alpha = 0.4) +
+  scale_fill_viridis_c(name = "Adj. p-value") +
+  theme_light() +
+  ylab("logFC") +
+  xlab("Strain") +
+  labs(fill = "Adjusted p-value",
+       title = "Ratios between target codon content",
+       subtitle = "In DE vs. non-DE proteins") +
+  coord_flip() +
+  theme(axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave(filename = "christmas_tree_barplot.svg",
+       plot = horizontal_barplot,
+       path = paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/", sep = ""),
+       width = 5, height = 4, units = "in",       
+       dpi = 600)
+```
 
 
 
