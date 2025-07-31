@@ -76,7 +76,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -3186,6 +3186,8 @@ rm(check_lit, check_WTs, fit, resp_and_expression, resp_and_expression_modelling
 ################################################################################
 # 4. Evaluate codon enrichment in DEPs sequences
 ################################################################################
+## 4.1. In full sequences
+
 SHOULD I CONSIDER SOME GROUPING BY CODON HERE? LIKE, THE DIFFERENT TRNAS THAT HAVE THE SAME CODON?
 Load data (generated in Python script "check_codon_enrichment_in_DEPs_sequences.py")
 ```{r}
@@ -3345,24 +3347,6 @@ test_codon_enrichment <- data.frame(Strain.Name = strains, p.values_wmw_up_non, 
          logFC_up_non = log2(FC_up_non),
          logFC_up_down = log2(FC_up_down),
          logFC_down_non = log2(FC_down_non))
-
-# Get the logFC - need to deal with the negative values in the FC - there is definitely a better way to do this but oh well
-# THIS IS NOW INCLUDED IN THE MUTATE ABOVE
-#logFC <- c()
-#for (i in 1:nrow(test_codon_enrichment)) {
-#  FC <- test_codon_enrichment$FC[i]
-#  if (FC < 1) {
-#    out <- -log10(abs(FC))
-#  }
-#  else if (FC > 1) {
-#    out <- log10(FC)
-#  }
-#  else if (FC == 0) {
-#    out <- 0
-#  }
-#  logFC <- c(logFC, out)
-#}
-#test_codon_enrichment$logFC <- log10(test_codon_enrichment$FC)
 
 
 # Remove unnecessary variables
@@ -3648,7 +3632,7 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.
   theme_light()
 ```
 
-Create fake data that follows our hypothesis - for comparison to the real results
+Create fake data that follows our hypothesis - for comparison to the real results, for the poster
 ```{r}
 # Create fake data
 fake_data <- list()
@@ -3872,8 +3856,7 @@ test_codon_enrichment_fake <- data.frame(Strain.Name = strains, p.values_wmw_up_
          logFC_down_non = log2(FC_down_non))
 ```
 
-
-Barplot - better version of these "volcano plots"
+Barplot - better version of these "volcano plots" - includes the simulated data in a lighter shade
 ```{r}
 # Sort real data
 test_codon_enrichment <- test_codon_enrichment %>%
@@ -3908,11 +3891,80 @@ ggsave(filename = "christmas_tree_barplot.svg",
        dpi = 600)
 ```
 
+Check codon enrichment in tRNAs in singleton families
+```{r}
+# Get names of tRNAs in singleton families
+singleton_family_tRNAs <- master_dataset$Strain.Name[master_dataset$Family_size == 1]
 
+# Look at the target codon enrichment in these families
+test_codon_single_families <- test_codon_enrichment %>%
+  dplyr::filter(Strain.Name %in% singleton_family_tRNAs)
+```
 
 Remove unnecessary variables
 ```{r}
 rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, test_codon_enrichment, de, i, non_de, strain_name)
+```
+
+
+## 4.2. In the 5' end - about ribosome queueing, based on Kemp et al., 2012
+Need to print a list of the codons (in DNA code) to iterate over them in the Python script
+```{r}
+# Load responsiveness dataset
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
+
+# Grab unique codons (mRNA codons in DNA letters, that's how they come in the CDS from SGD)
+anticodons <- unique(responsiveness$anticodon)
+codons <- master_dataset %>%
+  dplyr::filter(Anticodon %in% anticodons) %>%
+  dplyr::distinct(Codon) %>%
+  dplyr::pull(Codon)
+
+# Save this to load it in Python
+write_json(codons, 
+           path = paste(base_dir, "tRNA_KOs/Data/check_codon_enrichment_in_protein_sequences/check_in_5_prime_end/unique_target_codons.json", sep=""))
+```
+
+Load the data obtained in Python
+```{r}
+# Load the data
+initial_codons_num <- 30
+
+codon_enrichment_initial_codons <- as.data.frame(fread(paste(base_dir, 
+                                                             "tRNA_KOs/Data/check_codon_enrichment_in_protein_sequences/check_in_5_prime_end/codon_proportions_first_",
+                                                             initial_codons_num, 
+                                                             "_codons.csv",
+                                                             sep = "")))
+
+# Set protein names as rownames
+codon_enrichment_initial_codons_numerical <- codon_enrichment_initial_codons
+rownames(codon_enrichment_initial_codons_numerical) <- codon_enrichment_initial_codons_numerical$Protein
+codon_enrichment_initial_codons_numerical <- codon_enrichment_initial_codons_numerical %>%
+  dplyr::select(-Protein)
+
+# Look at distribution
+hist(as.matrix(codon_enrichment_initial_codons_numerical))
+sum(as.matrix(codon_enrichment_initial_codons_numerical > 0.2))
+
+# Pivot longer, add information from master_dataset, filter for high proportion of target codon
+codon_enrichment_initial_codons_long <- pivot_longer(data = codon_enrichment_initial_codons, 
+                                                     cols = -Protein,
+                                                     names_to = "Codon",
+                                                     values_to = "Percentage") 
+temp_master <- master_dataset %>%
+  dplyr::select(Codon, Amino_acid_1_letter, Anticodon, Family_size)
+
+codon_enrichment_initial_codons_long <- left_join(codon_enrichment_initial_codons_long, temp_master, by = "Codon") %>%
+  dplyr::distinct(Protein, Codon, Amino_acid_1_letter, Anticodon, Family_size, .keep_all = T)
+
+codon_enrichment_initial_codons_long <- codon_enrichment_initial_codons_long %>%
+  dplyr::filter(Percentage > 0.2) %>%
+  dplyr::arrange(desc(Percentage), Anticodon)
+
+length(unique(codon_enrichment_initial_codons_long$Codon))
 ```
 
 
@@ -5476,12 +5528,54 @@ for (i in 1:nrow(DE_protein_overlaps_major_within_family)) {
 
 
 
+######################################################################################
+# 7. Evaluate effect of individual nucleotides in tRNA structure
+######################################################################################
+
+## 7.1. Check % of U in N33, based on Kemp et al., 2012
+They mention (citing a different, older article) that position N33 is usually a U, and when it gets mutated, the capacity of the tRNA to do its job is strongly decreased. So let me check in how many of them we have a U, and if not having a U correlates with low nDEP. In any case, I do have to keep in mind that the sequences I am using to check the nucleotide in each position are from a database with the "official" version of the tRNA sequence, I have no way to know what the actual sequences in the cells are, or whether they have been mutated or post-transcriptionally modified, so... Wait, but what I am looking at is the consensus sequence of the tRNA that was KOd lol, so it is obviously not going to be mutated or anything, it's just not there. The only consideration then is how trustworthy these sequences are, but other than that, this does provide the information that the effect of a KO in the cell is not 
+```{r}
+master_temp <- master_dataset %>%
+  dplyr::select(Strain.Name, Nt_at_33) %>%
+  dplyr::filter(Strain.Name != "")
+resp_with_n33 <- left_join(responsiveness, master_temp, by = "Strain.Name")
+
+summary(as.factor(resp_with_n33$Nt_at_33))
+
+resp_with_n33$Nt_at_33 <- as.factor(resp_with_n33$Nt_at_33)
+
+ggplot(data = resp_with_n33, aes(x = Nt_at_33, y = log2(nDEP), group = Nt_at_33)) +
+  geom_boxplot(aes(fill = Nt_at_33)) +
+  geom_jitter() +
+  theme_light()
+```
+--> Yup, nothing conclusive at all, had to give it a try tho
 
 
 
+## 7.2. Statistical test for nDEP between the 4 possible nucleotides in the consensus tRNA sequence at every position
+```{r}
+# Add columns with information of the Nt in each position to the responsiveness dataframe
+master_temp <- master_dataset %>%
+  dplyr::select(Strain.Name, contains("Nt_at_")) %>%
+  dplyr::filter(Strain.Name != "")
+resp_with_nts <- left_join(responsiveness, master_temp, by = "Strain.Name")
 
+# Get the names of all the columns with Nt info and iterate over them, doing a Kruskal-Wallis test for nDEP ~ each of them, saving the p-values
+nts <- colnames(resp_with_nts)[grepl("Nt_at_", colnames(resp_with_nts))]
+p_vals <- c()
 
+for (i in 1:length(nts)) {
+  nt <- nts[i]
+  p_vals <- c(p_vals, kruskal.test(data = resp_with_nts, nDEP ~ get(nt))$p.value)
+}
 
+# Significance obtained only for position 48, let's have a look at the boxplot for that one
+ggplot(data = resp_with_nts, aes(x = Nt_at_48, y = log2(nDEP), group = Nt_at_48)) +
+  geom_boxplot(aes(fill = Nt_at_48)) +
+  geom_jitter() +
+  theme_light()
+```
 
 
 

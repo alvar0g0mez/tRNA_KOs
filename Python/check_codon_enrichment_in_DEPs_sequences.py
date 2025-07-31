@@ -25,12 +25,12 @@ The goal here is to, for each KO strain:
 # 0. Set parameters
 ###############################################################
 alpha = 0.01
-lfc_threshold = 1.5
+lfc_threshold = 0.5
 working_from = "charite"
 if working_from == "charite":
-    base_dir = "C:/MyStuff/tRNA_KOs/"
+    base_dir = "C:\\MyStuff\\tRNA_KOs\\"
 elif working_from == "home":
-    base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+    base_dir = "\\home\\alvaro\\MyStuff\\tRNA_KOs\\"
 
 
 
@@ -39,13 +39,13 @@ elif working_from == "home":
 # 1. Load data
 ###############################################################
 # 1.1. DE proteins at alpha = 0.01
-json_file = os.path.join(base_dir, "Data\\Other\\enrichment_analysis\\de_proteins_list_001.json")
+json_file = os.path.join(base_dir, "Data\\enrichment_analysis\\de_proteins_list_001.json")
 with open(json_file, 'r') as f:
     de_proteins_dict_001 = json.load(f)
 del de_proteins_dict_001["WT"]
 
 # 1.2. SGD reference coding regions
-path = os.path.join(base_dir, "Data\\sgdref_cds.fa")
+path = os.path.join(base_dir, "Data\\databases\\sgdref_cds.fa")
 with open(path) as handle:
     ref_dict = {}
     all_prot_ids = []
@@ -130,12 +130,12 @@ for strain in list(de_proteins_dict_001.keys()):
 # 3. Save these as JSON files to analyze in R
 ###############################################################
 ## 3.1. With protein names
-json_file = os.path.join(base_dir, "Data\\Other\\check_codon_enrichment_in_protein_sequences\\codon_counts_with_protein_names.json")
+json_file = os.path.join(base_dir, "Data\\check_codon_enrichment_in_protein_sequences\\codon_counts_with_protein_names.json")
 with open(json_file, 'w') as fp:
     json.dump(final_count_dict_with_protein_names, fp)
 
 ## 3.2. Without protein names
-json_file = os.path.join(base_dir, "Data\\Other\\check_codon_enrichment_in_protein_sequences\\codon_counts.json")
+json_file = os.path.join(base_dir, "Data\\check_codon_enrichment_in_protein_sequences\\codon_counts.json")
 with open(json_file, 'w') as fp:
     json.dump(final_count_dict_just_counts, fp)
 
