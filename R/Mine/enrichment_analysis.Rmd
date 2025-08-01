@@ -61,7 +61,7 @@ if (working_from == "charite") {
 
 ## 1.1. Load data
 ```{r}
-# List of dataframes with the proteins that were DE in each KO strain - remove emtpy vectors
+# List of vectors with the proteins that were DE in each KO strain - remove emtpy vectors
 de_proteins_list <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), )
 de_proteins_list <- Filter(function(x) length(x) > 0, de_proteins_list)
 

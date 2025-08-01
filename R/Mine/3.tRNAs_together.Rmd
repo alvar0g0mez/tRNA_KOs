@@ -3908,7 +3908,7 @@ rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, tes
 
 
 ## 4.2. In the 5' end - about ribosome queueing, based on Kemp et al., 2012
-Need to print a list of the codons (in DNA code) to iterate over them in the Python script
+Need to save a list of the codons (in DNA code) to iterate over them in the Python script
 ```{r}
 # Load responsiveness dataset
 responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
@@ -3928,18 +3928,40 @@ write_json(codons,
            path = paste(base_dir, "tRNA_KOs/Data/check_codon_enrichment_in_protein_sequences/check_in_5_prime_end/unique_target_codons.json", sep=""))
 ```
 
-Load the data obtained in Python
+Load the data
 ```{r}
-# Load the data
+# In how many of the first codons from the 5' end do we want to check? (either 30 or 50)
 initial_codons_num <- 30
 
+# Codon content produced with Python
 codon_enrichment_initial_codons <- as.data.frame(fread(paste(base_dir, 
                                                              "tRNA_KOs/Data/check_codon_enrichment_in_protein_sequences/check_in_5_prime_end/codon_proportions_first_",
                                                              initial_codons_num, 
                                                              "_codons.csv",
                                                              sep = "")))
 
-# Set protein names as rownames
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
+
+# Load p-values dataframe from Messner et al., 2023
+messner_5k <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/5k/yeast5k_stat_DE.csv", sep="")))
+
+# UniProt dataset (rows in Messner et al., 2023 dataset are UniProt IDs)
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
+
+# DE proteins in tRNA_KOs
+de_proteins_list_tRNAs <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), )
+de_proteins_list_tRNAs <- Filter(function(x) length(x) > 0, de_proteins_list_tRNAs)
+
+# Load DE proteins from my DE analysis of the 5k data
+logFC_for_5k <- 0.5
+de_proteins_list_5k <- fromJSON(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".json", sep=""), )
+de_proteins_list_5k <- Filter(function(x) length(x) > 0, de_proteins_list_5k)
+```
+
+Some initial checks, manipulate the data obtained in Python and add information from Messner et al., 2023
+```{r}
+# Set protein names as rownames - create only numerical dataframe to make some histograms, then delete
 codon_enrichment_initial_codons_numerical <- codon_enrichment_initial_codons
 rownames(codon_enrichment_initial_codons_numerical) <- codon_enrichment_initial_codons_numerical$Protein
 codon_enrichment_initial_codons_numerical <- codon_enrichment_initial_codons_numerical %>%
@@ -3948,8 +3970,9 @@ codon_enrichment_initial_codons_numerical <- codon_enrichment_initial_codons_num
 # Look at distribution
 hist(as.matrix(codon_enrichment_initial_codons_numerical))
 sum(as.matrix(codon_enrichment_initial_codons_numerical > 0.2))
+rm(codon_enrichment_initial_codons_numerical)
 
-# Pivot longer, add information from master_dataset, filter for high proportion of target codon
+# Pivot longer, add information from master_dataset and Messner et al., 2023, filter for high proportion of target codon
 codon_enrichment_initial_codons_long <- pivot_longer(data = codon_enrichment_initial_codons, 
                                                      cols = -Protein,
                                                      names_to = "Codon",
@@ -3958,16 +3981,141 @@ temp_master <- master_dataset %>%
   dplyr::select(Codon, Amino_acid_1_letter, Anticodon, Family_size)
 
 codon_enrichment_initial_codons_long <- left_join(codon_enrichment_initial_codons_long, temp_master, by = "Codon") %>%
-  dplyr::distinct(Protein, Codon, Amino_acid_1_letter, Anticodon, Family_size, .keep_all = T)
+  dplyr::distinct(Protein, Codon, Amino_acid_1_letter, Anticodon, Family_size, .keep_all = T) %>%
+  dplyr::mutate(KOd_in_5k = case_when(Protein %in% colnames(messner_5k) ~ "Yes",
+                                      TRUE ~ "No"))
 
 codon_enrichment_initial_codons_long <- codon_enrichment_initial_codons_long %>%
   dplyr::filter(Percentage > 0.2) %>%
   dplyr::arrange(desc(Percentage), Anticodon)
 
 length(unique(codon_enrichment_initial_codons_long$Codon))
+sum(codon_enrichment_initial_codons_long$KOd_in_5k == "Yes")
+
+# Keep only those rows where the protein was KOd in the 5k paper, since now I'm going to compare the DE proteins there and in my proteomics data
+codon_enrichment_initial_codons_long <- codon_enrichment_initial_codons_long %>%
+  dplyr::filter(KOd_in_5k == "Yes")
+```
+--> 37 of the 59 proteins I want to check were KOd in the 5k paper, that's something I guess
+
+
+Build a list to compare DE proteins between the 5k and the tRNA KOs. The structure of the list will be the following: 
+- Codon: The main entry is named after the codon we are looking at
+  - 5k:
+    - 1st protein whose 5' end is rich in this codon and which was KOd in the 5k: the DE proteins in this KO in the 5k
+    - 2nd ''
+    - ...
+    - Total: concatenation of the above lists in this 5k entry
+  
+  - tRNA_KOs:
+    - 1st tRNA whose anticodon matches this codon: DE proteins found for the KO of this tRNA
+    - 2nd ''
+    - ...
+    - Total: concatenation of the above lists in this tRNA_KOs entry
+    
+Think that should do it :)
+```{r}
+de_proteins_per_target_codon <- list()
+codons <- unique(codon_enrichment_initial_codons_long$Codon)
+
+for (i in 1:length(codons)) {
+  # Grab the target codon we are evaluating in this iteration
+  codon <- codons[i]
+  list_for_this_codon <- list()
+  
+  # For the 5k data
+  list_5k <- list()
+  all_5k_de_proteins <- c()
+  
+  ## Get the names of the proteins whose 5' end is rich in this target codon
+  proteins_of_interest <- codon_enrichment_initial_codons_long %>%
+    dplyr::filter(Codon == codon) %>%
+    dplyr::pull(Protein)
+  
+  ## Grab the proteins that are DE when each of these proteins is KOd in the 5k
+  for (j in 1:length(proteins_of_interest)) {
+    protein_of_interest <- proteins_of_interest[j]
+    list_5k[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]]
+    all_5k_de_proteins <- c(all_5k_de_proteins, de_proteins_list_5k[[protein_of_interest]])
+  }
+  list_5k[["All_5k"]] <- all_5k_de_proteins
+  
+  ## Add the 5k list to the overall list for this target codon
+  list_for_this_codon[["list_5k"]] <- list_5k
+  
+  
+  
+  # For the tRNA KOs data
+  list_trna_kos <- list()
+  all_trna_ko_de_proteins <- c()
+  
+  ## Get the names of the tRNA KOs whose anticodon matches the target codon
+  anticodon <- unique(codon_enrichment_initial_codons_long$Anticodon[codon_enrichment_initial_codons_long$Codon == codon])
+  trna_kos <- names(de_proteins_list_tRNAs)[grepl(anticodon, names(de_proteins_list_tRNAs))]
+  
+  ## Grab the proteins that are DE in each of these tRNA KOs
+  for (j in 1:length(trna_kos)) {
+    trna <- trna_kos[j]
+    list_trna_kos[[trna]] <- de_proteins_list_tRNAs[[trna]]
+    all_trna_ko_de_proteins <- c(all_trna_ko_de_proteins, de_proteins_list_tRNAs[[trna]])
+  }
+  list_trna_kos[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins
+  
+  ## Add the tRNA KO list to the overall list for this target codon
+  list_for_this_codon[["list_tRNA_KO"]] <- list_trna_kos
+  
+  
+  
+  # Now that the list for this target codon is finished, we append it to the final list
+  de_proteins_per_target_codon[[codon]] <- list_for_this_codon
+}
 ```
 
+Investigate the Jaccard indexes for these lists of proteins
+For each codon, I'm going to calculate the Jaccard index between all lists of proteins and plot them in a heatmap I think
+```{r}
+list_of_Jaccard_mats <- list()
+plot_list <- list()
+codons <- names(de_proteins_per_target_codon)
 
+for (i in 1:length(codons)) {
+  codon <- codons[i]
+  
+  # Get the Jaccard matrix for all the lists of DE proteins for a certain codon and save it to a list
+  list_all_DE_proteins_for_this_codon <- c(de_proteins_per_target_codon[[codon]][["list_5k"]], de_proteins_per_target_codon[[codon]][["list_tRNA_KO"]])
+  Jaccard_mat <- get_jaccad_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
+  list_of_Jaccard_mats[[codon]] <- Jaccard_mat
+  
+  # Get a heatmap from this matrix and also save it to a list
+  melt_mat <- melt(Jaccard_mat)
+  highlight_rect_large <- annotate("rect",
+                                   xmin = 0,
+                                   xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,
+                                   ymin = which(levels(melt_mat$Var2) == "All_5k") + 0.5,
+                                   ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,
+                                   color = "darkblue",
+                                   fill = NA,
+                                   linewidth = 2)
+  highlight_rect_small <- annotate("rect",
+                                   xmin = which(levels(melt_mat$Var1) == "All_5k") - 0.5,
+                                   xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,              
+                                   ymin = which(levels(melt_mat$Var2) == "All_tRNA_KOs") - 0.5,
+                                   ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,        
+                                   color = "darkgreen",
+                                   fill = NA,
+                                   linewidth = 2)
+  plot_list[[codon]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                      geom_tile(aes(fill = value), colour = "white") +
+                      scale_fill_gradient(low = "white", high = "red") +
+                      xlab("") +
+                      ylab("") +
+                      labs(title = glue("{codon}")) +
+                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+                      highlight_rect_large +
+                      highlight_rect_small
+  print(plot_list[[codon]])
+}
+```
 
 
 

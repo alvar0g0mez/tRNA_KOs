@@ -13,28 +13,30 @@ library(ggplot2)
 ################### THIS FILE ONLY CONTAINS FUNCTIONS TO BE USED IN OTHER FILES ###################
 
 
-
-#' Borrowed this one from the ScRAP
-#' Match systematic to standard protein names and vice versa
+#' NOT FULLY TESTED!!! BE READY TO FIX WHEN NECESSARY :D
 #' 
-#' We provide a dataframe or a vector with either systematic or standard protein
+#' 
+#' Match different formats of protein names - UniProt, systematic SGD, standard
+#' 
+#' We provide a dataframe or a vector with either uniprot, systematic or standard protein
 #' names, and the output is either a vector of (or a dataframe where one of the 
-#' columns is) the corresponding standard/systematic protein names. It is 
+#' columns is) the corresponding uniprot/standard/systematic protein names. It is 
 #' important to notice that when standard names are required as output and there
-#' is no standard name in the database for a certain protein, the systematic 
+#' is no standard name in the database for a certain protein, the input format 
 #' name is returned instead.
 #' The default parameters take in a dataframe with a column containing
 #' systematic names and return the same dataframe with an extra column with the 
 #' standard protein names.
 #' 
-#' @param data This can be a vector with the systematic protein names, or a 
-#' dataframe where one column has the systematic protein names. If it is a 
-#' dataframe, the name of this column must be "gene_names"
-#' @param yeastmine A dataframe with the database information for protein names 
-#' in S. cerevisiae, as downloaded from AllianceMine. 
+#' @param data This can be a vector with the protein names we want to swith to 
+#' another format, or a dataframe where one column has the protein names. If it 
+#' is a dataframe, the name of this column must be "gene_names"
+#' @param uniprot_db A dataframe with the database information for protein names 
+#' in S. cerevisiae, as downloaded from UniProt 
 #' @param input A string indicating the type of names that are provided as 
-#' input, and hence which type of names that should be returned (the other one).
-#' Either "systematic" or "standard". 
+#' input. Either "uniprot", "systematic" or "standard". 
+#' @param output A string indicating the type of names that we want to get back.
+#' Either "uniprot", "systematic" or "standard".  
 #' @param simplify A boolean value indicating if we want the output to be simply
 #' a vector with the standard protein names (TRUE), or the input dataframe where
 #' the standard protein names are added as a new column (FALSE).
@@ -43,119 +45,96 @@ library(ggplot2)
 #' protein names (FALSE) or also all other columns in the provided yeastmine 
 #' dataframe.
 #' 
+#' @export
 
 match_systematic_and_standard_protein_names <- function(data, 
-                                                       yeastmine,
-                                                       input = "systematic",
-                                                       simplify = FALSE,
-                                                       add_extra_columns = FALSE) {
+                                                        uniprot,
+                                                        input,
+                                                        output,
+                                                        simplify = FALSE,
+                                                        add_extra_columns = FALSE) {
   
-  # First of all, make sure all letters are in uppercase. Then turn data to a dataframe and proceed
+  # Make sure all letters are in uppercase. Then turn data to a dataframe and proceed
   if (class(data) == "data.frame") {
     data$gene_names <- toupper(data$gene_names)
-  }
-  else {
+  } else {
     data <- toupper(data)
   }
   
+  # If we have received a vector as input, turn it into a dataframe and work from there
+  if (class(data) == "character") {
+    data <- data.frame(data)
+    colnames(data) <- c("gene_names")
+  }
   
+  # Setting the name of the input column to the one this format has in the UniProt dataset, and selecting the right column from the UniProt dataset 
+  # for the output, needs to be done specifically based on the input received
+  new_input_colname <- switch(tolower(input),
+                              "systematic" = "Gene Names (ordered locus)",
+                              "uniprot" = "Entry",
+                              "standard" = "Gene Names (primary)")
+  colnames(data)[colnames(data) == "gene_names"] <- new_input_colname
   
-  # FOR SYSTEMATIC TO STANDARD
-  if (input == "systematic") {
-    
-    # First of all, if we have received a vector as input, turn it into a dataframe and work from there
-    if (class(data) == "character") {
-      data <- data.frame(data)
-      colnames(data) <- c("gene_names")
-    }
-    
-    # Set the gene names column to Gene.secondaryIdentifier for merging with database
-    colnames(data)[colnames(data) == "gene_names"] <- "Gene.secondaryIdentifier"
-    
-    # Match the names to the YeastMine ones
-    df <- left_join(data, yeastmine, by = join_by(Gene.secondaryIdentifier))
+  # Match the names to the YeastMine ones
+  df <- left_join(data, uniprot, by = new_input_colname)
+  
+  # Change the name of the output column to something a bit nicer - and if the output is standard names, fill in the empty ones with the input format names
+  if (output == "uniprot") {
+    colnames(df)[colnames(df) == "Entry"] <- "uniprot_IDs"
+    output_col <- "uniprot_IDs"
+  }
+  else if (output == "systematic") {
+    colnames(df)[colnames(df) == "Gene Names (ordered locus)"] <- "systematic_SGD_IDs"
+    output_col <- "systematic_SGD_IDs"
+  }
+  else if (output == "standard") {
+    colnames(df)[colnames(df) == "Gene Names (primary)"] <- "standard_IDs"
+    output_col <- "standard_IDs"
     
     # Create the new column we'll keep as output, where we take standard gene names, but if this is not present, we fill it in with the systematic one
     df <- df %>% 
-      mutate(Final.Ids = case_when(Gene.symbol == "" ~ Gene.secondaryIdentifier,
-                                   is.na(Gene.symbol) ~ Gene.secondaryIdentifier,
-                                   TRUE ~ Gene.symbol))
-    
-    # Prepare the output according to the specifications provided when calling the function
-    if (simplify == TRUE) {
-      out <- as.character(df$Final.Ids)
-    }
-    else {
-      if (add_extra_columns == TRUE) {
-        out <- df
-      }
-      else if (class(data) == "data.frame") {
-        colnames_to_remove <- colnames(yeastmine)
-        colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c("Gene.secondaryIdentifier")]
-        out <- df %>%
-          dplyr::select(-any_of(colnames_to_remove))}
-      else {
-        out <- df %>%
-          dplyr::select(Gene.secondaryIdentifier, Final.Ids)
-      }
-      
-      # Change the final column name to Gene.symbol
-      colnames(out)[colnames(out) == "Final.Ids"] <- "Gene.symbol"
-    }
-    
-    # Return output
-    return(out)
+      dplyr::mutate(standard_IDs = case_when(standard_IDs == "" ~ new_input_colname,
+                                             is.na(standard_IDs) ~ new_input_colname,
+                                             TRUE ~ standard_IDs))
   }
   
-  # FOR STANDARD TO SYSTEMATIC
-  else if (input == "standard") {
-    
-    # First of all, if we have received a vector as input, turn it into a dataframe and work from there
-    if (class(data) == "character") {
-      data <- data.frame(data)
-      colnames(data) <- c("gene_names")
-    }
-    
-    # Set the gene names column to Gene.symbol for merging with database
-    colnames(data)[colnames(data) == "gene_names"] <- "Gene.symbol"
-    
-    # Match the names to the YeastMine ones
-    df <- left_join(data, yeastmine, by = join_by(Gene.symbol))
-    
-    # Create the new column we'll keep as output, where we take systematic gene names
-    df <- df %>% 
-      mutate(Final.Ids = case_when(Gene.secondaryIdentifier == "" ~ Gene.symbol,
-                                   is.na(Gene.secondaryIdentifier) ~ Gene.symbol,
-                                   TRUE ~ Gene.secondaryIdentifier))
-    
-    # Prepare the output according to the specifications provided when calling the function
-    if (simplify == TRUE) {
-      out <- as.character(df$Final.Ids)
-    }
-    else {
-      if (add_extra_columns == TRUE) {
-        out <- df
-      }
-      else if (class(data) == "data.frame") {
-        colnames_to_remove <- colnames(yeastmine)
-        colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c("Gene.symbol")]
-        out <- df %>%
-          dplyr::select(-any_of(colnames_to_remove))}
-      else {
-        out <- df %>%
-          dplyr::select(Gene.symbol, Final.Ids)
-      }
-      
-      # Change the final column name to Gene.secondaryIdentifier
-      colnames(out)[colnames(out) == "Final.Ids"] <- "Gene.secondaryIdentifier"
-    }
-    
-    # Return output
-    return(out)
+  # Set colname of input column to something nicer as well
+  if (input == "systematic") {
+    colnames(df)[colnames(df) == "Gene Names (ordered locus)"] <- "systematic_SGD_IDs"
+    input_col <- "systematic_SGD_IDs"
+  } 
+  else if (input == "uniprot") {
+    colnames(df)[colnames(df) == "Entry"] <- "uniprot_IDs"
+    input_col <- "uniprot_IDs"
   }
+  else if (input == "standard") {
+    colnames(df)[colnames(df) == "Gene Names (primary)"] <- "standard_IDs"
+    input_col <- "standard_IDs"
+  }
+  
+  
+  # Prepare the output according to the specifications provided when calling the function
+  if (simplify == TRUE) {
+    out <- as.character(df[output_col])
+  }
+  else {
+    if (add_extra_columns == TRUE) {
+      out <- df
+    }
+    else if (class(data) == "data.frame") {
+      colnames_to_remove <- colnames(uniprot)
+      colnames_to_remove <- colnames_to_remove[!colnames_to_remove %in% c(input_col)]
+      out <- df %>%
+        dplyr::select(-any_of(colnames_to_remove))}
+    else {
+      out <- df %>%
+        dplyr::select(input_col, output_col)
+    }
+  }
+  
+  # Return output
+  return(out)
 }
-
-
 
 
 
@@ -173,6 +152,8 @@ match_systematic_and_standard_protein_names <- function(data,
 #' 
 #' @param nt The nucleotide you want to transcribe
 #' @return The corresponding nucleotide (a 1-character string)
+#' 
+#' @export
 transcribe_nucleotide <- function(nt) {
   if (nt == "A") {return("U")}
   else if (nt == "C") {return("G")}
@@ -193,6 +174,8 @@ transcribe_nucleotide <- function(nt) {
 #' 
 #' @param nt The nucleotide you want to reverse transcribe
 #' @return The corresponding nucleotide (a 1-character string)
+#' 
+#' @export
 reverse_transcribe_nucleotide <- function(nt) {
   if (nt == "A") {return("T")}
   else if (nt == "C") {return("G")}
@@ -216,6 +199,8 @@ reverse_transcribe_nucleotide <- function(nt) {
 #' (as defined by "transcribe_nucleotide()")
 #' @return The corresponding anticodon (a 3-character string composed of only 
 #' nucleotide-valid letters)
+#' 
+#' @export
 codon_to_anticodon <- function(codon) {
   anticodon <- ""
   codon <- stringi::stri_reverse(codon)
@@ -242,6 +227,8 @@ codon_to_anticodon <- function(codon) {
 #' (as defined by "reverse_transcribe_nucleotide()")
 #' @return The corresponding codon (a 3-character string composed of only 
 #' nucleotide-valid letters)
+#' 
+#' @export
 anticodon_to_codon <- function(anticodon) {
   codon <- ""
   anticodon <- stringi::stri_reverse(anticodon)
@@ -267,6 +254,8 @@ anticodon_to_codon <- function(anticodon) {
 #' 
 #' @param codon A 3-character string 
 #' @return Another 3-character string
+#' 
+#' @export
 turn_t_to_u_in_wrong_GtRNAdb_anticodons <- function(anticodon) {
   fixed_anticodon <- ""
   for (i in 1:nchar(anticodon)) {
@@ -307,6 +296,8 @@ turn_t_to_u_in_wrong_GtRNAdb_anticodons <- function(anticodon) {
 #' 
 #' @return A numeric value, the Jaccard index between the 2 provided vectors, or
 #' NA
+#' 
+#' @export
 jaccard <- function(a, b) {
   if (length(a) > 0 & length(b) > 0) {
     intersection <- length(intersect(a, b))
@@ -335,6 +326,8 @@ jaccard <- function(a, b) {
 #' vectors in the list, those to be used
 #' 
 #' @return A numeric matrix containing Jaccard indexes
+#' 
+#' @export
 get_jaccad_index_matrix <- function(list_of_vectors, vectors_to_be_used) {
   # Create emtpy matrix to be filled and returned
   output_matrix <- matrix(nrow = length(vectors_to_be_used), ncol = length(vectors_to_be_used))
@@ -430,14 +423,18 @@ StatBin2 <- ggproto(
 #' the possible combinations that we have in the correlation matrix, and the 
 #' third column is "Value", with the corresponding correlation, between the 
 #' entries in the first 2 columns in that row
+#' 
+#' @export
 melt <- function(df) {
   if (is.matrix(df))  {
+    row_order <- rownames(df)
+    col_order <- colnames(df)
     df <- as.data.frame(df)
   }
   
-  df$Var1 <- as.factor(rownames(df))
+  df$Var1 <- factor(rownames(df), levels = row_order)  # preserve row order
   out <- pivot_longer(df, cols = -Var1, names_to = "Var2", values_to = "value")
-  out$Var2 <- as.factor(out$Var2)
+  out$Var2 <- factor(out$Var2, levels = col_order)     # preserve column order
   return(out)
 }
 
@@ -466,6 +463,8 @@ melt <- function(df) {
 #' 
 #' @return The input dataframe with a new column, counting the appearances of 
 #' the terms in the specified column
+#' 
+#' @export
 summarize_mine <- function(df, column_name, output_column_name) {
   # Perform the count
   temp <- df %>%
@@ -498,6 +497,8 @@ summarize_mine <- function(df, column_name, output_column_name) {
 #' 
 #' @return The anticodon in this tRNA, this is, the 3 letters in between 
 #' parenthesis in the name of the tRNA KO strain - "AGC" in this case
+#' 
+#' @export
 extract_anticodon_from_trna_name <- function(trna) {
   start <- str_locate(trna, "\\(")[1]+1
   end <- str_locate(trna, "\\)")[1]-1
@@ -586,6 +587,28 @@ fix_well_ids_with_no_0s <- function(df, column_name) {
   df[[column_name]] <- new_ids
   return(df)
 }
+
+
+
+
+
+#' Set column as rownames and remove column
+#' 
+#' Pretty straightforwards, 2 lines of code, but I'm tired of writing it out 
+#' every time
+#' 
+set_column_as_rownames <- function(df,
+                                   column_name,
+                                   remove_column = TRUE) {
+  rownames(df) <- df[[column_name]]
+  if (remove_column) {
+    df <- df %>%
+      dplyr::select(-all_of(column_name))
+  }
+  return(df)
+}
+
+
 
 
 
