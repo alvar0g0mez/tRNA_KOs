@@ -50,6 +50,7 @@ library(limpa)
 library(viridisLite)
 library(staplr)                       # contains rotate_pdf
 library(svglite)                      # to same images as .svg (vector based)
+library(helperfunctions)
 ```
 
 Set parameters
@@ -4115,6 +4116,16 @@ for (i in 1:length(codons)) {
                       highlight_rect_small
   print(plot_list[[codon]])
 }
+
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_5k_vs_tRNA_KOs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
 ```
 
 
