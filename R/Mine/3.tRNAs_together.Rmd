@@ -216,6 +216,7 @@ Dynamically define DE proteins in each strain, taking into account the SD of the
 
 Save DE proteins for GO enrichment analysis
 ```{r}
+# Just a list of DE proteins per strain
 yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 de_proteins_list <- list()
 for (i in 1:length(da)) {
@@ -228,8 +229,9 @@ for (i in 1:length(da)) {
   standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
   systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
   final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
-                                                                                                 yeastmine = yeastmine,
+                                                                                                 uniprot = uniprot_db,
                                                                                                  input = "standard",
+                                                                                                 output = "systematic",
                                                                                                  simplify = T))
   
   # Save protein names
@@ -320,6 +322,29 @@ DE <- list(fit = fit,
 rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_levels, contrast.matrix, design, fit3,
    yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
    systematic_protein_names, unique_KOs, trna_ko, dpcfit)
+```
+
+Save DE proteins (up- and down-regulated separately)
+```{r}
+de_proteins_up_down <- list()
+strains <- unique(da$Strain.Name)
+
+for (i in 1:length(strains)) {
+  strain <- strains[i]
+  temp <- da %>%
+    dplyr::filter(Strain.Name == strain)
+  
+  up_regulated <- temp$protein[temp$diffexpressed_adjusted == "Up_regulated"]
+  down_regulated <- temp$protein[temp$diffexpressed_adjusted == "Down_regulated"]
+  
+  de_proteins_up_down[[strain]] <- list("Up" = up_regulated,
+                                        "Down" = down_regulated)
+}
+
+
+# Save
+output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
+write_json(de_proteins_up_down, path=output_file)
 ```
 
 
@@ -3951,12 +3976,12 @@ messner_5k <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/5k/yeast5k_stat
 uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
 
 # DE proteins in tRNA_KOs
-de_proteins_list_tRNAs <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), )
+de_proteins_list_tRNAs <- fromJSON(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), )
 de_proteins_list_tRNAs <- Filter(function(x) length(x) > 0, de_proteins_list_tRNAs)
 
 # Load DE proteins from my DE analysis of the 5k data
 logFC_for_5k <- 0.5
-de_proteins_list_5k <- fromJSON(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".json", sep=""), )
+de_proteins_list_5k <- fromJSON(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".json", sep=""), )
 de_proteins_list_5k <- Filter(function(x) length(x) > 0, de_proteins_list_5k)
 ```
 
@@ -4014,19 +4039,27 @@ Build a list to compare DE proteins between the 5k and the tRNA KOs. The structu
     - ...
     - Total: concatenation of the above lists in this tRNA_KOs entry
     
-Think that should do it :)
+There will be 3 lists like this: one with all the DE proteins for that codon (as illustrated here), then 2 other versions where in one there's only the up-regulated proteins, and the down-regulated proteins in the other one. Think that should do it :)
 ```{r}
-de_proteins_per_target_codon <- list()
+de_proteins_per_target_codon_all <- list()
+de_proteins_per_target_codon_up <- list()
+de_proteins_per_target_codon_down <- list()
 codons <- unique(codon_enrichment_initial_codons_long$Codon)
 
 for (i in 1:length(codons)) {
   # Grab the target codon we are evaluating in this iteration
   codon <- codons[i]
-  list_for_this_codon <- list()
+  list_for_this_codon_all <- list()
+  list_for_this_codon_up <- list()
+  list_for_this_codon_down <- list()
   
   # For the 5k data
-  list_5k <- list()
-  all_5k_de_proteins <- c()
+  list_5k_all <- list()
+  all_5k_de_proteins_all <- c()
+  list_5k_up <- list()
+  all_5k_de_proteins_up <- c()
+  list_5k_down <- list()
+  all_5k_de_proteins_down <- c()
   
   ## Get the names of the proteins whose 5' end is rich in this target codon
   proteins_of_interest <- codon_enrichment_initial_codons_long %>%
@@ -4036,19 +4069,33 @@ for (i in 1:length(codons)) {
   ## Grab the proteins that are DE when each of these proteins is KOd in the 5k
   for (j in 1:length(proteins_of_interest)) {
     protein_of_interest <- proteins_of_interest[j]
-    list_5k[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]]
-    all_5k_de_proteins <- c(all_5k_de_proteins, de_proteins_list_5k[[protein_of_interest]])
+    list_5k_up[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]][["Up"]]
+    all_5k_de_proteins_up <- c(all_5k_de_proteins_up, de_proteins_list_5k[[protein_of_interest]][["Up"]])
+    
+    list_5k_down[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]][["Down"]]
+    all_5k_de_proteins_down <- c(all_5k_de_proteins_down, de_proteins_list_5k[[protein_of_interest]][["Down"]])
+    
+    list_5k_all[[protein_of_interest]] <- c(de_proteins_list_5k[[protein_of_interest]][["Down"]], de_proteins_list_5k[[protein_of_interest]][["Up"]])
+    all_5k_de_proteins_all <- c(all_5k_de_proteins_all, list_5k_all[[protein_of_interest]])
   }
-  list_5k[["All_5k"]] <- all_5k_de_proteins
+  list_5k_up[["All_5k"]] <- all_5k_de_proteins_up
+  list_5k_down[["All_5k"]] <- all_5k_de_proteins_down
+  list_5k_all[["All_5k"]] <- all_5k_de_proteins_all
   
   ## Add the 5k list to the overall list for this target codon
-  list_for_this_codon[["list_5k"]] <- list_5k
+  list_for_this_codon_up[["list_5k"]] <- list_5k_up
+  list_for_this_codon_down[["list_5k"]] <- list_5k_down
+  list_for_this_codon_all[["list_5k"]] <- list_5k_all
   
   
   
   # For the tRNA KOs data
-  list_trna_kos <- list()
-  all_trna_ko_de_proteins <- c()
+  list_trna_kos_all <- list()
+  all_trna_ko_de_proteins_all <- c()
+  list_trna_kos_up <- list()
+  all_trna_ko_de_proteins_up <- c()
+  list_trna_kos_down <- list()
+  all_trna_ko_de_proteins_down <- c()
   
   ## Get the names of the tRNA KOs whose anticodon matches the target codon
   anticodon <- unique(codon_enrichment_initial_codons_long$Anticodon[codon_enrichment_initial_codons_long$Codon == codon])
@@ -4057,18 +4104,30 @@ for (i in 1:length(codons)) {
   ## Grab the proteins that are DE in each of these tRNA KOs
   for (j in 1:length(trna_kos)) {
     trna <- trna_kos[j]
-    list_trna_kos[[trna]] <- de_proteins_list_tRNAs[[trna]]
-    all_trna_ko_de_proteins <- c(all_trna_ko_de_proteins, de_proteins_list_tRNAs[[trna]])
+    list_trna_kos_up[[trna]] <- de_proteins_list_tRNAs[[trna]][["Up"]]
+    all_trna_ko_de_proteins_up <- c(all_trna_ko_de_proteins_up, de_proteins_list_tRNAs[[trna]][["Up"]])
+    
+    list_trna_kos_down[[trna]] <- de_proteins_list_tRNAs[[trna]][["Down"]]
+    all_trna_ko_de_proteins_down <- c(all_trna_ko_de_proteins_down, de_proteins_list_tRNAs[[trna]][["Down"]])
+    
+    list_trna_kos_all[[trna]] <- c(de_proteins_list_tRNAs[[trna]][["Up"]], de_proteins_list_tRNAs[[trna]][["Down"]])
+    all_trna_ko_de_proteins_all <- c(all_trna_ko_de_proteins_all, list_trna_kos_all[[trna]])
   }
-  list_trna_kos[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins
+  list_trna_kos_up[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_up
+  list_trna_kos_down[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_down
+  list_trna_kos_all[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_all
   
   ## Add the tRNA KO list to the overall list for this target codon
-  list_for_this_codon[["list_tRNA_KO"]] <- list_trna_kos
+  list_for_this_codon_up[["list_tRNA_KO"]] <- list_trna_kos_up
+  list_for_this_codon_down[["list_tRNA_KO"]] <- list_trna_kos_down
+  list_for_this_codon_all[["list_tRNA_KO"]] <- list_trna_kos_all
   
   
   
   # Now that the list for this target codon is finished, we append it to the final list
-  de_proteins_per_target_codon[[codon]] <- list_for_this_codon
+  de_proteins_per_target_codon_up[[codon]] <- list_for_this_codon_up
+  de_proteins_per_target_codon_down[[codon]] <- list_for_this_codon_down
+  de_proteins_per_target_codon_all[[codon]] <- list_for_this_codon_all
 }
 ```
 
