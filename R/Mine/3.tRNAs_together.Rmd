@@ -77,7 +77,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -1954,15 +1954,6 @@ ggplot(data = melted_cormat_high_var, aes(x = value)) +
        subtitle = "With only highly variable proteins") +
   xlab("Correlation") +
   ylab("Count")
-```
-
-Look into the strains showing low correlation with others in general
-```{r}
-# Look at the top 15 strains that show up the most among pairs with correlation less than 0.6
-melted_cormat_low_cor <- melted_cormat_high_var %>%
-  dplyr::filter(value < 0.6)
-low_cor_strains <- c(as.character(melted_cormat_low_cor$Var1), as.character(melted_cormat_low_cor$Var2))
-head(sort(table(low_cor_strains), decreasing = T), 15)
 
 # Actually probably better to get the average correlation for each strain with all others?
 melted_cormat_high_var_avg <- melted_cormat_high_var %>%
@@ -1979,6 +1970,30 @@ ggplot(data = melted_cormat_high_var_avg, aes(x = `Average correlation`)) +
   labs(title = "Histogram of average correlations betweeen each strain and all others",
        subtitle = "Only using high-variability proteins") +
   xlab("Correlation")
+```
+
+Look into the strains showing low correlation with others in general
+```{r}
+# Look at the top 15 strains that show up the most among pairs with correlation less than 0.6
+melted_cormat_low_cor <- melted_cormat_high_var %>%
+  dplyr::filter(value < 0.6)
+low_cor_strains <- c(as.character(melted_cormat_low_cor$Var1), as.character(melted_cormat_low_cor$Var2))
+head(sort(table(low_cor_strains), decreasing = T), 15)
+
+# Grab the names of strains with an average correlation to all others below 0.6
+low_avg_cor_strains <- melted_cormat_high_var_avg %>%
+  dplyr::filter(`Average correlation` < 0.6) %>%
+  dplyr::pull(Strain)
+
+# Check the correlations of these strains to each other - see if they are high, this is, if this strains are somehow a subgroup with something special (probably not, but need to check it)
+## Filter trna_ko to only have this strains
+trna_ko_low_cor_strains <- trna_ko[, colnames(trna_ko) %in% low_avg_cor_strains]
+
+## Keeping only highly variable proteins
+cormat_low_corr <- cor(trna_ko_low_cor_strains)
+melted_cormat_low_corr <- melt(cormat_low_corr)
+
+## --> Huh, they actually do have high correlations to each other?? Need to make sure I did this properly but I guess this is nice?
 ```
 
 
@@ -3981,7 +3996,7 @@ de_proteins_list_tRNAs <- Filter(function(x) length(x) > 0, de_proteins_list_tRN
 
 # Load DE proteins from my DE analysis of the 5k data
 logFC_for_5k <- 0.5
-de_proteins_list_5k <- fromJSON(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".json", sep=""), )
+de_proteins_list_5k <- readRDS(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".RData", sep=""))
 de_proteins_list_5k <- Filter(function(x) length(x) > 0, de_proteins_list_5k)
 ```
 
@@ -4069,18 +4084,18 @@ for (i in 1:length(codons)) {
   ## Grab the proteins that are DE when each of these proteins is KOd in the 5k
   for (j in 1:length(proteins_of_interest)) {
     protein_of_interest <- proteins_of_interest[j]
-    list_5k_up[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]][["Up"]]
-    all_5k_de_proteins_up <- c(all_5k_de_proteins_up, de_proteins_list_5k[[protein_of_interest]][["Up"]])
+    list_5k_up[[protein_of_interest]] <- unlist(de_proteins_list_5k[[protein_of_interest]][["Up"]])
+    all_5k_de_proteins_up <- c(all_5k_de_proteins_up, list_5k_up[[protein_of_interest]])
     
-    list_5k_down[[protein_of_interest]] <- de_proteins_list_5k[[protein_of_interest]][["Down"]]
-    all_5k_de_proteins_down <- c(all_5k_de_proteins_down, de_proteins_list_5k[[protein_of_interest]][["Down"]])
+    list_5k_down[[protein_of_interest]] <- unlist(de_proteins_list_5k[[protein_of_interest]][["Down"]])
+    all_5k_de_proteins_down <- c(all_5k_de_proteins_down, list_5k_down[[protein_of_interest]])
     
-    list_5k_all[[protein_of_interest]] <- c(de_proteins_list_5k[[protein_of_interest]][["Down"]], de_proteins_list_5k[[protein_of_interest]][["Up"]])
+    list_5k_all[[protein_of_interest]] <- c(list_5k_up[[protein_of_interest]], list_5k_down[[protein_of_interest]])
     all_5k_de_proteins_all <- c(all_5k_de_proteins_all, list_5k_all[[protein_of_interest]])
   }
-  list_5k_up[["All_5k"]] <- all_5k_de_proteins_up
-  list_5k_down[["All_5k"]] <- all_5k_de_proteins_down
-  list_5k_all[["All_5k"]] <- all_5k_de_proteins_all
+  list_5k_up[["All_5k"]] <- unique(all_5k_de_proteins_up)
+  list_5k_down[["All_5k"]] <- unique(all_5k_de_proteins_down)
+  list_5k_all[["All_5k"]] <- unique(all_5k_de_proteins_all)
   
   ## Add the 5k list to the overall list for this target codon
   list_for_this_codon_up[["list_5k"]] <- list_5k_up
@@ -4104,18 +4119,18 @@ for (i in 1:length(codons)) {
   ## Grab the proteins that are DE in each of these tRNA KOs
   for (j in 1:length(trna_kos)) {
     trna <- trna_kos[j]
-    list_trna_kos_up[[trna]] <- de_proteins_list_tRNAs[[trna]][["Up"]]
-    all_trna_ko_de_proteins_up <- c(all_trna_ko_de_proteins_up, de_proteins_list_tRNAs[[trna]][["Up"]])
+    list_trna_kos_up[[trna]] <- unlist(de_proteins_list_tRNAs[[trna]][["Up"]])
+    all_trna_ko_de_proteins_up <- c(all_trna_ko_de_proteins_up, list_trna_kos_up[[trna]])
     
-    list_trna_kos_down[[trna]] <- de_proteins_list_tRNAs[[trna]][["Down"]]
-    all_trna_ko_de_proteins_down <- c(all_trna_ko_de_proteins_down, de_proteins_list_tRNAs[[trna]][["Down"]])
+    list_trna_kos_down[[trna]] <- unlist(de_proteins_list_tRNAs[[trna]][["Down"]])
+    all_trna_ko_de_proteins_down <- c(all_trna_ko_de_proteins_down, list_trna_kos_down[[trna]])
     
-    list_trna_kos_all[[trna]] <- c(de_proteins_list_tRNAs[[trna]][["Up"]], de_proteins_list_tRNAs[[trna]][["Down"]])
+    list_trna_kos_all[[trna]] <- c(unlist(de_proteins_list_tRNAs[[trna]][["Up"]]), unlist(de_proteins_list_tRNAs[[trna]][["Down"]]))
     all_trna_ko_de_proteins_all <- c(all_trna_ko_de_proteins_all, list_trna_kos_all[[trna]])
   }
-  list_trna_kos_up[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_up
-  list_trna_kos_down[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_down
-  list_trna_kos_all[["All_tRNA_KOs"]] <- all_trna_ko_de_proteins_all
+  list_trna_kos_up[["All_tRNA_KOs"]] <- unique(all_trna_ko_de_proteins_up)
+  list_trna_kos_down[["All_tRNA_KOs"]] <- unique(all_trna_ko_de_proteins_down)
+  list_trna_kos_all[["All_tRNA_KOs"]] <- unique(all_trna_ko_de_proteins_all)
   
   ## Add the tRNA KO list to the overall list for this target codon
   list_for_this_codon_up[["list_tRNA_KO"]] <- list_trna_kos_up
@@ -4134,52 +4149,96 @@ for (i in 1:length(codons)) {
 Investigate the Jaccard indexes for these lists of proteins
 For each codon, I'm going to calculate the Jaccard index between all lists of proteins and plot them in a heatmap I think
 ```{r}
-list_of_Jaccard_mats <- list()
-plot_list <- list()
-codons <- names(de_proteins_per_target_codon)
-
-for (i in 1:length(codons)) {
-  codon <- codons[i]
+# Function that calculates Jaccard indexes and generates heatmaps of them - so I can apply it to the lists of all proteins, of up-regulated ones and of down-regulates ones
+jaccard_indexes_and_heatmaps <- function(de_proteins_per_target_codon) {
+  list_of_Jaccard_mats <- list()
+  plot_list <- list()
+  codons <- names(de_proteins_per_target_codon)
   
-  # Get the Jaccard matrix for all the lists of DE proteins for a certain codon and save it to a list
-  list_all_DE_proteins_for_this_codon <- c(de_proteins_per_target_codon[[codon]][["list_5k"]], de_proteins_per_target_codon[[codon]][["list_tRNA_KO"]])
-  Jaccard_mat <- get_jaccad_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
-  list_of_Jaccard_mats[[codon]] <- Jaccard_mat
-  
-  # Get a heatmap from this matrix and also save it to a list
-  melt_mat <- melt(Jaccard_mat)
-  highlight_rect_large <- annotate("rect",
-                                   xmin = 0,
-                                   xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,
-                                   ymin = which(levels(melt_mat$Var2) == "All_5k") + 0.5,
-                                   ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,
-                                   color = "darkblue",
-                                   fill = NA,
-                                   linewidth = 2)
-  highlight_rect_small <- annotate("rect",
-                                   xmin = which(levels(melt_mat$Var1) == "All_5k") - 0.5,
-                                   xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,              
-                                   ymin = which(levels(melt_mat$Var2) == "All_tRNA_KOs") - 0.5,
-                                   ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,        
-                                   color = "darkgreen",
-                                   fill = NA,
-                                   linewidth = 2)
-  plot_list[[codon]] <- ggplot(melt_mat, aes(Var1, Var2)) +
-                      geom_tile(aes(fill = value), colour = "white") +
-                      scale_fill_gradient(low = "white", high = "red") +
-                      xlab("") +
-                      ylab("") +
-                      labs(title = glue("{codon}")) +
-                      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-                      highlight_rect_large +
-                      highlight_rect_small
-  print(plot_list[[codon]])
+  for (i in 1:length(codons)) {
+    codon <- codons[i]
+    
+    # Get the Jaccard matrix for all the lists of DE proteins for a certain codon and save it to a list
+    list_all_DE_proteins_for_this_codon <- c(de_proteins_per_target_codon[[codon]][["list_5k"]], de_proteins_per_target_codon[[codon]][["list_tRNA_KO"]])
+    Jaccard_mat <- get_jaccard_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
+    list_of_Jaccard_mats[[codon]] <- Jaccard_mat
+    
+    # Get a heatmap from this matrix and also save it to a list
+    melt_mat <- helperfunctions::melt(Jaccard_mat)
+    highlight_rect_large <- annotate("rect",
+                                     xmin = 0,
+                                     xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,
+                                     ymin = which(levels(melt_mat$Var2) == "All_5k") + 0.5,
+                                     ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,
+                                     color = "darkblue",
+                                     fill = NA,
+                                     linewidth = 2)
+    highlight_rect_small <- annotate("rect",
+                                     xmin = which(levels(melt_mat$Var1) == "All_5k") - 0.5,
+                                     xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,              
+                                     ymin = which(levels(melt_mat$Var2) == "All_tRNA_KOs") - 0.5,
+                                     ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,        
+                                     color = "darkgreen",
+                                     fill = NA,
+                                     linewidth = 2)
+    plot_list[[codon]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                              geom_tile(aes(fill = value), colour = "white") +
+                              scale_fill_gradient(low = "white", high = "red") +
+                              coord_fixed() +
+                              xlab("") +
+                              ylab("") +
+                              labs(title = glue("{codon}")) +
+                              theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+                              highlight_rect_large +
+                              highlight_rect_small
+    print(plot_list[[codon]])
+  }
+  out <- list(list_of_Jaccard_mats, plot_list)
+  return(out)
 }
+```
 
+- For all DE proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_all)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
 
 # Save the plots to a PDF
 my_grobs <- lapply(plot_list, ggplotGrob)
-output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_5k_vs_tRNA_KOs_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_5k_vs_tRNA_KOs_all_DE_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
+```
+
+- For up-regulated proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_up)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_5k_vs_tRNA_KOs_up_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
+```
+
+- For down-regulated proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_down)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_5k_vs_tRNA_KOs_down_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
 ggsave(
    filename = output_file, 
    plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
@@ -5704,7 +5763,7 @@ for (i in 1:length(codons)) {
 
 
 
-# 6.5. Get the top 50 proteins between major KOs of the same family and compare their overlap
+## 6.5. Get the top 50 proteins between major KOs of the same family and compare their overlap
 Cannot really do it based on the scores (as Markus suggested) for now since the scores for most of the strains are equal for like 90% or more of the proteins - maybe should fix that? But for now I'm doing it based on DE proteins, sorry, don't have time for this since I have to present in the group meeting soon
 ```{r}
 

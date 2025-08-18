@@ -9,6 +9,12 @@ library(jsonlite)
 
 
 
+# This is quite stupid: when I ran this in my Charité computer it worked fine, but from my home computer it goes over 12GB
+# of RAM and crashes. Hence I am going to do the beginning here (since limpa cannot be installed in the cluster), then export
+# the data and do the remaining stuff in the cluster, where it shouldn't crash. Super annoying and sub-optimal, but I think 
+# it's my only option for now. 
+
+
 
 
 # 0. Set up 
@@ -34,7 +40,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 ## Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -135,7 +141,7 @@ for (i in 1:length(da)) {
   
   # Collect names of DE proteins
   general_protein_names <- rownames(temp)[(temp$adj.P.Val < alpha) &
-                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
+                                            (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
   
   # Save protein names
   de_proteins_list[[names(da)[i]]] <- general_protein_names
@@ -143,102 +149,11 @@ for (i in 1:length(da)) {
 output_file <- paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
 write_json(de_proteins_list, path=output_file, pretty = TRUE)
 
+# Save da to do the rest of the analysis in the cluster
+saveRDS(da, file = paste(base_dir, "tRNA_KOs/Data/5k/temp/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".RData", sep=""))
 
 
-
-
-
-
-# 4. Finish processing the DE analysis results
-## Format data
-da <- bind_rows(da) %>%
-  dplyr::mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
-  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-temp <- sample_layout %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
-da <- left_join(da, temp, by = "Strain.Name") %>%
-  dplyr::relocate(Strain.Name, .before = logFC) %>%
-  dplyr::relocate(protein, .after = Strain.Name) %>%
-  filter(Strain.Name != "WT")
-
-da <- da %>%
-  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
-  dplyr::mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
-                                                   (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
-                                                   TRUE ~ "Not_significant"),
-                diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
-                                                       (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
-                                                       TRUE ~ "Not_significant"))
-
-da <- da %>%
-  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-
-## Add a column to da with the number of replicates per KO - by me
-unique_KOs <- unique(da$Strain.Name)
-replicates <- c()
-for (i in 1:length(unique_KOs)) {
-  KO <- unique_KOs[i]
-  replicates <- c(replicates, sum(grepl(KO, colnames(y_protein), fixed = T)))
-}
-KOs_replicates <- data.frame(unique_KOs, replicates)
-colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
-da <- merge(da, KOs_replicates, by = "Strain.Name")
-
-## Responsiveness
-responsiveness <- da %>%
-  group_by(Strain.Name) %>%
-  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
-            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
-            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
-            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
-            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
-            Replicate_num = mean(Replicate_num)) %>%
-  mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
-         chromosome_letter = substr(Strain.Name, 8, 8),
-         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
-         up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
-         up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
-  arrange(Amino_acid_1_letter) %>%
-  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
-
-## Add all amino acid names
-amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep="")))
-responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
-
-## Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
-DE <- list(fit = fit,
-           fit2 = fit2,
-           da = da, 
-           responsiveness= responsiveness)
-
-
-## Remove unnecesary variables
-rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_levels, contrast.matrix, design, fit3,
-   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-   systematic_protein_names, unique_KOs, trna_ko, dpcfit)
-
-
-
-
-
-## Save DE proteins (up- and down-regulated separately)
-de_proteins_up_down <- list()
-strains <- unique(da$Strain.Name)
-
-for (i in 1:length(strains)) {
-  strain <- strains[i]
-  temp <- da %>%
-    dplyr::filter(Strain.Name == strain)
-  
-  up_regulated <- temp$protein[temp$diffexpressed_adjusted == "Up_regulated"]
-  down_regulated <- temp$protein[temp$diffexpressed_adjusted == "Down_regulated"]
-  
-  de_proteins_up_down[[strain]] <- list("Up" = up_regulated,
-                                        "Down" = down_regulated)
-}
-
-output_file <- paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
-write_json(de_proteins_up_down, path=output_file)
+# ---> Next is uploading this "da" to the cluster and doing the following steps there, in a script with the same name as this one :)
 
 
 
