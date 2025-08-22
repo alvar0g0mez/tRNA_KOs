@@ -72,11 +72,17 @@ if (working_from == "charite") {
 Load data
 ```{r}
 # Boris pre-processed data - normalized, batch and drift corrected
-raw_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv", sep="")))
+if (working_from == "home") {
+  raw_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv", sep="")))
+} else 
+  if (working_from == "charite") {
+    raw_data <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
+  }
+
 rownames(raw_data) <- raw_data$Precursor.Id
 
 # Sample layout - from the S drive
-sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+metadata <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/metadata_alvaro.tsv", sep="")))
 
 # Separate metadata
 metadata <- raw_data %>%
@@ -87,7 +93,7 @@ raw_data <- raw_data %>%
 
 # Fix colnames (sample names)
 colnames(raw_data) <- sapply(colnames(raw_data), function(x) str_replace_all(x, "-", "_"))
-temp_match <- sample_layout %>%
+temp_match <- metadata %>%
   dplyr::select(Sample.ID.unique, final_proteomics_colnames)
 temp_colnames <- data.frame(Sample.ID.unique = colnames(raw_data)) %>%
   left_join(temp_match, by = "Sample.ID.unique")
@@ -100,28 +106,63 @@ uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/unipr
 rm(temp_match, temp_colnames)
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################## OLD CODE ##############################
+Keep until I have tested that the functions above work fine
+
+
+
 Prepare limpa input
 ```{r}
 # Protein labels
 protein.id <- metadata$Protein.Group
 
 # Design matrix
-## Get the names of all KOs we have, and set WT as the reference
-trna_levels <- c()
+## Get the names of all strains, and set WT as the reference
+my_levels <- c()
 for (i in 1:ncol(raw_data)) {
   sample_name <- colnames(raw_data)[i]
-  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
+  strain_name <- metadata$Strain.Name[metadata$final_proteomics_colnames == sample_name]
   if (length(strain_name) > 1) {
     strain_name <- strain_name[1]
   }
-  trna_levels <- c(trna_levels, strain_name)
+  my_levels <- c(my_levels, strain_name)
 }
-trna_levels <- as.factor(trna_levels)
-trna_levels <- relevel(trna_levels, ref = "WT")
+my_levels <- as.factor(my_levels)
+my_levels <- relevel(my_levels, ref = "WT")
 
 ## Generate design matrix
-mm <- model.matrix(~ 0 + trna_levels)
-colnames(mm) <- levels(trna_levels)
+mm <- model.matrix(~ 0 + my_levels)
+colnames(mm) <- levels(my_levels)
 ```
 
 Run limpa analysis

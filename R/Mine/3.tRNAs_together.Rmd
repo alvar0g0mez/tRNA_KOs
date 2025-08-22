@@ -77,7 +77,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -176,6 +176,7 @@ treatments <- sapply(treatments, function(x) str_replace(x, "\\)", "."))
 design <- model.matrix(~ 0 + treatments)
 colnames(design) <- treatments
 contrast_list <- paste0(treatments, "-WT")
+contrast_list <- contrast_list[!(contrast_list %in% c("WT-WT"))]          # Remove the contrasts of the WT to itself
 
 ## Need to change parentheses to dots in the fit object as well so they match...
 colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str_replace(x, "\\(", "."))
@@ -197,6 +198,7 @@ for (i in 1:n_batches) {
   
   # Store topTables for each contrast
   for (contrast_name in colnames(contrast.matrix)) {
+    print(contrast_name)
     new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
     if (grepl(".", new_name)) {
         substr(new_name, 3, 3) <- "("
