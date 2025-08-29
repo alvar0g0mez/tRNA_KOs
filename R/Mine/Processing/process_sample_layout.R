@@ -15,7 +15,7 @@ library(stringr)
 
 
 # Set up
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -59,6 +59,7 @@ sample_layout <- sample_layout %>%
 
 # Create a column with the column IDs of the shape I want to be working with for my proteomics data
 # Here I also deal with the  strains that are present twice! Label their replicates from 1 to 6 instead of 1 to 3 twice, which made it a bit hard to work with them
+# I also take the opportunity here to switch from the format tA(AGC)J to the format tA.AGC.J! This was added later
 sample_layout <- sample_layout %>%
   dplyr::mutate(final_proteomics_colnames = case_when(Strain.Name == "WT" ~ Sample.ID.unique,
                                                       Strain.Name == "QC" ~ Sample.ID.unique,
@@ -66,7 +67,14 @@ sample_layout <- sample_layout %>%
                                                       Strain.Name == "tV(AAC)J" & Strain.ID == 87 ~ paste(Strain.Name, "_0", Replicate+3, sep=""),
                                                       Strain.Name == "tA(AGC)K1" & Strain.ID == 96 ~ paste(Strain.Name, "_0", Replicate, sep=""),
                                                       Strain.Name == "tA(AGC)K1" & Strain.ID == 97 ~ paste(Strain.Name, "_0", Replicate+3, sep=""),
-                                                      TRUE ~ paste(Strain.Name, "_0", Replicate, sep="")))
+                                                      TRUE ~ paste(Strain.Name, "_0", Replicate, sep=""))) %>%
+  dplyr::mutate(final_proteomics_colnames = str_replace(final_proteomics_colnames, "\\(", ".")) %>%
+  dplyr::mutate(final_proteomics_colnames = str_replace(final_proteomics_colnames, "\\)", "."))
+
+# Change the format tA(AGC)J to the format tA.AGC.J in the Strain.Name column as well
+sample_layout <- sample_layout %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\(", ".")) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\)", "."))
 
 
 # Add some columns - I used to do this in my main analysis file
@@ -131,40 +139,9 @@ sample_layout <- sample_layout %>%
 if (working_from == "home") {
   fwrite(sample_layout, "/home/alvaro/MyStuff/tRNA_KOs/Data/basic/sample_layout_alvaro.tsv")
 } else {
-  fwrite(sample_layout, "S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv")
+  fwrite(sample_layout, "S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/metadata_alvaro.tsv")
+  fwrite(sample_layout, "C:/MyStuff/tRNA_KOs/Data/basic/metadata_alvaro.tsv")
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

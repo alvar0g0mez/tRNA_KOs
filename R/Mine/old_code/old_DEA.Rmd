@@ -262,8 +262,8 @@ hist(apply(trna_ko_log, 1, var), breaks = 60)
 mean(apply(trna_ko_log, 1, var))
 median(apply(trna_ko_log, 1, var))
 
- Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
- Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of hose with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE nyway...
+# Expression is pretty much normally distributed, we'll get rid of those proteins in the bottom end
+# Variability across samples is extremely low though, so the vast majority of genes are detected pretty much the same across all samples - I'll get rid only of # those with extremely low variances? Otherwise I could get rid of all of them below 0.15, which is going to be the majority, but if they were not going to be DE anyway...
 # Remove lowly expressed proteins
 keep <- rowMeans(trna_ko_log) > mean_log2_across_all_samples_threshold  # e.g., threshold = 5 for log2 CPMs
 trna_ko_log_filtered <- trna_ko_log[keep, ]

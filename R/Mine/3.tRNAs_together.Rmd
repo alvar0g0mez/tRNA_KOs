@@ -100,7 +100,7 @@ if (working_from == "charite") {
 proteomics_raw <- read.delim2(paste(base_dir, 'tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_ProteinMaxLFQ_driftcorrected_batchcorrected_onWTs.tsv', sep=""), header = T)
 
 # Sample layout
-sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep="")))
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/metadata_alvaro.tsv", sep="")))
 
 # The master tRNA dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
@@ -128,7 +128,7 @@ trna_ko <- y.protein$E
 
 
 ### 1.2. Perform DE analysis - with limpa! Using this one from now on
-Load results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
+After loading results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
 ```{r}
 # Prepare to perform the DEA
 ## Get the names of all KOs we have, and set WT as the reference
@@ -149,19 +149,30 @@ mm <- model.matrix(~ 0 + trna_levels)
 colnames(mm) <- levels(trna_levels)
 
 fit <- dpcDE(y.protein, mm)
-```
 
-Quality control
-```{r}
-# Limpa QC plots
-#plotDPC(dpcfit)
-#plotMDSUsingSEs(y.protein)
 
-## Average expression of each protein across all samples - need to get this working for limpa!!
-#hist(rowMeans(y.protein))
-#hist(apply(y.protein, 1, var), breaks = 60)
-#mean(apply(y.protein, 1, var))
-#median(apply(y.protein, 1, var))
+
+
+
+# NEW, WITH FUNCTION, NOT YET TESTED!
+## Input only the sample layout for the samples present in the protein-level data
+sample_layout_present <- sample_layout[sample_layout$final_proteomics_colnames %in% colnames(y.protein$E),]
+
+## Run the DE analysis 
+de_analysis_results <- de_analysis(raw_data = y.protein,
+                                   metadata = sample_layout_present,
+                                   method = "limpa",
+                                   strain_name_column = "Strain.Name",
+                                   sample_name_column = "final_proteomics_colnames",
+                                   reference_strain = "WT", 
+                                   N = 10,
+                                   lfc_threshold = lfc_threshold,
+                                   alpha = alpha)
+
+da <- de_analysis_results[["DE_df"]]
+responsiveness <- create_responsiveness_df(da,
+                                           alpha = alpha,
+                                           lfc_threshold = lfc_threshold)
 ```
 
 Perform the DE analysis
@@ -209,12 +220,6 @@ for (i in 1:n_batches) {
   }
 }
 ```
-
-Dynamically define DE proteins in each strain, taking into account the SD of the logFC instead of a fixed threshold
-```{r}
-# Iterate over the dfs in the list "da", for each plot the distribution of the logFC and add some vertical lines, probably at mean+2*SD or something like that and see what that looks like, to start figuring out at how many SD we want to set the threshold - also maybe vertical line at logFC = 0.5 and -0.5, to compare to that? Since that is what I am using right now
-```
-
 
 Save DE proteins for GO enrichment analysis
 ```{r}
