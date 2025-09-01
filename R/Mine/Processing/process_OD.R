@@ -16,14 +16,14 @@ library(xlsx)
 working_from = "home"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  base_dir = "/home/alvaro/MyStuff/"
   
   # Load the sample layout
   sample_layout <- as.data.frame(fread("/home/alvaro/MyStuff/tRNA_KOs/Data/Other/proteomics_data/sample_layout_alvaro.tsv"))
   
 } else
   if (working_from == "charite") {
-    base_dir = "C:/MyStuff/tRNA_KOs/"
+    base_dir = "C:/MyStuff/"
     
     # Load the sample layout
     sample_layout <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/12_Analysis_Alvaro/sample_layout_alvaro.tsv"))
@@ -34,8 +34,8 @@ if (working_from == "home") {
 
 # Load data
 #processed_od <- read.xlsx(paste(base_dir, "Data/OD_processed.xlsx", sep=""), sheetIndex = 1)
-processed_od <- as.data.frame(fread(paste(base_dir, "Data/OD_processed.csv", sep="")))
-master_dataset <- as.data.frame(fread(paste(base_dir, "Data/Other/GtRNAdb/master_tRNA_dataset.csv", sep="")))
+processed_od <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/OD_processed.csv", sep="")))
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
 
 
 
@@ -80,8 +80,14 @@ out <- out %>%
                                          TRUE ~ Amino_acid_1_letter))
 
 
+# Change the strain names from using parenthesis to using dots
+out <- out %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\(", ".")) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\)", "."))
+
+
 # Save the final version with the new column
-fwrite(out, paste(base_dir, "Data/OD_final.csv", sep=""))
+fwrite(out, paste(base_dir, "tRNA_KOs/Data/basic/OD_final.csv", sep=""))
 
 
 

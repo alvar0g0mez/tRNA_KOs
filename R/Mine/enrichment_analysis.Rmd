@@ -80,9 +80,12 @@ source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep="")
 
 
 
-# 2. GO enrichment analysis - for proteins at 0.01
+# 2. GO enrichment analysis - for proteins at 0.01 - THE DATA PRODUCED FOR THIS ARE NOT UPDATED, THEY ARE NOT PRODUCED BY THE NEW FUNCTIONS I USE FOR DA! 
+I COULD ADAPT THEM FOR THAT, BUT I THINK I CAN USE GSEA WITH GO ANNOTATION INSTEAD??? IN THAT WAY I CAN JUST WORK FROM THE DA DATAFRAME
+
 ## 2.1. Get NCBI gene IDs for each of the systematic name vectors I have
 ```{r}
+warning("THIS CODE IS NOT SUPPOSED TO RAN ANYMORE! READ THE TITLE OF THE SECTION")
 de_proteins_list_entrez_ID <- list()
 for (i in 1:length(de_proteins_list)) {
   temp <- data.frame("Protein_stable_ID" = de_proteins_list[[i]])

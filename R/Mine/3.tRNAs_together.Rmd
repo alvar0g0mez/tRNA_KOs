@@ -127,38 +127,13 @@ trna_ko <- y.protein$E
 ```
 
 
-### 1.2. Perform DE analysis - with limpa! Using this one from now on
-After loading results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
+
+## 1.2. Differential expression analysis
 ```{r}
-# Prepare to perform the DEA
-## Get the names of all KOs we have, and set WT as the reference
-trna_levels <- c()
-for (i in 1:ncol(trna_ko)) {
-  sample_name <- colnames(trna_ko)[i]
-  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
-  if (length(strain_name) > 1) {
-    strain_name <- strain_name[1]
-  }
-  trna_levels <- c(trna_levels, strain_name)
-}
-trna_levels <- as.factor(trna_levels)
-trna_levels <- relevel(trna_levels, ref = "WT")
-
-## Generate design matrix
-mm <- model.matrix(~ 0 + trna_levels)
-colnames(mm) <- levels(trna_levels)
-
-fit <- dpcDE(y.protein, mm)
-
-
-
-
-
-# NEW, WITH FUNCTION, NOT YET TESTED!
-## Input only the sample layout for the samples present in the protein-level data
+# Input only the sample layout for the samples present in the protein-level data
 sample_layout_present <- sample_layout[sample_layout$final_proteomics_colnames %in% colnames(y.protein$E),]
 
-## Run the DE analysis 
+# Run the DE analysis - generate da and responsiveness dataframes
 de_analysis_results <- de_analysis(raw_data = y.protein,
                                    metadata = sample_layout_present,
                                    method = "limpa",
@@ -173,166 +148,20 @@ da <- de_analysis_results[["DE_df"]]
 responsiveness <- create_responsiveness_df(da,
                                            alpha = alpha,
                                            lfc_threshold = lfc_threshold)
-```
-
-Perform the DE analysis
-THERE ARE STILL WARNINGS IN THE FOR LOOP, SHOULD LOOK INTO THAT BUT RESULTS SEEM REASONABLE
-```{r}
-# This is what they provide, I wonder if they use the kind of design matrix that Alexis used
-# I did not, so I am going to introduce contrasts here? I hope that makes sense?
-## Create all contrasts - need to susbtitute parentheses in strain names by dots so that it runs...
-treatments <- colnames(fit$coefficients)
-treatments <- sapply(treatments, function(x) str_replace(x, "\\(", "."))
-treatments <- sapply(treatments, function(x) str_replace(x, "\\)", "."))
-design <- model.matrix(~ 0 + treatments)
-colnames(design) <- treatments
-contrast_list <- paste0(treatments, "-WT")
-contrast_list <- contrast_list[!(contrast_list %in% c("WT-WT"))]          # Remove the contrasts of the WT to itself
-
-## Need to change parentheses to dots in the fit object as well so they match...
-colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str_replace(x, "\\(", "."))
-colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str_replace(x, "\\)", "."))
-
-## Introduce the contrasts and run eBayes for them, 10 at a time
-da <- list()
-batch_size <- 10
-n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
-
-for (i in 1:n_batches) {
-  contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
-  contrast.matrix <- makeContrasts(contrasts = contrast_subset, levels = design)
-  
-  fit2 <- contrasts.fit(fit, contrast.matrix)
-  fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
-  
-  new_contrast_names <- c()
-  
-  # Store topTables for each contrast
-  for (contrast_name in colnames(contrast.matrix)) {
-    print(contrast_name)
-    new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
-    if (grepl(".", new_name)) {
-        substr(new_name, 3, 3) <- "("
-        substr(new_name, 7, 7) <- ")"
-    }
-    da[[new_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
-    da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
-  }
-}
-```
-
-Save DE proteins for GO enrichment analysis
-```{r}
-# Just a list of DE proteins per strain
-yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
-de_proteins_list <- list()
-for (i in 1:length(da)) {
-  temp <- da[[i]]
-  temp <- na.omit(temp)
-  
-  # Collect protein names and turn them all into systematic notation
-  general_protein_names <- rownames(temp)[(temp$adj.P.Val < alpha) &
-                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
-  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
-  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
-  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
-                                                                                                 uniprot = uniprot_db,
-                                                                                                 input = "standard",
-                                                                                                 output = "systematic",
-                                                                                                 simplify = T))
-  
-  # Save protein names
-  de_proteins_list[[names(da)[i]]] <- final_protein_names
-}
-output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
-write_json(de_proteins_list, path=output_file)
-```
-
-Save all proteins for GSEA
-```{r}
-#write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
-# MOVED THIS HALFWAY THROUGH THE NEXT CHUNK SO IT WOULD CONTAIN UP- OR DOWN-REGULATED INFORMATION - HOPE THIS DOESN'T BREAK ANYTHING - 03.06.2025
-```
-
-Finish processing the DE analysis results
-```{r}
-# Format data
-da <- bind_rows(da) %>%
-  dplyr::mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
-  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-temp <- sample_layout %>%
-  dplyr::distinct(Strain.Name, .keep_all = T)
-da <- left_join(da, temp, by = "Strain.Name") %>%
-  dplyr::relocate(Strain.Name, .before = logFC) %>%
-  dplyr::relocate(protein, .after = Strain.Name) %>%
-  filter(Strain.Name != "WT")
-
-da <- da %>%
-  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
-  dplyr::mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
-                                            (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
-                                            TRUE ~ "Not_significant"),
-         diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
-                                                (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
-                                                TRUE ~ "Not_significant"))
-
-da <- da %>%
-  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
-
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
-
-
-# Add a column to da with the number of replicates per KO - by me
-unique_KOs <- unique(da$Strain.Name)
-replicates <- c()
-for (i in 1:length(unique_KOs)) {
-  KO <- unique_KOs[i]
-  replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
-}
-KOs_replicates <- data.frame(unique_KOs, replicates)
-colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
-da <- merge(da, KOs_replicates, by = "Strain.Name")
-
-# Responsiveness
-responsiveness <- da %>%
-  group_by(Strain.Name) %>%
-  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
-            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
-            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
-            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
-            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
-            Replicate_num = mean(Replicate_num)) %>%
-  mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
+responsiveness <- responsiveness %>%
+  dplyr::mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
          chromosome_letter = substr(Strain.Name, 8, 8),
-         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
+         anticodon = str_extract(Strain.Name, "(?<=\\.)[[:alpha:]]{3}(?=\\.)"),
          up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
          up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
-  arrange(Amino_acid_1_letter) %>%
-  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
+  dplyr::arrange(Amino_acid_1_letter) %>%
+  dplyr::mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
 
 # Add all amino acid names
 amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep="")))
 responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
 
-# Save responsiveness dataset
-fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
-
-# Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
-DE <- list(fit = fit,
-            fit2 = fit2,
-            da = da, 
-            responsiveness= responsiveness)
-
-
-
-# Remove unnecesary variables
-rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_levels, contrast.matrix, design, fit3,
-   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
-   systematic_protein_names, unique_KOs, trna_ko, dpcfit)
-```
-
-Save DE proteins (up- and down-regulated separately)
-```{r}
+# Save DE proteins (up- and down-regulated separately) as list - NOT SURE IF THIS IS NECESSARY??? 
 de_proteins_up_down <- list()
 strains <- unique(da$Strain.Name)
 
@@ -349,9 +178,10 @@ for (i in 1:length(strains)) {
 }
 
 
-# Save
-output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
-write_json(de_proteins_up_down, path=output_file)
+# Save dataframes
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+write_json(de_proteins_up_down, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 ```
 
 
@@ -413,10 +243,10 @@ ggplot(data = plot_cv_per_strain, aes(x = Strain.Name, y = CV_strain)) +
   ylab("CV per strain") +
   labs(title = "Coefficient of variation (CV) per strain",
        subtitle = "Across all proteins") +
-  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.9 | CV_strain < 0.7),
+  geom_text_repel(data = subset(plot_cv_per_strain, CV_strain > 0.25 | CV_strain < 0.1),
                   aes(x = Strain.Name, y = CV_strain, label = Strain.Name),
                   size = 4)
-strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.9]
+strains_with_high_CV <- plot_cv_per_strain$Strain.Name[plot_cv_per_strain$CV_strain > 0.25]
 ```
 
 CV vs. nDEP - are the strains with flat volcano plots due to high CVs?
@@ -436,28 +266,31 @@ ggplot(data = plot_cv_per_strain, aes(x = CV_strain, y = nDEP)) +
                   aes(x = CV_strain, y = nDEP, label = Strain.Name))
 ```
 
-
 Look at expression of each of the proteins with the high CV in detail
 ```{r}
-# Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated #samples
-## Come up with the averages
-n_occur <- data.frame(table(colnames(proteomics)))
-repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+## AM I FIXING THIS ELSEWHERE??? THERE ARE NO REPEATED SAMPLES AT THIS POINT ANYMORE
+## Fix the situation with 2 tRNA_KOs being present twice (so 6 replicates for each instead of 3) - just going to take the average between the replicated #samples
+### Come up with the averages
+#n_occur <- data.frame(table(colnames(proteomics)))
+#repeated_samples <- as.character(n_occur$Var1)[n_occur$Freq > 1]
+#
+#out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics)))
+#for (i in 1:length(repeated_samples)) {
+#  strain <- repeated_samples[i]
+#  temp <- proteomics[, colnames(proteomics) == strain]
+#  temp[,1] <- as.numeric(temp[,1])
+#  temp[,2] <- as.numeric(temp[,2])
+#  out <- c(apply(temp, 1, mean))
+#  out_temp[,i] <- out
+#}
+#colnames(out_temp) <- repeated_samples
+#
+### Remove original columns from dataframe and add the averaged ones
+#proteomics_no_repeated_columns <- proteomics[,!(colnames(proteomics) %in% repeated_samples)]
+#proteomics_no_repeated_columns <- cbind(proteomics_no_repeated_columns, out_temp)
 
-out_temp <- data.frame(matrix(ncol = 0, nrow = nrow(proteomics)))
-for (i in 1:length(repeated_samples)) {
-  strain <- repeated_samples[i]
-  temp <- proteomics[, colnames(proteomics) == strain]
-  temp[,1] <- as.numeric(temp[,1])
-  temp[,2] <- as.numeric(temp[,2])
-  out <- c(apply(temp, 1, mean))
-  out_temp[,i] <- out
-}
-colnames(out_temp) <- repeated_samples
 
-## Remove original columns from dataframe and add the averaged ones
-proteomics_no_repeated_columns <- proteomics[,!(colnames(proteomics) %in% repeated_samples)]
-proteomics_no_repeated_columns <- cbind(proteomics_no_repeated_columns, out_temp)
+proteomics_no_repeated_columns <- proteomics
 
 # Create dataset for ploting
 temp_layout <- sample_layout %>%
@@ -1182,7 +1015,7 @@ ggsave(filename = "lollipop.svg",
 
 
 
-TRYING OTHER VERSIONS OF THE PLOT FROM CHATGPT
+TRYING OTHER VERSIONS OF THE PLOT FROM CHATGPT - THIS IS ACTUALLY THE BEST VERSION OF THE LOLLIPOP PLOT, SHOULD ORGANIZE THIS A LITTLE BIT
 ```{r}
 tile_x <- -50
 
@@ -1273,11 +1106,9 @@ ggsave(filename = "lollipop.svg",
 
 
 
-
-
-This used to be in section 2, but I think it's better here:
-
-Sadly, I do need to create the corresponding resp_and_expression dataset before I can run the following chunk
+### 1.7.3. Relating family size, members of family in the experiment, and % of major members
+This used to be in section 2, but I think it's better here.
+Sadly, I do need to create the corresponding resp_and_expression dataset before I can run the following chunk.
 ```{r}
 # tRNa expression data from Cozen et al., 2015 - keep only genomic rows
 cozen <- read.xlsx(paste(base_dir, "tRNA_KOs/Data/tRNA_expression_comparative/cozen_et_al_2015.xlsx", sep=""), 1) %>%
@@ -1314,6 +1145,10 @@ resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "Amino_ac
 # Add also the synthetase abundance we detect in our WTs
 ## Remove those synthetases we didn't detect in our data, as well as GRS2 (only active under stress)
 synthetases <- fread(paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", sep=""))
+amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep=""))) 
+amino_acids_temp <- amino_acids %>%
+  dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter)
+synthetases <- left_join(synthetases, amino_acids_temp, by = "Amino_acid_3_letter")
 temp <- synthetases %>%
   filter(Gene.symbol != "GRS2",
          !is.na(measured_proteomics_WT)) %>%
@@ -1356,7 +1191,7 @@ resp_and_expression <- left_join(resp_and_expression, anticodon_freq, by = "anti
 fwrite(resp_and_expression, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/resp_and_expression_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 ```
 
-
+Get the plots
 ```{r}
 # Family_count vs. major_count, as in 1.11., but color by amino acid carried - TODO
 temp <- resp_and_expression %>%
@@ -1513,7 +1348,7 @@ rm(temp, anticodon, anticodons, i, num_of_tRNA_versions_DNA, num_of_tRNA_version
 
 
 
-## 1.10. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE! NOT SURE IF IT WILL RUN HERE BUT I THINK IT SHOULD
+## 1.10. Explore correlation between the number of tRNA genes for a certain amino acid (or anticodon) that couldn't be KOd, and the number of genes with that amino acid/anticodon - THIS WAS IN A DIFFERENT FILE, IN THE TSSC CODE!
 ```{r}
 # Plots by anticodon
 master_by_anticodon <- master_dataset %>%
@@ -1683,7 +1518,6 @@ resp_temp <- responsiveness %>%
 od_and_nDEP <- left_join(od, resp_temp, by = "Strain.Name")
 ```
 
-
 Plot just OD histograms
 ```{r}
 ggplot(data = od, aes(x = OD_processed)) +
@@ -1782,7 +1616,7 @@ ggplot(data = od_and_nDEP, aes(x = OD_processed, y = up_down_regulated_ratio_adj
 
 
 ## 1.13. Explore phenotypic results (GR and GY)
-Compare the phenotypic results from 2014 and 2020
+Compare the phenotypic results from 2014 and 2020 - pretty comparable
 ```{r}
 ggplot(data = phenotypic_data, aes(x = GR_YPD_2014, y = GR_YPD_2020)) +
   geom_point() +
@@ -2097,130 +1931,55 @@ trna_ko_high_var <- trna_ko[rownames(trna_ko) %in% most_variable_proteins,]
 Heatmaps
 - Heatmap on the original raw proteomics data
 ```{r}
-mat <- 2^(as.matrix(trna_ko))
-
-# Heatmap on the original log2 proteomics data
-mat = as.matrix(trna_ko)
-col_fun = colorRamp2(c(5, 12.5, 20), c("blue", "white", "red"))     # Not using this now but this is how you do it
-
-Heatmap(mat,
-        name = "Heatmap",
-        #col = col_fun,
-        na_col = "black",
-        row_title = "Proteins",
-        column_title = "Samples",
-        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
-        column_dend_height = unit(2, "cm"), 
-        show_row_names = FALSE,                
-        column_names_gp = gpar(fontsize = 5))
+create_heatmap(protein_mat = trna_ko,
+               annotation = F,
+               metadata = sample_layout,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               z_score_type = "standard",
+               heatmap_type = "raw",
+               color_palette = "viridis",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_raw_clustered_samples",
+               heatmap_title = "Raw tRNA KOs heatmap, full proteomes")
 ```
 
 - Heatmap with Z-score based on median per protein
 So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein?
 ```{r}
-# Prepare data matrix
-mat <- 2^(as.matrix(trna_ko))
-
-# Calculate z-score
-mat_zscore = t(apply(mat, 1, function(x) (x-median(x, na.rm = T))/mad(x, na.rm = T)))
-
-# Order samples based on families
-## Order samples
-ordered_samples <- sample_layout %>%
-  dplyr::arrange(Amino_acid_1_letter, Anticodon, chromosome) %>%
-  dplyr::filter(final_proteomics_colnames %in% colnames(mat_zscore)) %>%
-  dplyr::pull(final_proteomics_colnames)
-mat_ordered <- mat_zscore[, ordered_samples]
-
-sample_layout_ordered <- sample_layout %>%
-  dplyr::filter(final_proteomics_colnames %in% colnames(mat_ordered)) %>%
-  dplyr::slice(match(colnames(mat_ordered), final_proteomics_colnames))
-
-
-### Create Heatmap Annotation
-#### Arrange and extract grouping variable (amino acid carried)
-group_vals <- sample_layout_ordered$Amino_acid_1_letter
-group_levels <- unique(group_vals)
-
-#### Generate viridis colors
-group_colors <- plasma(length(group_levels))
-names(group_colors) <- group_levels
-
-#### Create the column annotation
-col_anno <- HeatmapAnnotation(
-  `Amino acid` = group_vals,
-  col = list(`Amino acid` = group_colors)
-)
-
-
-# Create heatmap - letting the algorithm cluster the samples
-pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_clustered_samples_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
-ht <- Heatmap(mat_zscore,
-        name = "Heatmap",
-        #col = col_fun,
-        na_col = "green",
-        top_annotation = col_anno,
-        row_title = "Proteins",
-        column_title = "Samples",
-        column_dend_height = unit(2, "cm"),
-        show_row_names = FALSE,
-        show_column_names = T,
-        column_names_gp = gpar(fontsize = 0.5),             # size of X axis labels
-        row_dend_gp = gpar(lwd = 0.5))                      # thinner dendrogram lines Y axis
-
-draw(ht,
-     heatmap_legend_side = "right",
-     annotation_legend_side = "right",  # both on the right
-     merge_legend = T)
-dev.off()
-
-
-# Create the Heatmap - order samples based on amino acid carried (per strain also)
-pdf(paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/heatmap_z_score_ordered_samples_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = ""))
-ht <- Heatmap(mat_ordered,
-              name = "Heatmap",
-              na_col = "green",
-              top_annotation = col_anno,
-              row_title = "Proteins",
-              column_title = "Samples",
-              cluster_columns = F,
-              show_column_dend = F,
-              show_row_names = FALSE,
-              show_column_names = T,
-              column_names_gp = gpar(fontsize = 0.5),             # size of X axis labels
-              row_dend_gp = gpar(lwd = 0.5))                      # thinner dendrogram lines Y axis
-
-draw(ht,
-     heatmap_legend_side = "right",
-     annotation_legend_side = "right",  # both on the right
-     merge_legend = T)
-dev.off()
+create_heatmap(protein_mat = trna_ko,
+               annotation = F,
+               metadata = sample_layout,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               z_score_type = "standard",
+               heatmap_type = "z-score",
+               color_palette = "viridis",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_z_score_clustered_samples",
+               heatmap_title = "Z-score tRNA KOs heatmap, full proteomes")
 ```
 
 - Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
 Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
 ```{r}
-# Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
-# Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
-temp = t(apply(trna_ko, 1, function(x) x/median(x, na.rm = T)))
-col_fun = colorRamp2(c(-2, -1, 0, 1, 2), c("blue", "blue", "white", "red", "red"))
-
-Heatmap(mat_log2FC,
-        name = "Heatmap",
-        #col = col_fun,
-        na_col = "green",
-        row_title = "Proteins",
-        column_title = "Samples",
-        #cluster_rows = FALSE,                  # Turn row clustering off, I assume we already know the relationships between the genes
-        column_dend_height = unit(2, "cm"), 
-        show_row_names = FALSE,                # When I use this, rows are not ordered by abundance anymore :(
-        column_names_gp = gpar(fontsize = 5))
+create_heatmap(protein_mat = trna_ko,
+               annotation = F,
+               metadata = sample_layout,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               z_score_type = "standard",
+               heatmap_type = "log2FC",
+               color_palette = "viridis",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_log2FC_clustered_samples",
+               heatmap_title = "Z-score tRNA KOs heatmap, full proteomes")
 ```
 
 
 
 ## 1.17. PCA
-Prepare PCA data
+Prepare PCA label based on outlying strains
 ```{r}
 # Load the sample layout and add a column that allows us to tag our strains of interest in the PCA
 sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample_layout_alvaro.tsv", sep=""))) %>%
@@ -2229,51 +1988,17 @@ sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/sample
                                                 Strain.Name == "tE(UUC)G1" ~ "tE(UUC)G1",
                                                 Strain.Name == "tR(ACG)L" ~ "tR(ACG)L",
                                                 TRUE ~ "Other"))
-
-# Get data PCA-ready
-PCA_data <- as.data.frame(t(trna_ko))
-
-# Get PCA tags for different cases - define a function for this, then call it before running the corresponding plot
-get_PCA_tags <- function(PCA_data, sample_layout, type_of_tags) {
-  out <- c()
-  for (i in 1:nrow(PCA_data)) {
-    rowname <- rownames(PCA_data)[i]
-    out <- c(out, sample_layout[sample_layout$final_proteomics_colnames == rowname, type_of_tags][1])
-  }
-  return(out)
-}
-
-# Get the tags for some of the PCA plot versions
-PCA_tags_outlying_strains <- get_PCA_tags(PCA_data, sample_layout, "outlying_strains")
 ```
 
-Run PCA
-```{r}
-#calculate principal components
-results_PCA <- prcomp(PCA_data, scale = TRUE)
-
-#reverse the signs
-results_PCA$rotation <- -1*results_PCA$rotation
-
-#calculate total variance explained by each principal component
-var_explained =  results_PCA$sdev^2 / sum(results_PCA$sdev^2)
-var_exp_PC1 = format(round(var_explained[1]*100, 3), nsmall = 3)
-var_exp_PC2 = format(round(var_explained[2]*100, 3), nsmall = 3)
-```
-
-Plot PCA
+Run and plot PCA
 ```{r}
 # Label by outlying strains
-PCA_tags <- get_PCA_tags(PCA_data, sample_layout, "Replicate")
-PC <- as.data.frame(results_PCA$x)
-PC$Label<- as.factor(PCA_tags_outlying_strains)
-
-ggplot(data = PC, aes(x = PC1, y = PC2, col = Label)) +
-  geom_point(size = 2) +
-  xlab(glue("PC1 - {var_exp_PC1}%")) +
-  ylab(glue("PC2 - {var_exp_PC2}%")) +
-  labs(title = "PCA plot - color outlying strains") +
-  theme_light()
+do_pca(trna_ko,
+       sample_layout,
+       metadata_column_for_annotation = "outlying_strains",
+       metadata_column_for_sample_name = "final_proteomics_colnames",
+       location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/PCA/", sep=""),
+       save_as = "png")
 ```
 
 
@@ -2325,9 +2050,11 @@ cozen_to_merge <- cozen %>%
   dplyr::select(name, tRNA.group, chromosome, chromosome.start, chromosome.end, chromosome.start,
          saccaromyces.genome.datasbase..sgd..tRNA.name, mean.normalized.ReadCount..AlkB, read.mapping..genomic.sequence.or.mature.tRNA.) %>%
   group_by(saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
-  mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
+  dplyr::mutate(mean_reads_per_tRNA = sum(as.numeric(mean.normalized.ReadCount..AlkB), na.rm = T)) %>%
   dplyr::rename(Strain.Name = saccaromyces.genome.datasbase..sgd..tRNA.name) %>%
-  dplyr::select(Strain.Name, mean_reads_per_tRNA)
+  dplyr::select(Strain.Name, mean_reads_per_tRNA) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\(", ".")) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\)", "."))
 
 ## Merge with resp
 resp_and_expression <- left_join(responsiveness, cozen_to_merge, by = "Strain.Name")
@@ -2455,32 +2182,32 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = mean_
 Plots - tRNA expression from Cozen et al., 2015 vs. tRNA synthetase abundance from our WTs
 ```{r}
 # tRNA abundance from Cozen et al., vs. log2 tRNA synthetase abundance from Chu et al.
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA)) +
   geom_point() +
   theme_light()
 
 # Same, but color by major and minor based on our proteomics
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = Gene_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = Gene_type)) +
   geom_point() +
   theme_light()
 
 # Plot average nDEP vs. avg expression, but color by tRNA synthetase abundance from our WT samples
-ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = measured_proteomics_WTs_WT)) +
+ggplot(data = resp_and_expression, aes(x = mean_reads_per_tRNA, y = nDEP, col = measured_proteomics_WT)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid type
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = amino_acid_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = amino_acid_type)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid charge
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = amino_acid_charge)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = amino_acid_charge)) +
   geom_point() +
   theme_light()
 
 # Same, but color by amino acid weight
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = mean_reads_per_tRNA, col = molecular_weight_Da)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = mean_reads_per_tRNA, col = molecular_weight_Da)) +
   geom_point() +
   theme_light()
 ```
@@ -2547,14 +2274,14 @@ ggplot(data = resp_and_expression, aes(x = log2(synthetase_abundance), y = nDEP,
 Plots - nDEP vs. synthetase abundance - from our WTs
 ```{r}
 # nDEP vs. synthetase abundance
-ggplot(data = resp_and_expression, aes(x = measured_proteomics_WTs_WT, y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
   xlab("tRNA synthetase abundance") +
   ylab("nDEP per tRNA KO")
 
-ggplot(data = resp_and_expression, aes(x = measured_proteomics_WTs_WT, y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = measured_proteomics_WT, y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)",
@@ -2565,7 +2292,7 @@ ggplot(data = resp_and_expression, aes(x = measured_proteomics_WTs_WT, y = nDEP)
   
 
 # nDEP vs. log2-synthetase abundance
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -2573,7 +2300,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y =
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by family size
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = Family_count)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = Family_count)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -2581,7 +2308,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y =
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by chromosome
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = chromosome_letter)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = chromosome_letter)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -2589,7 +2316,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y =
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid type
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = amino_acid_type)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_type)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -2597,7 +2324,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y =
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid charge
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = amino_acid_charge)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = amino_acid_charge)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -2605,7 +2332,7 @@ ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y =
   ylab("nDEP per tRNA KO")
 
 # nDEP vs. log2-synthetase abundance - color by amino acid weight
-ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WTs_WT), y = nDEP, col = molecular_weight_Da)) +
+ggplot(data = resp_and_expression, aes(x = log2(measured_proteomics_WT), y = nDEP, col = molecular_weight_Da)) +
   geom_point() +
   theme_light() +
   labs(title = "nDEP vs. tRNA-synthetase abundance (measured in WTs)") +
@@ -4272,6 +3999,9 @@ de_proteins_list <- de_proteins_list[names(de_proteins_list) != "WT"]
 chu_synths <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/chu_2011/S3.csv", sep="")))[1:20,] 
 synthetases <- fread(paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", sep=""))
 
+# UniProt dataset
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
+
 # Yeastmine
 yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
@@ -4310,8 +4040,9 @@ Check how many of them we detect in our dataset
 ```{r}
 # Get all the proteins we detect into systematic notation
 detected_proteins <- match_systematic_and_standard_protein_names(data = rownames(trna_ko),
-                                                                 yeastmine = yeastmine,
+                                                                 uniprot = uniprot_db,
                                                                  input = "standard",
+                                                                 output = "systematic",
                                                                  simplify = T)
 
 # See how many tRNA synthetases are in there: 18, 67% of them
@@ -4331,9 +4062,10 @@ Check how much of each we detect across WTs, add that information to the dataset
 # Prepare
 WTs <- trna_ko[, grepl("WT", colnames(trna_ko))]
 KOs <- trna_ko[, !grepl("WT", colnames(trna_ko))]
-rownames(WTs) <- match_systematic_and_standard_protein_names(as.character(rownames(WTs)),
-                                                             yeastmine = yeastmine, 
+rownames(WTs) <- match_systematic_and_standard_protein_names(as.vector(rownames(WTs)),
+                                                             uniprot = uniprot_db, 
                                                              input = "standard",
+                                                             output = "systematic",
                                                              simplify = T)
 
 # Actually check and save it to a new column in the dataframe

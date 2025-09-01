@@ -14,6 +14,231 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
+
+# Old DE code before I made it into functions in helperfunctions package
+### 1.2. Perform DE analysis - with limpa! Using this one from now on
+After loading results from protein inference step - this step was run once and took extremely long, so we just saved the results and load them now
+```{r}
+# Prepare to perform the DEA
+## Get the names of all KOs we have, and set WT as the reference
+trna_levels <- c()
+for (i in 1:ncol(trna_ko)) {
+  sample_name <- colnames(trna_ko)[i]
+  strain_name <- sample_layout$Strain.Name[sample_layout$final_proteomics_colnames == sample_name]
+  if (length(strain_name) > 1) {
+    strain_name <- strain_name[1]
+  }
+  trna_levels <- c(trna_levels, strain_name)
+}
+trna_levels <- as.factor(trna_levels)
+trna_levels <- relevel(trna_levels, ref = "WT")
+
+## Generate design matrix
+mm <- model.matrix(~ 0 + trna_levels)
+colnames(mm) <- levels(trna_levels)
+
+fit <- dpcDE(y.protein, mm)
+```
+
+Perform the DE analysis - THIS IS INCLUDED IN MY FUNCTION
+```{r}
+# This is what they provide, I wonder if they use the kind of design matrix that Alexis used
+# I did not, so I am going to introduce contrasts here? I hope that makes sense?
+## Create all contrasts - need to susbtitute parentheses in strain names by dots so that it runs...
+treatments <- colnames(fit$coefficients)
+treatments <- sapply(treatments, function(x) str_replace(x, "\\(", "."))
+treatments <- sapply(treatments, function(x) str_replace(x, "\\)", "."))
+design <- model.matrix(~ 0 + treatments)
+colnames(design) <- treatments
+contrast_list <- paste0(treatments, "-WT")
+contrast_list <- contrast_list[!(contrast_list %in% c("WT-WT"))]          # Remove the contrasts of the WT to itself
+
+## Need to change parentheses to dots in the fit object as well so they match...
+colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str_replace(x, "\\(", "."))
+colnames(fit$coefficients) <- sapply(colnames(fit$coefficients), function(x) str_replace(x, "\\)", "."))
+
+## Introduce the contrasts and run eBayes for them, 10 at a time
+da <- list()
+batch_size <- 10
+n_batches <- ceiling(ncol(fit$coefficients)/batch_size)
+
+for (i in 1:n_batches) {
+  contrast_subset <- contrast_list[((i - 1) * batch_size + 1):min(i * batch_size, length(contrast_list))]
+  contrast.matrix <- makeContrasts(contrasts = contrast_subset, levels = design)
+  
+  fit2 <- contrasts.fit(fit, contrast.matrix)
+  fit3 <- eBayes(fit2, robust = TRUE, trend = TRUE)
+  
+  new_contrast_names <- c()
+  
+  # Store topTables for each contrast
+  for (contrast_name in colnames(contrast.matrix)) {
+    print(contrast_name)
+    new_name <- substr(contrast_name, 1, str_locate(contrast_name, "-")-1)
+    if (grepl(".", new_name)) {
+        substr(new_name, 3, 3) <- "("
+        substr(new_name, 7, 7) <- ")"
+    }
+    da[[new_name]] <- topTable(fit3, coef = contrast_name, adjust.method = 'BH', number = Inf, sort.by = 'none')
+    da[[new_name]]$Strain.Name <- rep(new_name, nrow(da[[new_name]]))
+  }
+}
+```
+
+Save DE proteins for GO enrichment analysis - NOT YET IN MY FUNCTION - IS IT NECESSARY IF I AM SAVING ALL PROTEINS BELOW ALREADY AND CAN DO GSEA WITH GO TERMS? I DON'T THINK SO
+```{r}
+# Just a list of DE proteins per strain
+yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
+de_proteins_list <- list()
+for (i in 1:length(da)) {
+  temp <- da[[i]]
+  temp <- na.omit(temp)
+  
+  # Collect protein names and turn them all into systematic notation
+  general_protein_names <- rownames(temp)[(temp$adj.P.Val < alpha) &
+                                          (temp$logFC > lfc_threshold | temp$logFC < -lfc_threshold)]
+  standard_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.symbol]
+  systematic_protein_names <- general_protein_names[general_protein_names %in% yeastmine$Gene.secondaryIdentifier]
+  final_protein_names <- c(systematic_protein_names, match_systematic_and_standard_protein_names(data = standard_protein_names,
+                                                                                                 uniprot = uniprot_db,
+                                                                                                 input = "standard",
+                                                                                                 output = "systematic",
+                                                                                                 simplify = T))
+  
+  # Save protein names
+  de_proteins_list[[names(da)[i]]] <- final_protein_names
+}
+output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
+write_json(de_proteins_list, path=output_file)
+```
+
+Save all proteins for GSEA - THIS IS INCLUDED IN MY FUNCTION
+```{r}
+#write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+# MOVED THIS HALFWAY THROUGH THE NEXT CHUNK SO IT WOULD CONTAIN UP- OR DOWN-REGULATED INFORMATION - HOPE THIS DOESN'T BREAK ANYTHING - 03.06.2025
+```
+
+Finish processing the DE analysis results - THIS IS INCLUDED IN MY FUNCTION - JUST NEED TO ADD THE STEPS WHERE I SAVE THINGS
+```{r}
+# Format data
+da <- bind_rows(da) %>%
+  dplyr::mutate(protein = rep(rownames(da[[1]]), times = length(da))) %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
+temp <- sample_layout %>%
+  dplyr::distinct(Strain.Name, .keep_all = T)
+da <- left_join(da, temp, by = "Strain.Name") %>%
+  dplyr::relocate(Strain.Name, .before = logFC) %>%
+  dplyr::relocate(protein, .after = Strain.Name) %>%
+  filter(Strain.Name != "WT")
+
+da <- da %>%
+  dplyr::select(protein, Strain.Name, logFC, P.Value, adj.P.Val) %>%                              # From here on in this function it's added by me
+  dplyr::mutate(diffexpressed_adjusted = case_when((logFC > lfc_threshold) & (adj.P.Val < alpha) ~ "Up_regulated",
+                                            (logFC < -lfc_threshold) & (adj.P.Val < alpha) ~ "Down_regulated",
+                                            TRUE ~ "Not_significant"),
+         diffexpressed_non_adjusted = case_when((logFC > lfc_threshold) & (P.Value < alpha) ~ "Up_regulated",
+                                                (logFC < -lfc_threshold) & (P.Value < alpha) ~ "Down_regulated",
+                                                TRUE ~ "Not_significant"))
+
+da <- da %>%
+  dplyr::distinct(Strain.Name, protein, logFC, .keep_all = T)
+
+write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+
+
+# Add a column to da with the number of replicates per KO - by me
+unique_KOs <- unique(da$Strain.Name)
+replicates <- c()
+for (i in 1:length(unique_KOs)) {
+  KO <- unique_KOs[i]
+  replicates <- c(replicates, sum(grepl(KO, colnames(trna_ko), fixed = T)))
+}
+KOs_replicates <- data.frame(unique_KOs, replicates)
+colnames(KOs_replicates) <- c("Strain.Name", "Replicate_num")
+da <- merge(da, KOs_replicates, by = "Strain.Name")
+
+# Responsiveness
+responsiveness <- da %>%
+  group_by(Strain.Name) %>%
+  summarise(nDEP = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha, na.rm = T),
+            Up_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_adjusted = sum(abs(logFC) >= lfc_threshold & adj.P.Val <= alpha & diffexpressed_adjusted == "Down_regulated", na.rm = T),
+            Up_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Up_regulated", na.rm = T),
+            Down_regulated_non_adjusted = sum(abs(logFC) >= lfc_threshold & P.Value <= alpha & diffexpressed_non_adjusted == "Down_regulated", na.rm = T),
+            Replicate_num = mean(Replicate_num)) %>%
+  mutate(Amino_acid_1_letter = str_sub(Strain.Name, 2, 2),
+         chromosome_letter = substr(Strain.Name, 8, 8),
+         anticodon = str_extract(Strain.Name, "(?<=\\()[[:alpha:]]{3}(?=\\))"),
+         up_down_regulated_ratio_adjusted = Up_regulated_adjusted/Down_regulated_adjusted,
+         up_down_regulated_ratio_non_adjusted = Up_regulated_non_adjusted/Down_regulated_non_adjusted) %>%
+  arrange(Amino_acid_1_letter) %>%
+  mutate(anticodon = factor(anticodon, levels = unique(anticodon)))
+
+# Add all amino acid names
+amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep="")))
+responsiveness <- left_join(responsiveness, amino_acids, by = "Amino_acid_1_letter")
+
+# Save responsiveness dataset
+fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+
+# Save results from the DE analysis in the same way as in the file where I do DE separately for each batch
+DE <- list(fit = fit,
+            fit2 = fit2,
+            da = da, 
+            responsiveness= responsiveness)
+
+
+
+# Remove unnecesary variables
+rm(amino_acids, DE, de_proteins_list, fit, fit2, KOs_replicates, mm, temp, trna_levels, contrast.matrix, design, fit3,
+   yeastmine, final_protein_names, general_protein_names, i, KO, output_file, replicates, sample_name, standard_protein_names, strain_name,
+   systematic_protein_names, unique_KOs, trna_ko, dpcfit)
+```
+
+Save DE proteins (up- and down-regulated separately) - THIS IS INCLUDED IN MY FUNCTION
+```{r}
+de_proteins_up_down <- list()
+strains <- unique(da$Strain.Name)
+
+for (i in 1:length(strains)) {
+  strain <- strains[i]
+  temp <- da %>%
+    dplyr::filter(Strain.Name == strain)
+  
+  up_regulated <- temp$protein[temp$diffexpressed_adjusted == "Up_regulated"]
+  down_regulated <- temp$protein[temp$diffexpressed_adjusted == "Down_regulated"]
+  
+  de_proteins_up_down[[strain]] <- list("Up" = up_regulated,
+                                        "Down" = down_regulated)
+}
+
+
+# Save
+output_file <- paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep="")
+write_json(de_proteins_up_down, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 3. from tRNAs_together.Rmd
 
 Compare to expression data from Cozen et al., 2015 - THESE ARE JUST READ COUNTS I'M LOOKING AT, HONESTLY NO IDEA IF THIS MAKES SENSE

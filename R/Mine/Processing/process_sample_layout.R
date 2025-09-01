@@ -114,12 +114,6 @@ sample_layout <- sample_layout %>%
   dplyr::mutate(Wrong_batch = case_when(Analysis.Plate.96_Replicate == "3_2" ~ "Yes",
                                  TRUE ~ "No"))
 
-# Add a column with Strain.Name but using "." instead of "_", for makeContrasts()
-sample_layout <- sample_layout %>%
-  dplyr::mutate(Strain.Name.Dots.Delete = str_replace_all(Strain.Name, "\\(", "."),
-         Strain.Name.Dots = str_replace_all(Strain.Name.Dots.Delete, "\\)", ".")) %>%
-  dplyr::select(-Strain.Name.Dots.Delete)
-
 
 
 
