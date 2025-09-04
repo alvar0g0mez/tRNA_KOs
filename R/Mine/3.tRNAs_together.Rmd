@@ -179,7 +179,7 @@ for (i in 1:length(strains)) {
 
 
 # Save dataframes
-write_json(da, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), pretty = T)
+fwrite(da, file = paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_df_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 fwrite(responsiveness, paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
 write_json(de_proteins_up_down, path=paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""))
 ```
@@ -562,6 +562,7 @@ rm(replicate_num_vs_nDEP_cor)
 
 
 ## 1.7. Identify major and minor tRNA genes myself for all strains
+### 1.7.1. Barplots
 Original version, general histogram and histograms per isoacceptors, coloring by anticodon
 ```{r}
 # Load responsiveness dataset
@@ -887,8 +888,9 @@ rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grob
    anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file, temp_resp)
 ```
 
+
 ### 1.7.2. Better version of these barplots
-Dot matrix heatmap
+Dot matrix heatmap - could possibly delete this one, I don't think it's really useful
 ```{r}
 # Get a column classifiying the tRNA genes into types of families, so I can sort by that and have them ordered in the plot
 responsiveness <- responsiveness %>%
@@ -942,80 +944,7 @@ ggplot(temp_2, aes(x = Strain.Name, y = anticodon, color = nDEP)) +
   )
 ```
 
-Lollipop plot
-```{r}
-# Make sure families appear in the order I want them to in the plot
-#responsiveness <- responsiveness %>%                    
-#  dplyr::arrange(desc(Family_type), anticodon, nDEP)
-#responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
-
-# Try to order based on amino acid instead
-responsiveness <- responsiveness %>%                    
-  dplyr::arrange(desc(Amino_acid_1_letter), Family_type, anticodon, nDEP)
-responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
-
-# Create background annotation data - for colored sidebar
-annotation_data <- responsiveness %>%
-  dplyr::select(Amino_acid_1_letter , anticodon, Family_type) %>%
-  dplyr::distinct()
-
-# Plot
-ggplot(responsiveness, aes(x = nDEP, y = anticodon, group = anticodon)) +
-  geom_line(aes(group = anticodon), color = "grey70") +  # Connects dots within family
-  geom_point(aes(color = nDEP), size = 2) +
-  scale_color_gradient(low = "lightblue", high = "darkred") +
-  labs(
-    title = "Differential Expression per tRNA KO (by Family)",
-    x = "Number of Differentially Expressed Proteins",
-    y = "tRNA Family",
-    color = "# DE Proteins"
-  ) +
-  theme_minimal(base_size = 14)
-
-
-
-
-
-
-tile_x <- -30
-tile_x_2 <- -200
-
-lollipop_plot_final <- ggplot(data = responsiveness, aes(x = nDEP, y = anticodon)) +
-  # Background color block
-  geom_tile(data = annotation_data, aes(x = tile_x, fill = Family_type),  width = 30, height = 0.8) +
-  
-  # Lollipop line and point
-  geom_line(aes(group = anticodon), color = "grey70") +
-  geom_point(color = "black",
-             fill = "white",
-             alpha = 0.5,
-             size = 3) +
-  
-  # Scales and labels
-  scale_fill_viridis_d(name = "Family type") +
-  
-  labs(
-    title = "DE Proteins per tRNA KO (Grouped by Family Type)",
-    x = "Number of Differentially Expressed Proteins",
-    y = "tRNA Family",
-    color = "# DE Proteins",
-    fill = "Family Type"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    legend.position = "right"
-  )
-
-ggsave(filename = "lollipop.svg",
-       plot = lollipop_plot_final,
-       path = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/", sep = ""),
-       width = 10, height = 8, units = "in",       
-       dpi = 600)
-```
-
-
-
-TRYING OTHER VERSIONS OF THE PLOT FROM CHATGPT - THIS IS ACTUALLY THE BEST VERSION OF THE LOLLIPOP PLOT, SHOULD ORGANIZE THIS A LITTLE BIT
+Lollipop plot - nicest one I think
 ```{r}
 tile_x <- -50
 
@@ -1102,10 +1031,6 @@ ggsave(filename = "lollipop.svg",
 ```
 
 
-
-
-
-
 ### 1.7.3. Relating family size, members of family in the experiment, and % of major members
 This used to be in section 2, but I think it's better here.
 Sadly, I do need to create the corresponding resp_and_expression dataset before I can run the following chunk.
@@ -1145,10 +1070,10 @@ resp_and_expression <- left_join(resp_and_expression, chu_synths, by = "Amino_ac
 # Add also the synthetase abundance we detect in our WTs
 ## Remove those synthetases we didn't detect in our data, as well as GRS2 (only active under stress)
 synthetases <- fread(paste(base_dir, "tRNA_KOs/Data/basic/trna_synthetases.csv", sep=""))
-amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep=""))) 
-amino_acids_temp <- amino_acids %>%
-  dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter)
-synthetases <- left_join(synthetases, amino_acids_temp, by = "Amino_acid_3_letter")
+#amino_acids <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/amino_acids.csv", sep=""))) 
+#amino_acids_temp <- amino_acids %>%
+#  dplyr::select(Amino_acid_3_letter, Amino_acid_1_letter)
+#synthetases <- left_join(synthetases, amino_acids_temp, by = "Amino_acid_3_letter")
 temp <- synthetases %>%
   filter(Gene.symbol != "GRS2",
          !is.na(measured_proteomics_WT)) %>%
@@ -1453,11 +1378,11 @@ ggplot(data = responsiveness, aes(x = Amino_acid_1_letter, y = nDEP, fill = Amin
   theme_light() +
   labs(fill = "Amino acid",
        title = 'tRNA KOs Responsiveness per AA', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 100 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
   xlab("Amino acid") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 100))
+  coord_cartesian(ylim = c(0, 250))
 
 ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromosome_letter)) +
   geom_boxplot() +
@@ -1475,11 +1400,11 @@ ggplot(data = responsiveness, aes(x = chromosome_letter, y = nDEP, fill = chromo
   theme_light() +
   labs(fill = "Chromosome",
        title = 'tRNA KOs Responsiveness per Chromosome', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 100 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
   xlab("Chromosome") +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm')) +
-  coord_cartesian(ylim = c(0, 100))
+  coord_cartesian(ylim = c(0, 250))
 
 
 myLetters <- letters[1:26]              # Need this to be able to re-order anticodons by amino acid
@@ -1500,9 +1425,9 @@ ggplot(responsiveness, aes(x = fct_reorder(anticodon, match(tolower(Amino_acid_1
   theme_light() +
   xlab("Anticodon") +
   labs(fill = "Amino acid") +
-  coord_cartesian(ylim = c(0, 150)) +
+  coord_cartesian(ylim = c(0, 250)) +
   labs(title = 'tRNA KOs Responsiveness per Anticodon', 
-       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 150 nDEP') +
+       subtitle = 'Number of Differentially Expressed Proteins (DEPs) - truncated < 250 nDEP') +
   theme(legend.title = element_text(size=9),
         legend.key.size = unit(0.5, 'cm'),
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
@@ -1834,9 +1759,18 @@ trna_ko_low_cor_strains <- trna_ko[, colnames(trna_ko) %in% low_avg_cor_strains]
 cormat_low_corr <- cor(trna_ko_low_cor_strains)
 melted_cormat_low_corr <- melt(cormat_low_corr)
 
-## --> Huh, they actually do have high correlations to each other?? Need to make sure I did this properly but I guess this is nice?
-```
+# Get a histogram 
+ggplot(data = melted_cormat_low_corr, aes(x = value)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light() +
+  labs(title = "Histogram of correlations between rare strains (low correlation to others)",
+       subtitle = "Only using high-variability proteins") +
+  xlab("Correlation")
 
+
+## --> Huh, they actually do have high correlations to each other?? Need to make sure I did this properly but I guess this is nice? 
+## --> They are all WTs :(
+```
 
 
 
@@ -1918,7 +1852,6 @@ rotate_pdf(
 )
 ```
 
-
 Filter out proteins with low variability, towards the heatmaps
 ```{r}
 protein_variability <- apply(trna_ko, 1, function(x) var(x, na.rm = T))
@@ -1928,57 +1861,55 @@ trna_ko_high_var <- trna_ko[rownames(trna_ko) %in% most_variable_proteins,]
 ```
 
 
-Heatmaps
-- Heatmap on the original raw proteomics data
-```{r}
-create_heatmap(protein_mat = trna_ko,
-               annotation = F,
-               metadata = sample_layout,
-               metadata_column_for_sample_name = "final_proteomics_colnames",
-               z_score_type = "standard",
-               heatmap_type = "raw",
-               color_palette = "viridis",
-               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
-               save_as = "png",
-               plot_name = "heatmap_raw_clustered_samples",
-               heatmap_title = "Raw tRNA KOs heatmap, full proteomes")
-```
 
-- Heatmap with Z-score based on median per protein
+## 1.17. Heatmaps
+For now I am only doing heatmaps using the Z-score per protein.
 So this is basically focusing on the variability of each protein across all the samples - removing the basal "effect" of that protein?
 ```{r}
+# Without sample grouping
 create_heatmap(protein_mat = trna_ko,
-               annotation = F,
+               annotation = "none",
                metadata = sample_layout,
                metadata_column_for_sample_name = "final_proteomics_colnames",
-               z_score_type = "standard",
                heatmap_type = "z-score",
-               color_palette = "viridis",
+               z_score_type = "standard",
                location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
                save_as = "png",
-               plot_name = "heatmap_z_score_clustered_samples",
-               heatmap_title = "Z-score tRNA KOs heatmap, full proteomes")
-```
+               plot_name = "default",
+               heatmap_title = "Z-score tRNA KOs heatmap, full proteomes, no grouping")
 
-- Heatmap with per-gene log2 FC across strains (compared to median of gene across all strains)
-Here I'm normalizing the values for each protein by dividing them by the median abundance of that protein
-```{r}
+# Grouping on WT vs. all others
 create_heatmap(protein_mat = trna_ko,
-               annotation = F,
+               annotation = "single",
                metadata = sample_layout,
                metadata_column_for_sample_name = "final_proteomics_colnames",
+               metadata_column_for_annotation = "Strain.Type",
+               heatmap_type = "z-score",
                z_score_type = "standard",
-               heatmap_type = "log2FC",
                color_palette = "viridis",
                location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
                save_as = "png",
-               plot_name = "heatmap_log2FC_clustered_samples",
+               plot_name = "default",
+               heatmap_title = "Z-score tRNA KOs heatmap, full proteomes")
+
+# Grouping on how they grew in DTT in the original article
+create_heatmap(protein_mat = trna_ko,
+               annotation = "single",
+               metadata = sample_layout,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               metadata_column_for_annotation = "GR_in_DTT_compared_to_WT",
+               heatmap_type = "z-score",
+               z_score_type = "standard",
+               color_palette = "viridis",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "default",
                heatmap_title = "Z-score tRNA KOs heatmap, full proteomes")
 ```
 
 
 
-## 1.17. PCA
+## 1.18. PCA
 Prepare PCA label based on outlying strains
 ```{r}
 # Load the sample layout and add a column that allows us to tag our strains of interest in the PCA
@@ -2004,7 +1935,7 @@ do_pca(trna_ko,
 
 
 
-## 1.18. Clean up environment
+## 1.19. Clean up environment
 Next section loads all the data it needs, so I can delete everything except the system/set up parameters
 ```{r}
 rm(da, master_dataset, responsiveness, sample_layout)
