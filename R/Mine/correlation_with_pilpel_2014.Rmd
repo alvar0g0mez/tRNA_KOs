@@ -16,6 +16,8 @@ knitr::opts_chunk$set(echo = TRUE)
 This I just cut from the main file and pasted here quite some time ago, so it is not fixed to work at all. 
 Today (20.03.2025) I have tried to make it work to obtain the original correlation plots but for the newly pre-processed data (batch correction per subbatch) - I have only made it to 2.1. (included) - SHOULD COME BACK SOME TIME AND FIX THE REST? BUT NOT MY MAIN CONCERN I GUESS? IDK
  
+ 
+## Updated on 05.09.2025 - all working properly :)
 
 
 
@@ -48,21 +50,34 @@ library(interactions)
 library(performance)
 library(MASS)
 library(jsonlite)
+library(helperfunctions)
 ```
 
 Set parameters
 ```{r}
 # Significance level to be used for all tests and plots in this file
-alpha <- 0.01
+alpha <- 0.05
+
+# Significance level as a plain string to use when loading or writing files
+alpha_plain <- str_replace(as.character(alpha), "\\.", "")
+
+# Minimum threshold for the average log2-expression across all samples in order to keep a protein in the data before DE analysis
+mean_log2_across_all_samples_threshold <- 2
+
+# Minimum threshold for the variance of the log2-expression across all samples in order to keep a protein in the data before DE analysis
+var_across_log2_all_samples_threshold <- 0.6
+
+# Separate significance level, the one used for the enrichment analysis
+alpha_enrichment <- 0.05
+
+# Significance level above as a plain string to use when loading or writing files
+alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 
 # Log-fold change limit to be considered "biologically significant"
-lfc_threshold <- 1.5
-
-# Number of nDEP from which a tRNA is considered "major" (this threshold value should be included)
-threshold_major <- 2
+lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "home"
+working_from = "charite"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -78,16 +93,15 @@ if (working_from == "charite") {
 # 1. Load data
 ```{r}
 # Our proteomics data
-resp <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness.csv", sep="")))
+resp <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 
 # Load their phenotypic data: growth rate and growth yield for all KOs
-phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results.tsv", sep="")))
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep="")))
+phenotypic_data_full <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 
 # Load trna_ko
-trna_ko <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/proteomics_data/processed_proteomics_dataframe_batchcorrected_onWTs.tsv", sep="")))
-
-# My helper functions
-source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+trna_ko <- as.data.frame(y.protein$E)
 ```
 
 
@@ -96,23 +110,13 @@ source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep="")
 
 
 # 2. Correlation with the original article by Pizpel et al., 2014
-## 2.1. Correlation between our proteomics data and their phenotypic data (GR and GY)
+## 2.1. Correlation between GR and GY measured in 2014 (published) and in 2020 (I assume they measured it before they sent us the library)
 ```{r}
-# Change "ko" colname to allow to merge datasets based on it
-colnames(resp)[colnames(resp) == "Strain.Name"] <- "gene_name"
-test <- full_join(phenotypic_data, resp, by = "gene_name")
+phenotypic_data_full <- phenotypic_data_full %>%
+  dplyr::select(starts_with("GR"), starts_with("GY"))
 
-# Select numeric columns, calculate correlations and plot heatmap
-test <- test %>% 
-  dplyr::select(YPD, SDC, low_glucose, galactose, NaCl, DTT, YPD_GY, SDC_GY, low_glucose_GY, galactose_GY, NaCl_GY, DTT_GY, nDEP)
-colnames(test) <- c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP")
-test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
-melted_corrs <- melt(test_corrs)
-
-# MY MELT FUNCTION RETURNS THE ROWS IN THE DATAFRAME IN AN ORDER THAT MAKES SENSE TO ME, BUT SEEMINLGY GGPLOT2 DOESN'T LIKE IT BECAUSE IT PLOTS THEM IN ANOTHER ORDER XD
-# GOTTA FIX THAT FOR IT TO LOOK PRETTY
-melted_corrs$Var1 <- factor(melted_corrs$Var1, ordered = T, levels = c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP" ))
-melted_corrs$Var2 <- factor(melted_corrs$Var2, ordered = T, levels = c("YPD_GR", "SDC_GR", "low_glucose_GR", "galactose_GR", "NaCl_GR", "DTT_GR", "YPD_GY", "SDC_GY", "low_glucose_GY", "galactose_GY", "NaCl_GY", "DTT_GY", "nDEP" ))
+corrs <- round(cor(phenotypic_data_full, use = "pairwise.complete.obs"), 2)
+melted_corrs <- melt(corrs)
 
 ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
   geom_tile() +
@@ -123,26 +127,50 @@ ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) +
         axis.title.y = element_blank(),
         panel.background = element_blank(),
         axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+```
+--> Yes, correlation between those that were measured in both cases is >0.96 for all of them, so I am safe using just one of them. I will use only the ones from 2014, following Julia's recommendation, since it's published data. 
+
+
+## 2.2. Correlation between our proteomics data and their phenotypic data (GR and GY)
+```{r}
+# Add nDEP to phenotypic data
+resp_temp <- resp %>%
+  dplyr::select(Strain.Name, nDEP)
+test <- left_join(phenotypic_data, resp, by = "Strain.Name")
+
+# Select numeric columns, calculate correlations and plot heatmap
+test <- test %>% 
+  dplyr::select(GR_YPD_2014, GR_SDC_2014, GR_low_glucose_2014, GR_galactose_2014, GR_NaCl_2014, GR_DTT_2014, GY_YPD_2014, GY_SDC_2014, GY_low_glucose_2014, GY_galactose_2014, GY_NaCl_2014, GY_DTT_2014, nDEP)
+colnames(test) <- c("GR_YPD_2014", "GR_SDC_2014", "GR_low_glucose_2014", "GR_galactose_2014", "GR_NaCl_2014", "GR_DTT_2014", "GY_YPD_2014", "GY_SDC_2014", "GY_low_glucose_2014", "GY_galactose_2014", "GY_NaCl_2014", "GY_DTT_2014", "nDEP")
+test_corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
+melted_corrs <- melt(test_corrs)
+
+# MY MELT FUNCTION RETURNS THE ROWS IN THE DATAFRAME IN AN ORDER THAT MAKES SENSE TO ME, BUT SEEMINLGY GGPLOT2 DOESN'T LIKE IT BECAUSE IT PLOTS THEM IN ANOTHER ORDER XD
+# GOTTA FIX THAT FOR IT TO LOOK PRETTY
+melted_corrs$Var1 <- factor(melted_corrs$Var1, ordered = T, levels = c("GR_YPD_2014", "GR_SDC_2014", "GR_low_glucose_2014", "GR_galactose_2014", "GR_NaCl_2014", "GR_DTT_2014", "GY_YPD_2014", "GY_SDC_2014", "GY_low_glucose_2014", "GY_galactose_2014", "GY_NaCl_2014", "GY_DTT_2014", "nDEP"))
+melted_corrs$Var2 <- factor(melted_corrs$Var2, ordered = T, levels = c("GR_YPD_2014", "GR_SDC_2014", "GR_low_glucose_2014", "GR_galactose_2014", "GR_NaCl_2014", "GR_DTT_2014", "GY_YPD_2014", "GY_SDC_2014", "GY_low_glucose_2014", "GY_galactose_2014", "GY_NaCl_2014", "GY_DTT_2014", "nDEP"))
+
+ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  geom_text(aes(Var1, Var2, label = value), size = 3) +
+  scale_fill_gradient2(low = "blue", high = "red",
+                       limit = c(-1,1), name="Correlation") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Pairwise correlations between growth data and nDEP")
 
 # Remove unnecessary objects
-rm(test, test_corrs, melted_corrs)
+#rm(test, test_corrs, melted_corrs)
 ```
 nDEP has:
   - No correlation with growth rate under SDC, YPD and low glucose
   - Relatively large, positive correlation with growth rate and growth yield under DTT: those that show more DEPs in rich medium are those that        grow better under DTT, this agrees with the original article: these strains have proteotoxic stress going on already in the cell because of the     lack of that necessary (major?) tRNA, so they adapt better to living in DTT. 
   - Relatively large, negative correlation with growth rates and growth yields under all other conditions: also makes sense with the original            article, the strains which are less affected by the KO (so less DEPs) grow better in most conditions, simply because less things are affected     inside the cell, reasonable. The more unintuitive one is the previous one. 
 
-Try a scatterplot instead of simply the correlations - for growth rate and growth yield in SM?
-```{r}
-ggplot(data = test, aes(x = SDC_GR, y = nDEP)) +
-  geom_point() +
-  theme_light()
-```
 
-
-
-
-## 2.2. Compare our proteomics data and their microarray data
+## 2.3. Compare our proteomics data and their microarray data
 Important to remember that the microarray data are only for 5 tRNA families: 
   - MC (multi-copy) families: tR.UCU.M2 and tH.GUG.G1, both of which had impaired or WT growth under DTT
   - SC (single-copy) families: Two viable single deletions: tR.CCU.J and tL.GAG.G, plus the initiator methionine tiM.CAU.C. They all had improved growth under DTT. 
@@ -155,34 +183,36 @@ microarray_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/b
 # Load all S. cerevisiae genes from AllianceMine - to be able to go from standard to systematic gene names and vice versa
 yeastmine <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/alliancemine_results_2024-11-20T11-19-04.tsv", sep="")))
 
+# UniProt dataset
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
 
 # Need to change the colnames in the microarray data to use () instead of ..
-colnames(microarray_data) <- c("gene_names", "tM(CAU)C", "tR(CCU)J", "tR(UCU)M2", "tH(GUG)G1", "tL(GAG)G")
+microarray_data <- microarray_data %>%
+  dplyr::rename(gene_names = Gene.secondaryIdentifier)
 ```
 
 
 ### Correlation heatmap between microarray and proteomics
 ```{r}
 # Get standard protein names
-source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 microarray_data <- match_systematic_and_standard_protein_names(data = microarray_data,
-                                                               yeastmine = yeastmine,
+                                                               uniprot = uniprot_db,
                                                                input = "systematic",
+                                                               output = "standard",
                                                                simplify = FALSE,
                                                                add_extra_columns = FALSE)
 
-# Join with our proteomics data - not too sure if this merge is the most appropriate way to do it, even though I think so?
+# Join with our proteomics data - keep only proteins which are present in both microarrays and proteomics
 trna_ko_temp <- trna_ko %>%
-  mutate(Gene.symbol = rownames(trna_ko))
-proteomics_and_microarray_data <- left_join(trna_ko_temp, microarray_data, by = "Gene.symbol") # IM KEEPING ALL PROTEINS IN TRNA_KO, THERE ARE ACTUALLY 2863 WHICH ARE IN BOTH, SO SOME IN TRNA_KO ARE NOT IN MICROARRAY_DATA, I SHOULD FIX THIS CODE SO THOSE ARE NOT INCLUDED IN THE RESULTING DATA SET
+  dplyr::mutate(systematic_SGD_IDs = rownames(trna_ko))
+proteomics_and_microarray_data <- inner_join(trna_ko_temp, microarray_data, by = "systematic_SGD_IDs") 
 
 # Correlation heatmap between our samples 
 samples_in_microarray <- colnames(microarray_data)[2:6]
-sample_names_escaped <- c("tM\\(CAU\\)C",  "tR\\(CCU\\)J",  "tR\\(UCU\\)M2", "tH\\(GUG\\)G1", "tL\\(GAG\\)G")
 proteomics_and_microarray_subset <- data.frame(matrix(nrow = nrow(proteomics_and_microarray_data), ncol = 0))
 
 for (i in 1:length(samples_in_microarray)) {
-  sample_name <- sample_names_escaped[i]
+  sample_name <- samples_in_microarray[i]
   temp <- proteomics_and_microarray_data[, grepl(sample_name, colnames(proteomics_and_microarray_data))]
   proteomics_and_microarray_subset <- cbind(proteomics_and_microarray_subset, temp)
 }
@@ -198,11 +228,8 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
-
-
-# Remove unnecessary objects
-
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Pairwise correlations between transcriptomics and proteomics")
 ```
 --> The proteomics samples for these 5 strains have literally 0 correlation with the microarray data from the same strains. Could it be because the proteomics data are direct measurements while the microarray data are actually presented as the fold-change with respect to the WT? I don't think so but maybe I could look into it? Could try to make my proteomics data for these strains into that as well?
 
@@ -210,7 +237,7 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
 ### Venn diagram between genes detected in proteomics and in transcriptomics
 ```{r}
 list_for_venn_diagram <- list(Proteomics = rownames(trna_ko),
-                              Transcriptomics = microarray_data$Gene.symbol)
+                              Transcriptomics = microarray_data$systematic_SGD_IDs)
 ggvenn(
   list_for_venn_diagram, 
   fill_color = c("#80AAFF", "#FF8080"),
@@ -221,7 +248,8 @@ ggvenn(
 
 ### Correlation heatmap within microarray
 ```{r}
-test <- microarray_data %>% dplyr::select(-Gene.secondaryIdentifier, -Gene.symbol)
+test <- microarray_data %>% 
+  dplyr::select(-systematic_SGD_IDs, -standard_IDs)
 corrs <- round(cor(test, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(corrs)
 
@@ -233,7 +261,8 @@ ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         panel.background = element_blank(),
-        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  labs(title = "Pairwise correlations between transcriptomics fold changes w.r.t. WT")
 
 # Remove unnecessary variables
 rm(test, corrs, melted_corrs)
@@ -243,7 +272,7 @@ rm(test, corrs, melted_corrs)
 ### Correlation heatmap within proteomics (only the samples involved here)
 ```{r}
 # Grab columns of proteomics data with only samples from the strains for which there are microarray data
-matches <- grepl(paste(sample_names_escaped, collapse="|"), 
+matches <- grepl(paste(samples_in_microarray, collapse="|"), 
                         colnames(trna_ko))
 MC_and_SC_proteomics <- trna_ko[, matches]
 
@@ -284,7 +313,7 @@ Okay this probably also explains why I see no correlation at all between the pro
 Get one of these for all the proteomics data and see if they all are this heavily correlated to each other or if I can actually see some pattern per KOs. Because if all of them are this correlated to each other, it feels a bit wrong I'd say? Idk, maybe it's normal. Also maybe try to get a heatmap for the proteomics data themselves, not only for the correlations between them
 
 
-### Correlation heatmap of only proteomics data (for all samples)
+### Correlation heatmap of only proteomics data (for all samples) - pretty useless
 ```{r}
 corrs <- round(cor(trna_ko, use = "pairwise.complete.obs"), 2)
 melted_corrs <- melt(corrs)
@@ -303,25 +332,28 @@ ggplot(data = melted_corrs, aes(x=Var1, y=Var2, fill=value)) +
 ```
 
 
-Check that proteins which are upregulated in these samples in the proteomics data, are also upregulated in microarray data - if this is the case, it should mean that my correlation between the 2 datasets is not wrong and that in fact there are interesting things to look at here
+
+# 3. Check that proteins which are upregulated in these samples in the proteomics data, are also upregulated in microarray data - if this is the case, it should mean that my correlation between the 2 datasets is not wrong and that in fact there are interesting things to look at here
 ```{r}
+# Load da dataframe
+da <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
+
 microarray_samples <- colnames(microarray_data[2:6])
 
-da_for_microarray_samples <- da %>% filter(Strain.Name %in% microarray_samples)
+da_for_microarray_samples <- da %>% 
+  dplyr::filter(Strain.Name %in% microarray_samples)
 
 for (i in 1:length(microarray_samples)) {
   sample <- microarray_samples[i]
   da_temp <- da %>% 
-    filter(Strain.Name == sample) %>%
-    dplyr::select(protein, diffexpressed, logFC, adj.P.Val)
-  colnames(da_temp) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val")
-  microarray_temp <- microarray_data %>% dplyr::select(all_of(sample), Gene.symbol)
-  test <- left_join(microarray_temp, da_temp, by = "Gene.symbol")
-  test <- inner_join(da_temp, microarray_temp, by = "Gene.symbol")
-  test <- test %>% mutate(diffexpressed = case_when(diffexpressed == "Up_regulated" ~ "Up_regulated",
-                                                    diffexpressed == "Down_regulated" ~ "Down_regulated",
-                                                    TRUE ~ "Not_significant"))
-  colnames(test) <- c("Gene.symbol", "diffexpressed", "logFC", "adj.P.Val", "logfold_microarray")
+    dplyr::filter(Strain.Name == sample) %>%
+    dplyr::select(protein, diffexpressed_adjusted, logFC, adj.P.Val)
+  colnames(da_temp) <- c("systematic_SGD_IDs", "diffexpressed", "logFC", "adj.P.Val")
+  microarray_temp <- microarray_data %>% 
+    dplyr::select(all_of(sample), systematic_SGD_IDs)
+  test <- left_join(microarray_temp, da_temp, by = "systematic_SGD_IDs")
+  test <- inner_join(da_temp, microarray_temp, by = "systematic_SGD_IDs")
+  colnames(test) <- c("systematic_SGD_IDs", "diffexpressed", "logFC", "adj.P.Val", "logfold_microarray")
   
   
   # Calculate correlation to add to plot
@@ -353,7 +385,7 @@ for (i in 1:length(microarray_samples)) {
     ylab("logFC transcriptomics") +
     theme_light() +
     geom_text_repel(data = subset(test, diffexpressed == "Up_regulated" | diffexpressed == "Down_regulated"),
-              aes(x = logFC, y = logfold_microarray, col = diffexpressed, label = Gene.symbol),
+              aes(x = logFC, y = logfold_microarray, col = diffexpressed, label = systematic_SGD_IDs),
               size = 4) +
     geom_abline() +
     scale_color_manual(values = c(Down_regulated = "#80AAFF", Not_significant = "#808080", Up_regulated = "#FF8080"))

@@ -45,15 +45,15 @@ library(xlsx)
 working_from = "charite"
 
 if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/tRNA_KOs/"
+  base_dir = "/home/alvaro/MyStuff/"
 } else
   if (working_from == "charite") {
-    base_dir = "C:/MyStuff/tRNA_KOs/"
+    base_dir = "C:/MyStuff/"
   }
 
 
 # Load first file
-og_results <- read.xlsx(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results.xlsx", sep=""), sheetIndex = 1)
+og_results <- read.xlsx(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results.xlsx", sep=""), sheetIndex = 1)
 
 
 # Fix colnames
@@ -93,9 +93,14 @@ for (i in 1:nrow(og_results)) {
 ### Substitute the column in the dataframe
 og_results$GtRNAdb_name <- GtRNADB_names
 
+# Change the format tA(AGC)J to the format tA.AGC.J
+og_results <- og_results %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\(", ".")) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\)", "."))
+
 
 ## Write final version
-fwrite(og_results, paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep=""))
+fwrite(og_results, paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep=""))
 
 
 
@@ -112,7 +117,7 @@ colnames(microarray_data)[colnames(microarray_data) == "gene.name"] <- "Gene.sec
 colnames(microarray_data)[colnames(microarray_data) == "tL.GAG.G1"] <- "tL.GAG.G"
 
 # Write as a .tsv to the appropriate folder
-fwrite(microarray_data, paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep=""))
+fwrite(microarray_data, paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/microarray_fold_change_data.tsv", sep=""))
 
 
 
@@ -136,7 +141,7 @@ library(xlsx)
 growth_2020_1 <- read.xlsx("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/01_ProjectManagement/05_Samples/01_SampleMetadata/20200302_tRNA deletion library_96plates_Orna_rearranged.xlsx", sheetName = "Plate 1")
 growth_2020_2 <- read.xlsx("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/01_ProjectManagement/05_Samples/01_SampleMetadata/20200302_tRNA deletion library_96plates_Orna_rearranged.xlsx", sheetName = "Plate 2")
 growth_2020_3 <- read.xlsx("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/01_ProjectManagement/05_Samples/01_SampleMetadata/20200302_tRNA deletion library_96plates_Orna_rearranged.xlsx", sheetName = "Plate 3")
-og_results <- as.data.frame(fread(paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep="")))
+og_results <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_2014.tsv", sep="")))
 
 
 # Fix colnames
@@ -150,8 +155,13 @@ colnames(growth_2020_3) <- c("Analysis.Plate.96", "Position.Bad.Format", "Strain
 # Join them into a single dataframe
 growth_2020 <- rbind(rbind(growth_2020_1, growth_2020_2), growth_2020_3)
 
+# Change the format tA(AGC)J to the format tA.AGC.J
+growth_2020 <- growth_2020 %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\(", ".")) %>%
+  dplyr::mutate(Strain.Name = str_replace(Strain.Name, "\\)", "."))
+
 # Save this dataframe as is just in case
-fwrite(growth_2020, file = paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_2020.tsv", sep=""))
+fwrite(growth_2020, file = paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_2020.tsv", sep=""))
 
 # Join this to the original phenotypic results dataframe
 temp_growth_2020 <- growth_2020 %>%
@@ -160,40 +170,7 @@ temp_growth_2020 <- growth_2020 %>%
 og_results <- left_join(og_results, temp_growth_2020, by = "Strain.Name")
 
 # Save the dataframe with both phenotypic datas, 2014 and 2020
-fwrite(og_results, file = paste(base_dir, "Data/Other/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep=""))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+fwrite(og_results, file = paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep=""))
 
 
 

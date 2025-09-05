@@ -948,6 +948,17 @@ Lollipop plot - nicest one I think
 ```{r}
 tile_x <- -50
 
+# Try to order based on amino acid instead
+responsiveness <- responsiveness %>%
+  dplyr::arrange(desc(Amino_acid_1_letter), Family_type, anticodon, nDEP)
+responsiveness$anticodon <- factor(responsiveness$anticodon, levels = unique(responsiveness$anticodon))
+
+# Create background annotation data - for colored sidebar
+annotation_data <- responsiveness %>%
+  dplyr::select(Amino_acid_1_letter , anticodon, Family_type) %>%
+  dplyr::distinct()
+
+
 # Define grid lines
 ## Define the y-values where you want horizontal lines
 grid_lines_y <- seq(0.5, 35.5, by = 2.5)
@@ -1028,6 +1039,13 @@ ggsave(filename = "lollipop.svg",
        path = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/", sep = ""),
        width = 10, height = 8, units = "in",       
        dpi = 600)
+
+ggsave(filename = "lollipop.png",
+       plot = lollipop_plot_final,
+       path = paste(base_dir, "tRNA_KOs/Output/Plots/nDEP_per_families/", sep = ""),
+       width = 10, height = 8, units = "in",       
+       dpi = 600,
+       bg = "white")
 ```
 
 
@@ -2430,7 +2448,8 @@ resp_and_expression_modelling <- left_join(resp_and_expression_modelling, master
 ## 3.1. Get correlations between all the possible numerical variables used for modelling, and represent them in a heatmap
 ```{r}
 resp_measure_corrs <- resp_and_expression_modelling %>%
-  dplyr::select_if(is.numeric)
+  dplyr::select_if(is.numeric) %>%
+  dplyr::select(-contains("regulated"))
 
 cor_mat <- round(cor(resp_measure_corrs, use = "pairwise.complete.obs"), 2)
 
@@ -3102,8 +3121,9 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.ad
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, logFC_total > 0.5 | logFC_total < -0.5), 
-                  aes(x = logFC_total, y = -log10(p.values.adj_total), label = Strain.Name))
+  geom_label_repel(data = subset(test_codon_enrichment, abs(logFC_total) > 0.5), 
+                  aes(x = logFC_total, y = -log10(p.values.adj_total), label = Strain.Name)) +
+  labs(title = "DE proteins vs. non-DE proteins")
 
 # Color by count of DE proteins
 ggplot(data = test_codon_enrichment, aes(x = logFC_total, y = -log10(p.values.adj_total), col = num_de_total)) +
@@ -3155,9 +3175,10 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.a
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_up_non > 0.5 | logFC_up_non < -0.5) &
-                                                           -log10(p.values.adj_up_non) > -log10(0.05)))|-log10(p.values.adj_up_non) > -log10(0.05)),
-                  aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), label = Strain.Name))
+  geom_label_repel(data = subset(test_codon_enrichment, abs(logFC_up_non) > 0.5 & p.values.adj_up_non < 0.05), 
+                  aes(x = logFC_up_non, y = -log10(p.values.adj_up_non), label = Strain.Name),
+                  size = 2.5) +
+  labs(title = "Up-regulated proteins vs. non-DE proteins")
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
 ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.adj_up_non))) +
@@ -3210,7 +3231,7 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_non, y = -log10(p.values.a
   theme_light()
 ```
 
-"Volcano plot" - dowm-regulated vs. non-DE proteins
+"Volcano plot" - down-regulated vs. non-DE proteins
 ```{r}
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag only significant p-values and FCs
 ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non))) +
@@ -3219,9 +3240,9 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_down_non > 0.5 | logFC_down_non < -0.5) &
-                                                           -log10(p.values.adj_down_non) > -log10(0.05)))|-log10(p.values.adj_down_non) > -log10(0.05)),
-                  aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), label = Strain.Name))
+  geom_label_repel(data = subset(test_codon_enrichment, abs(logFC_down_non) > 0.5 & p.values.adj_down_non < 0.05), 
+                  aes(x = logFC_down_non, y = -log10(p.values.adj_down_non), label = Strain.Name)) +
+  labs(title = "Down-regulated proteins vs. non-DE proteins")
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
 ggplot(data = test_codon_enrichment, aes(x = logFC_down_non, y = -log10(p.values.adj_down_non))) +
@@ -3283,9 +3304,10 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.
   geom_vline(xintercept = 0.5, col = "red") +
   geom_vline(xintercept = -0.5, col = "red") +
   theme_light() +
-  geom_text_repel(data = subset(test_codon_enrichment, (((logFC_up_down > 0.5 | logFC_up_down < -0.5) &
-                                                           -log10(p.values.adj_up_down) > -log10(0.05)))|-log10(p.values.adj_up_down) > -log10(0.05)),
-                  aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), label = Strain.Name))
+  geom_label_repel(data = subset(test_codon_enrichment, (abs(logFC_up_down) > 0.5 & p.values.adj_up_down < 0.05) | abs(logFC_up_down) > 1.5), 
+                  aes(x = logFC_up_down, y = -log10(p.values.adj_up_down), label = Strain.Name),
+                  size = 2.5) +
+  labs(title = "Up-regulated proteins vs. down-regulated proteins")
 
 # Basic volcano plot - FC vs. -log10(adj.p-value) - tag all significant FCs
 ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.adj_up_down))) +
@@ -3338,7 +3360,7 @@ ggplot(data = test_codon_enrichment, aes(x = logFC_up_down, y = -log10(p.values.
   theme_light()
 ```
 
-Create fake data that follows our hypothesis - for comparison to the real results, for the poster
+Create fake data that follows our hypothesis - for comparison to the real results, for the poster - WHY THE FLIP IS THERE A PROBLEM HERE NOW :(
 ```{r}
 # Create fake data
 fake_data <- list()
@@ -3614,6 +3636,7 @@ rm(codon_ratios_list, de_df, master_dataset, non_de_df, resp_and_expression, tes
 
 
 ## 4.2. In the 5' end - about ribosome queueing, based on Kemp et al., 2012
+### 4.2.1. Some required previous stuff
 Need to save a list of the codons (in DNA code) to iterate over them in the Python script
 ```{r}
 # Load responsiveness dataset
@@ -3634,6 +3657,39 @@ write_json(codons,
            path = paste(base_dir, "tRNA_KOs/Data/check_codon_enrichment_in_protein_sequences/check_in_5_prime_end/unique_target_codons.json", sep=""))
 ```
 
+Have a quick look at the translation initiation rate I got from Riba et al., 2019 before I use it
+```{r}
+# Estimated using one method, oligoDT something
+initiation_rate_oligo_dt <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/riba_2019/sup_dataset_1.tsv", sep="")))
+
+ggplot(data = initiation_rate_oligo_dt, aes(x = real_protein_synthesis_per_mrna)) +
+  geom_histogram(fill = "grey", col = "black", binwidth = 0.5) +
+  theme_light() 
+
+ggplot(data = initiation_rate_oligo_dt, aes(x = real_protein_synthesis_per_mrna)) +
+  geom_histogram(fill = "grey", col = "black", binwidth = 0.1) +
+  theme_light() +
+  coord_cartesian(xlim = c(0, 2))
+
+
+# Estimated using a different method, ribo-zero, supposed to avoid poly(A) bias, sometimes better for low abundance transcripts
+initation_rate_ribo_zero <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/riba_2019/sup_dataset_2.tsv", sep="")))
+
+ggplot(data = initation_rate_ribo_zero, aes(x = real_protein_synthesis_per_mrna)) +
+  geom_histogram(fill = "grey", col = "black", binwidth = 0.5) +
+  theme_light() 
+
+ggplot(data = initation_rate_ribo_zero, aes(x = real_protein_synthesis_per_mrna)) +
+  geom_histogram(fill = "grey", col = "black", binwidth = 0.1) +
+  theme_light() +
+  coord_cartesian(xlim = c(0, 2))
+
+# --> I think for now I will select the ones with high initiation rate based on the first one, they don't seem too different
+```
+
+
+
+### 4.2.2. Actually do the stuff
 Load the data
 ```{r}
 # In how many of the first codons from the 5' end do we want to check? (either 30 or 50)
@@ -3663,7 +3719,17 @@ de_proteins_list_tRNAs <- Filter(function(x) length(x) > 0, de_proteins_list_tRN
 logFC_for_5k <- 0.5
 de_proteins_list_5k <- readRDS(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".RData", sep=""))
 de_proteins_list_5k <- Filter(function(x) length(x) > 0, de_proteins_list_5k)
+
+# Initiation rate data from Riba et al., 2019
+initiation_rate_oligo_dt <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/riba_2019/sup_dataset_1.tsv", sep="")))
 ```
+
+Select proteins with a high initiation rate
+```{r}
+median_initiation_rate <- median(initiation_rate$real_protein_synthesis_per_mrna)           # just as a reference, I'm using a higher value anyway
+genes_with_high_initiation_rate <- initiation_rate$ensembl_gene_id[initiation_rate$real_protein_synthesis_per_mrna > 1.5]
+```
+
 
 Some initial checks, manipulate the data obtained in Python and add information from Messner et al., 2023
 ```{r}
@@ -3825,7 +3891,7 @@ jaccard_indexes_and_heatmaps <- function(de_proteins_per_target_codon) {
     
     # Get the Jaccard matrix for all the lists of DE proteins for a certain codon and save it to a list
     list_all_DE_proteins_for_this_codon <- c(de_proteins_per_target_codon[[codon]][["list_5k"]], de_proteins_per_target_codon[[codon]][["list_tRNA_KO"]])
-    Jaccard_mat <- get_jaccard_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
+    Jaccard_mat <- get_jaccad_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
     list_of_Jaccard_mats[[codon]] <- Jaccard_mat
     
     # Get a heatmap from this matrix and also save it to a list

@@ -25,7 +25,7 @@ high initiation rates, so I should also keep that in mind.
 ###############################################################
 # 0. Set parameters
 ###############################################################
-initial_codons_num = 30
+initial_codons_num = 16
 working_from = "charite"
 if working_from == "charite":
     base_dir = "C:\\MyStuff\\"
