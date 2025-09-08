@@ -3688,12 +3688,11 @@ ggplot(data = initation_rate_ribo_zero, aes(x = real_protein_synthesis_per_mrna)
 ```
 
 
-
-### 4.2.2. Actually do the stuff
+### 4.2.2. Create the lists of DE proteins in our tRNA KOs and in the 5k based on the codons at the beginning 
 Load the data
 ```{r}
 # In how many of the first codons from the 5' end do we want to check? (either 30 or 50)
-initial_codons_num <- 30
+initial_codons_num <- 10
 
 # Codon content produced with Python
 codon_enrichment_initial_codons <- as.data.frame(fread(paste(base_dir, 
@@ -3719,17 +3718,7 @@ de_proteins_list_tRNAs <- Filter(function(x) length(x) > 0, de_proteins_list_tRN
 logFC_for_5k <- 0.5
 de_proteins_list_5k <- readRDS(paste(base_dir, "tRNA_KOs/Data/5k/de_proteins_list_up_down_", alpha_plain, "_logFC_", as.character(logFC_for_5k), ".RData", sep=""))
 de_proteins_list_5k <- Filter(function(x) length(x) > 0, de_proteins_list_5k)
-
-# Initiation rate data from Riba et al., 2019
-initiation_rate_oligo_dt <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/riba_2019/sup_dataset_1.tsv", sep="")))
 ```
-
-Select proteins with a high initiation rate
-```{r}
-median_initiation_rate <- median(initiation_rate$real_protein_synthesis_per_mrna)           # just as a reference, I'm using a higher value anyway
-genes_with_high_initiation_rate <- initiation_rate$ensembl_gene_id[initiation_rate$real_protein_synthesis_per_mrna > 1.5]
-```
-
 
 Some initial checks, manipulate the data obtained in Python and add information from Messner et al., 2023
 ```{r}
@@ -3829,9 +3818,9 @@ for (i in 1:length(codons)) {
   list_5k_all[["All_5k"]] <- unique(all_5k_de_proteins_all)
   
   ## Add the 5k list to the overall list for this target codon
-  list_for_this_codon_up[["list_5k"]] <- list_5k_up
-  list_for_this_codon_down[["list_5k"]] <- list_5k_down
-  list_for_this_codon_all[["list_5k"]] <- list_5k_all
+  list_for_this_codon_up[["list_5k"]] <- list_5k_up[unlist(lapply(list_5k_up, function(x) length(x))) > 0]
+  list_for_this_codon_down[["list_5k"]] <- list_5k_down[unlist(lapply(list_5k_down, function(x) length(x))) > 0]
+  list_for_this_codon_all[["list_5k"]] <- list_5k_all[unlist(lapply(list_5k_all, function(x) length(x))) > 0]
   
   
   
@@ -3864,9 +3853,9 @@ for (i in 1:length(codons)) {
   list_trna_kos_all[["All_tRNA_KOs"]] <- unique(all_trna_ko_de_proteins_all)
   
   ## Add the tRNA KO list to the overall list for this target codon
-  list_for_this_codon_up[["list_tRNA_KO"]] <- list_trna_kos_up
-  list_for_this_codon_down[["list_tRNA_KO"]] <- list_trna_kos_down
-  list_for_this_codon_all[["list_tRNA_KO"]] <- list_trna_kos_all
+  list_for_this_codon_up[["list_tRNA_KO"]] <- list_trna_kos_up[unlist(lapply(list_trna_kos_up, function(x) length(x))) > 0]
+  list_for_this_codon_down[["list_tRNA_KO"]] <- list_trna_kos_down[unlist(lapply(list_trna_kos_down, function(x) length(x))) > 0]
+  list_for_this_codon_all[["list_tRNA_KO"]] <- list_trna_kos_all[unlist(lapply(list_trna_kos_all, function(x) length(x))) > 0]
   
   
   
@@ -3894,8 +3883,13 @@ jaccard_indexes_and_heatmaps <- function(de_proteins_per_target_codon) {
     Jaccard_mat <- get_jaccad_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
     list_of_Jaccard_mats[[codon]] <- Jaccard_mat
     
-    # Get a heatmap from this matrix and also save it to a list
+        # Get a heatmap from this matrix and also save it to a list
+    ## Melt matrix and make sure to specify to keep the order of the samples as it is there
     melt_mat <- helperfunctions::melt(Jaccard_mat)
+    melt_mat$Var1 <- factor(melt_mat$Var1, levels = rownames(Jaccard_mat))
+    melt_mat$Var2 <- factor(melt_mat$Var2, levels = colnames(Jaccard_mat))
+    
+    ## Create the annotation rectangles for the heatmap
     highlight_rect_large <- annotate("rect",
                                      xmin = 0,
                                      xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,
@@ -3912,6 +3906,8 @@ jaccard_indexes_and_heatmaps <- function(de_proteins_per_target_codon) {
                                      color = "darkgreen",
                                      fill = NA,
                                      linewidth = 2)
+    
+    ## Create the heatmap and add the annotation rectangles created above
     plot_list[[codon]] <- ggplot(melt_mat, aes(Var1, Var2)) +
                               geom_tile(aes(fill = value), colour = "white") +
                               scale_fill_gradient(low = "white", high = "red") +
@@ -3976,6 +3972,157 @@ ggsave(
    width = 15, height = 9
 )
 ```
+
+
+### 4.2.3. Grab the lists of DE proteins generated above, but keep only those where the KO/high target codon concentration in 5' end protein is a high-initiation rate protein
+Grab the names of the proteins with high initiation rates
+```{r}
+median_initiation_rate <- median(initiation_rate_oligo_dt$real_protein_synthesis_per_mrna)           # just as a reference, I'm using a higher value anyway
+genes_with_high_initiation_rate <- initiation_rate_oligo_dt$ensembl_gene_id[initiation_rate_oligo_dt$real_protein_synthesis_per_mrna > 0.1]
+```
+
+Filter out the DE proteins lists created in previous section
+```{r}
+filter_list <- function(my_list) {
+  # Go through the KOd proteins in 5k and the high target codon 5' proteins in tRNA KO (for each of them we have the list of DE proteins as a consequence of them), and keep only those which have a high initiation rate. For those lists in which there is no protein with no high initiation rate, I set the list to NULL and filter it afterwards
+  list_names_1 <- names(my_list)
+  for (i in 1:length(list_names_1)) {
+    name_1 <- list_names_1[i]
+    list_names_2 <- names(my_list[[name_1]])
+    temp_list <- my_list[[name_1]][["list_5k"]]
+    if (sum(names(temp_list) %in% genes_with_high_initiation_rate) > 0) {
+      my_list[[name_1]][["list_5k"]] <- temp_list[names(temp_list) %in% genes_with_high_initiation_rate]
+      my_list[[name_1]][["list_5k"]][["All_5k"]] <- unique(unlist(my_list[[name_1]][["list_5k"]]))
+    }
+    else {
+      my_list[[name_1]][["list_5k"]] <- NULL
+    }
+  }
+  
+  # Filter out the NULL lists - I remove the entry for any codon for which either the 5k or tRNA KO list is NULL - bc I won't be able to do anything with it
+  for (i in 1:length(list_names_1)) {
+    name_1 <- list_names_1[i]
+    if (is.null(my_list[[name_1]][["list_5k"]])) {
+      my_list <- my_list[names(my_list) != name_1]
+    }
+  }
+  
+  return(my_list)
+}
+
+de_proteins_per_target_codon_all_high_initiation_rate <- filter_list(de_proteins_per_target_codon_all)
+de_proteins_per_target_codon_down_high_initiation_rate <- filter_list(de_proteins_per_target_codon_down)
+de_proteins_per_target_codon_up_high_initiation_rate <- filter_list(de_proteins_per_target_codon_up)
+```
+
+Investigate the Jaccard indexes for these lists of proteins
+For each codon, I'm going to calculate the Jaccard index between all lists of proteins and plot them in a heatmap I think
+```{r}
+# Function that calculates Jaccard indexes and generates heatmaps of them - so I can apply it to the lists of all proteins, of up-regulated ones and of down-regulates ones
+jaccard_indexes_and_heatmaps <- function(de_proteins_per_target_codon) {
+  list_of_Jaccard_mats <- list()
+  plot_list <- list()
+  codons <- names(de_proteins_per_target_codon)
+  
+  for (i in 1:length(codons)) {
+    codon <- codons[i]
+    
+    # Get the Jaccard matrix for all the lists of DE proteins for a certain codon and save it to a list
+    list_all_DE_proteins_for_this_codon <- c(de_proteins_per_target_codon[[codon]][["list_5k"]], de_proteins_per_target_codon[[codon]][["list_tRNA_KO"]])
+    Jaccard_mat <- get_jaccad_index_matrix(list_all_DE_proteins_for_this_codon, names(list_all_DE_proteins_for_this_codon))
+    list_of_Jaccard_mats[[codon]] <- Jaccard_mat
+    
+    # Get a heatmap from this matrix and also save it to a list
+    ## Melt matrix and make sure to specify to keep the order of the samples as it is there
+    melt_mat <- helperfunctions::melt(Jaccard_mat)
+    melt_mat$Var1 <- factor(melt_mat$Var1, levels = rownames(Jaccard_mat))
+    melt_mat$Var2 <- factor(melt_mat$Var2, levels = colnames(Jaccard_mat))
+    
+    ## Create the annotation rectangles for the heatmap
+    highlight_rect_large <- annotate("rect",
+                                     xmin = 0,
+                                     xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,
+                                     ymin = which(levels(melt_mat$Var2) == "All_5k") + 0.5,
+                                     ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,
+                                     color = "darkblue",
+                                     fill = NA,
+                                     linewidth = 2)
+    highlight_rect_small <- annotate("rect",
+                                     xmin = which(levels(melt_mat$Var1) == "All_5k") - 0.5,
+                                     xmax = which(levels(melt_mat$Var1) == "All_5k") + 0.5,              
+                                     ymin = which(levels(melt_mat$Var2) == "All_tRNA_KOs") - 0.5,
+                                     ymax = which(levels(melt_mat$Var2) == "All_tRNA_KOs") + 0.5,        
+                                     color = "darkgreen",
+                                     fill = NA,
+                                     linewidth = 2)
+    
+    ## Create the heatmap and add the annotation rectangles created above
+    plot_list[[codon]] <- ggplot(melt_mat, aes(Var1, Var2)) +
+                              geom_tile(aes(fill = value), colour = "white") +
+                              scale_fill_gradient(low = "white", high = "red") +
+                              coord_fixed() +
+                              xlab("") +
+                              ylab("") +
+                              labs(title = glue("{codon}")) +
+                              theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+                              highlight_rect_large +
+                              highlight_rect_small
+    print(plot_list[[codon]])
+  }
+  out <- list(list_of_Jaccard_mats, plot_list)
+  return(out)
+}
+```
+
+- For all DE proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_all_high_initiation_rate)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_high_initiation_rate_5k_vs_tRNA_KOs_all_DE_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
+```
+
+- For up-regulated proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_up_high_initiation_rate)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_high_initiation_rate_5k_vs_tRNA_KOs_up_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
+```
+
+- For down-regulated proteins
+```{r}
+output_list <- jaccard_indexes_and_heatmaps(de_proteins_per_target_codon_down_high_initiation_rate)
+list_of_Jaccard_mats <- output_list[[1]]
+plot_list <- output_list[[2]]
+
+# Save the plots to a PDF
+my_grobs <- lapply(plot_list, ggplotGrob)
+output_file <- paste(base_dir, "tRNA_KOs/Output/Plots/compare_codon_content/check_in_5_prime_end/Jaccard_index_heatmaps_high_initiation_rate_5k_vs_tRNA_KOs_down_proteins_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf", sep = "")
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=2, ncol=2), 
+   width = 15, height = 9
+)
+```
+
+
 
 
 
@@ -5595,7 +5742,44 @@ ggplot(data = resp_with_nts, aes(x = Nt_at_48, y = log2(nDEP), group = Nt_at_48)
 
 
 
+######################################################################################
+# 8. Check abundance of proteins suggested in Bloom-Ackermann et al., 2014 to be up- or down-regulated
+######################################################################################
 
+## 8.1. RNA pol III subunits
+They could be up-regulated when a tRNA belonging to a multi-copy family is KOd, I think that would be the main thing to expect?
+
+Load data
+```{r}
+# UniProt dataset
+uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
+
+# da 
+da <- fread(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_df_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
+```
+
+Grab the systematic names of the RNA pol III subunits from the UniProt dataset and check how many of them are up- or down-regulated in each KO strain
+```{r}
+# Grab subunit names
+rna_pol_3_subunits <- uniprot_db$`Gene Names (ordered locus)`[grepl("RNA polymerase III subunit", uniprot_db$`Protein names`, ignore.case = T)]
+
+# Iterate over strains and check DE of the subunits
+strains <- unique(da$Strain.Name)
+subunits_upregulated <- 
+
+for (strain in strains) {
+  temp <- da %>%
+    dplyr::filter(Strain.Name == strain &
+                  protein %in% rna_pol_3_subunits)
+}
+```
+
+
+
+## 8.2. Proteotoxic response mechanisms in the strains that grow better in DTT than the WT
+```{r}
+
+```
 
 
 
