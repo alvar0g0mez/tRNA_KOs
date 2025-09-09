@@ -1802,42 +1802,8 @@ clust_df <- scale(clust_df)
 
 fviz_nbclust(clust_df, kmeans, method = "wss", k.max = 15)
 
-
-# Create a function that can be used to perform clustering with different k values 
-perform_clustering <- function(tmp, dist_method, clust_method, num_of_clusters, want_dendrogram = T, want_clust_plot = T) {
-  # Get distance matrix based on Euclidean distance
-  dist.euc <- dist(tmp, method = dist_method)
-  
-  # Perform clustering
-  tree.complete <- hclust(dist.euc, method = clust_method)
-  
-  # Plot dendrogram
-  if (want_dendrogram) {
-    plot(tree.complete, cex = 0.3, 
-         main = glue("Dendrogram for clustering with {clust_method} link"),
-         xlab = glue("{dist_method} distance"))
-    rect.hclust(tree.complete , k = num_of_clusters)
-  }
-  
-  if (want_dendrogram) {
-    dend_obj <- as.dendrogram(tree.complete)
-    col_dend <- color_branches(dend_obj, k = num_of_clusters)
-    labels_cex(col_dend)
-    plot(col_dend)
-  }
-  
-  # Visualize clusters
-  my_clusters <- cutree(tree.complete, k = num_of_clusters)
-  if (want_clust_plot) {print(fviz_cluster(list(data = tmp, cluster = my_clusters), 
-                                           main = glue("Clustering by {clust_method} link"),
-                                           ggtheme = theme_light()))}
-  
-  return(my_clusters)
-}
-
-
-# Use this function to do clustering: k = 2
-my_clusters <- perform_clustering(clust_df, "euclidean", "complete", 5)
+# Perform the clustering with the selected number of clusters
+my_clusters <- perform_hierarchical_clustering(clust_df, "euclidean", "complete", 5)
 ```
 
 Clustering to save dendrogram to PDF
@@ -5756,29 +5722,261 @@ uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/unipr
 
 # da 
 da <- fread(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_df_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep=""))
-```
 
-Grab the systematic names of the RNA pol III subunits from the UniProt dataset and check how many of them are up- or down-regulated in each KO strain
-```{r}
 # Grab subunit names
 rna_pol_3_subunits <- uniprot_db$`Gene Names (ordered locus)`[grepl("RNA polymerase III subunit", uniprot_db$`Protein names`, ignore.case = T)]
 
-# Iterate over strains and check DE of the subunits
+# Proteomics data
+y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+trna_ko <- y.protein$E
+
+# Sample layout
+sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/metadata_alvaro.tsv", sep="")))
+
+# The master tRNA dataset
+master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
+```
+
+Start by looking at a heatmap
+```{r}
+heatmap_df <- trna_ko[rownames(trna_ko) %in% rna_pol_3_subunits,]
+
+# No grouping
+create_heatmap(protein_mat = heatmap_df,
+               annotation = "none",
+               metadata = sample_layout,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               heatmap_type = "z-score",
+               z_score_type = "standard",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_z_score_standard_RNA_pol_III_subunits",
+               heatmap_title = "Z-score tRNA KOs heatmap, RNApolIII subunits, no grouping",
+               show_row_names = T)
+
+
+# Grouping based on single-member family or multi-copy family 
+master_dataset_temp <- master_dataset %>%
+  dplyr::mutate(Family_size_cat = case_when(Family_size == 1 ~ "Single-copy",
+                                            TRUE ~ "Multi-copy")) %>%
+  dplyr::select(Strain.Name, Family_size_cat)
+sample_layout_family_size <- left_join(sample_layout, master_dataset_temp, by = "Strain.Name") %>%
+  dplyr::mutate(Family_size_cat = case_when(Strain.Name == "WT" ~ "WT",
+                                            TRUE ~ Family_size_cat))
+
+create_heatmap(protein_mat = heatmap_df,
+               annotation = "single",
+               metadata = sample_layout_family_size,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               metadata_column_for_annotation = "Family_size_cat",
+               color_palette = "viridis",
+               heatmap_type = "z-score",
+               z_score_type = "standard",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_z_score_standard_annotated_by_Family_size_cat_single_or_multi",
+               heatmap_title = "Z-score tRNA KOs heatmap, RNApolIII subunits,\ngrouping on single- or multi-copy family")
+
+
+# Grouping based on family size
+master_dataset_temp <- master_dataset %>%
+  dplyr::mutate(Family_size_cat = case_when(Family_size == 1 ~ "Single-copy",
+                                            Family_size > 1 & Family_size <= 5 ~ "Small family",
+                                            Family_size > 5 & Family_size <= 10 ~ "Medium family",
+                                            Family_size > 10 ~ "Large family")) %>%
+  dplyr::select(Strain.Name, Family_size_cat)
+sample_layout_family_size <- left_join(sample_layout, master_dataset_temp, by = "Strain.Name") %>%
+  dplyr::mutate(Family_size_cat = case_when(Strain.Name == "WT" ~ "WT",
+                                            TRUE ~ Family_size_cat))
+
+create_heatmap(protein_mat = heatmap_df,
+               annotation = "single",
+               metadata = sample_layout_family_size,
+               metadata_column_for_sample_name = "final_proteomics_colnames",
+               metadata_column_for_annotation = "Family_size_cat",
+               color_palette = "viridis",
+               heatmap_type = "z-score",
+               z_score_type = "standard",
+               location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/", sep=""),
+               save_as = "png",
+               plot_name = "heatmap_z_score_standard_annotated_by_Family_size_cat",
+               heatmap_title = "Z-score tRNA KOs heatmap, RNApolIII subunits,\ngrouping on family size")
+```
+
+The Z-scores in the heatmap are calculated across all samples, so they are around the mean expression of that protein, let me look at the distribution of the logFCs (which are w.r.t. to the WTs)
+```{r}
+da_temp <- da %>%
+  dplyr::filter(protein %in% rna_pol_3_subunits)
+ggplot(data = da_temp, aes(x = logFC)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light()
+```
+--> Interesting, there seems to be more down-regulation than up-regulation
+
+Clustering
+- Perform hierarchical clustering
+```{r}
+# Elbow method - try to figure out what number of clusters is appropriate 
+clust_df <- heatmap_df
+clust_df <- as.data.frame(t(clust_df))         
+clust_df <- scale(clust_df)
+
+fviz_nbclust(clust_df, kmeans, method = "wss", k.max = 15)
+
+# Perform the clustering with the selected number of clusters
+my_clusters <- perform_hierarchical_clustering(clust_df, "euclidean", "complete", 7)
+```
+
+- Clustering to save dendrogram to PDF
+```{r}
+# Set up parameters
+distance_method <- "euclidean"
+clustering_method <- "complete"
+
+# Perform clustering and create dendrogram - CLUST_DF IS SCALED IN THE PREVIOUS CHUNK! IS THAT OKAY???
+dist_mat <- dist(clust_df, method = distance_method)
+tree <- hclust(dist_mat, method = clustering_method)
+plot(tree, cex = 0.3)
+hcd <- as.dendrogram(tree)
+
+# Open a PDF for plotting; units are inches by default
+pdf(paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/RNA_pol_III_dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""), width=40, height=15)
+
+# Plot the tree into the PDF
+plot(tree, cex = 0.3)
+
+# Close the PDF file's associated graphics device (necessary to finalize the output)
+dev.off()
+
+# Rotate PDF
+rotate_pdf(
+  page_rotation = 90,
+  input_filepath = paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/RNA_pol_III_dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""),
+  output_filepath = paste(base_dir, "tRNA_KOs/Output/Plots/dendrograms/RNA_pol_III_dist_method_",  distance_method, "_clust_method_", clustering_method, ".pdf", sep=""),
+  overwrite = TRUE
+)
+```
+
+
+
+Calculate weighted score per strain
+```{r}
+# Calculate the scores and make them into a dataframe
 strains <- unique(da$Strain.Name)
-subunits_upregulated <- 
+scores <- c()
 
 for (strain in strains) {
-  temp <- da %>%
-    dplyr::filter(Strain.Name == strain &
-                  protein %in% rna_pol_3_subunits)
+  da_temp <- da %>%
+    dplyr::filter(Strain.Name == strain) %>%
+    dplyr::filter(protein %in% rna_pol_3_subunits) %>%
+    dplyr::mutate(score = logFC*(-log10(adj.P.Val)))
+  strain_score <- sum(da_temp$score)/nrow(da_temp)
+  scores <- c(scores, strain_score)
+}
+
+weighted_scores_df <- data.frame(Strain.Name = strains, weighted_score = scores)
+
+# Check the mean and SD of this distribution to see where to put the threshold for "significant" up- or down-regulation
+# Important to notice that this threshold should officially be at -log10(alpha)*logFC_threshold, but we don't get any significance there,
+# so I might as well try this
+median(weighted_scores_df$weighted_score)
+sd(weighted_scores_df$weighted_score)
+# --> Well that's not great, the limit 
+
+# Plot the scores
+ggplot(data = weighted_scores_df, aes(x = weighted_score)) +
+  geom_histogram(col = "black", fill = "grey") +
+  theme_light() +
+  geom_vline(xintercept = -0.4, col = "orange", linewidth = 1) +
+  geom_vline(xintercept = 0.4, col = "orange", linewidth = 1) +
+  geom_label_repel(data = subset(weighted_scores_df, abs(weighted_score) > 0.4),
+                  aes(x = weighted_score, y = 50, label = Strain.Name),
+                  label.size = 0.5) +
+  xlab("Score") +
+  ylab("Frequency") +
+  labs(title = "Combined DE measure of all 10 RNA pol III subunits across strains")
+
+# Grab the name of the strains where the RNA pol III is up- or down-regulated, and check their family sizes
+strains_with_up_reg_RNA_pol_III <- weighted_scores_df$Strain.Name[weighted_scores_df$weighted_score > 0.4]
+strains_with_down_reg_RNA_pol_III <- weighted_scores_df$Strain.Name[weighted_scores_df$weighted_score < -0.4]
+
+family_sizes_up <- master_dataset %>%
+  dplyr::filter(Strain.Name %in% strains_with_up_reg_RNA_pol_III) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T) %>%
+  dplyr::pull(Family_size)
+
+family_sizes_down <- master_dataset %>%
+  dplyr::filter(Strain.Name %in% strains_with_down_reg_RNA_pol_III) %>%
+  dplyr::distinct(Strain.Name, .keep_all = T) %>%
+  dplyr::pull(Family_size)
+
+print("Sizes of families where RNA pol III seems to be up-regulated:")
+print(family_sizes_up)
+print("And down-regulated:")
+print(family_sizes_down)
+
+# Actually let me directly check the correlation between family size and this score
+master_temp <- master_dataset %>%
+  dplyr::select(Strain.Name, Family_size)
+weighted_scores_df <- left_join(weighted_scores_df, master_temp, by = "Strain.Name")
+cor(weighted_scores_df$weighted_score, weighted_scores_df$Family_size)
+```
+
+
+Calculate Stouffer's Z per strain - TODO: WROTE THE CODE BUT DIDN'T CHECK THAT IT RUNS OR THAT IT MAKE SENSE!
+```{r}
+da <- da %>%
+  dplyr::mutate(z_score_p_val = (adj.P.Val - median(da$adj.P.Val))/mad(da$adj.P.Val))
+
+strains <- unique(da$Strain.Name)
+scores <- c()
+
+for (strain in strains) {
+  da_temp <- da %>%
+    dplyr::filter(Strain.Name == strain) %>%
+    dplyr::filter(protein %in% rna_pol_3_subunits) %>%
+    dplyr::mutate(weighted_z_score = abs(logFC)*z_score_p_val) %>%
+    dplyr::mutate(squared_weight = (abs(logFC))^2)
+  final_score_strain <- sum(da_temp$weighted_z_score)/sqrt(sum(squared_weight))
+  scores <- c(scores, final_score_strain)
 }
 ```
 
 
 
+
 ## 8.2. Proteotoxic response mechanisms in the strains that grow better in DTT than the WT
 ```{r}
+go_terms_proteotoxicity <- data.frame(GO_terms = c("GO:0071218", "GO:0070843", "GO:0006515", "GO:0051788", "GO:0006457", "GO:0051083", 
+                                                   "GO:0006986", "GO:0034620", "GO:0101031", "GO:0051087", "GO:0006458"),
+                                      Name = c("cellular response to misfolded protein", "misfolded protein transport", 
+                                               "protein quality control for misfolded or incompletely synthesized proteins", 
+                                               "response to misfolded protein", "protein folding", "'de novo' cotranslational protein folding", "response to unfolded protein", 
+                                               "cellular response to unfolded protein", "protein folding chaperone complex", "protein-folding chaperone binding", 
+                                               "'de novo' protein folding"))
 
+trna_ko <- as.data.frame(trna_ko)
+
+for (i in 1:nrow(go_terms_proteotoxicity)) {
+  go_term <- go_terms_proteotoxicity$GO_terms[i]
+  proteins_to_select <- uniprot_db$`Gene Names (ordered locus)`[grepl(go_term, uniprot_db$`Gene Ontology IDs`)]
+  print(proteins_to_select)
+  trna_temp <- trna_ko[rownames(trna_ko) %in% proteins_to_select,]
+  
+  if (nrow(trna_temp) > 1) {
+    create_heatmap(protein_mat = trna_temp,
+                   annotation = "none",
+                   metadata = sample_layout,
+                   metadata_column_for_sample_name = "final_proteomics_colnames",
+                   heatmap_type = "z-score",
+                   z_score_type = "standard",
+                   location_to_save = paste(base_dir, "tRNA_KOs/Output/Plots/Heatmaps/proteotoxicity/", sep=""),
+                   save_as = "png",
+                   plot_name = go_terms_proteotoxicity$Name[go_terms_proteotoxicity$GO_terms == go_term],
+                   heatmap_title = paste("Z-score tRNA KOs heatmap, proteins in ", go_term, ", no grouping"),
+                   show_row_names = F)
+  }
+}
 ```
 
 
