@@ -5735,6 +5735,9 @@ sample_layout <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/metada
 
 # The master tRNA dataset
 master_dataset <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.csv", sep="")))
+
+# Load responsiveness dataset
+responsiveness <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv", sep="")))
 ```
 
 Start by looking at a heatmap
@@ -5896,6 +5899,36 @@ ggplot(data = weighted_scores_df, aes(x = weighted_score)) +
   ylab("Frequency") +
   labs(title = "Combined DE measure of all 10 RNA pol III subunits across strains")
 
+# Actually I would like to plot these scores against the same score for MAF1 in each of the strains, this is the main RNA pol III negative regulator,
+# stress mediated and also related to tRNAs in other ways, interesting
+strains <- unique(da$Strain.Name)
+scores_maf1 <- c()
+
+for (strain in strains) {
+  da_temp <- da %>%
+    dplyr::filter(Strain.Name == strain) %>%
+    dplyr::filter(protein == "YDR005C") %>%
+    dplyr::mutate(score = logFC*(-log10(adj.P.Val)))
+  scores_maf1 <- c(scores_maf1, da_temp$score[1])
+}
+
+weighted_scores_df$scores_maf1 <- scores_maf1
+
+ggplot(data = weighted_scores_df, aes(x = scores_maf1, y = weighted_score)) +
+  geom_point() +
+  geom_hline(yintercept = -log10(0.05)*0.5, col = "orange", linewidth = 1) +
+  geom_hline(yintercept = log10(0.05)*0.5, col = "orange", linewidth = 1) +
+  geom_vline(xintercept = -log10(0.05)*0.5, col = "orange", linewidth = 1) +
+  geom_vline(xintercept = log10(0.05)*0.5, col = "orange", linewidth = 1) +
+  geom_label_repel(data = subset(weighted_scores_df, (scores_maf1 < -log10(0.05)*0.5 | scores_maf1 > log10(0.05)*0.5 |
+                                                      weighted_score < -log10(0.05)*0.5 | weighted_score > log10(0.05)*0.5)),
+                   aes(x = scores_maf1, y = weighted_score, label = Strain.Name), 
+                   label.size = 0.15) +
+  theme_light() +
+  xlab("Expression score for MAF1") +
+  ylab("Combined expression score for RNA pol III subunits") +
+  labs(title = "Expression of RNA pol III subunits vs. expression of MAF1")
+
 # Grab the name of the strains where the RNA pol III is up- or down-regulated, and check their family sizes
 strains_with_up_reg_RNA_pol_III <- weighted_scores_df$Strain.Name[weighted_scores_df$weighted_score > 0.4]
 strains_with_down_reg_RNA_pol_III <- weighted_scores_df$Strain.Name[weighted_scores_df$weighted_score < -0.4]
@@ -5918,8 +5951,26 @@ print(family_sizes_down)
 # Actually let me directly check the correlation between family size and this score
 master_temp <- master_dataset %>%
   dplyr::select(Strain.Name, Family_size)
-weighted_scores_df <- left_join(weighted_scores_df, master_temp, by = "Strain.Name")
-cor(weighted_scores_df$weighted_score, weighted_scores_df$Family_size)
+weighted_scores_df_all <- left_join(weighted_scores_df, master_temp, by = "Strain.Name")
+cor(weighted_scores_df_all$weighted_score, weighted_scores_df_all$Family_size)
+
+# Correlation is quite small, how about I check it spearately for major and minor subunits, since up-regulation seems to only happen when KOing the major subunit of a large family?
+resp_temp <- responsiveness %>%
+  dplyr::select(Strain.Name, Gene_type)
+
+master_temp_major <- master_dataset %>%
+  left_join(resp_temp, by = "Strain.Name") %>%
+  dplyr::select(Strain.Name, Family_size, Gene_type)
+weighted_scores_df_major <- left_join(weighted_scores_df, master_temp_major, by = "Strain.Name") %>%
+  dplyr::filter(Gene_type == "Major")
+cor(weighted_scores_df_major$weighted_score, weighted_scores_df_major$Family_size)
+
+master_temp_minor <- master_dataset %>%
+  left_join(resp_temp, by = "Strain.Name") %>%
+  dplyr::select(Strain.Name, Family_size, Gene_type)
+weighted_scores_df_minor <- left_join(weighted_scores_df, master_temp_minor, by = "Strain.Name") %>%
+  dplyr::filter(Gene_type != "Major")
+cor(weighted_scores_df_minor$weighted_score, weighted_scores_df_minor$Family_size)
 ```
 
 
