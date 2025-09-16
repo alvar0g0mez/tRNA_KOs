@@ -52,6 +52,7 @@ if (working_from == "home") {
 
 # Load data
 db <- read.xlsx(paste(base_dir, "tRNA_KOs/Data/databases/GtRNAdb/GtRNAdb_gene_list.xlsx", sep=""), 1)
+phenotypic_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/Articles/bloom_ackermann_2014/phenotypic_results_full.tsv", sep="")))
 source(paste(base_dir, "tRNA_KOs/Code/R/Mine/0.general_use_functions.R", sep=""))
 
 
@@ -309,7 +310,7 @@ fwrite(master_dataset, paste(base_dir, "tRNA_KOs/Data/basic/master_tRNA_dataset.
 
 
 
-# ----> This continues in "C:/MyStuff/tRNAs/Scripts/Python/complete_master_trna_dataset.py"
+# ----> This continues in "C:/MyStuff/tRNA_KOs/Code/Python/complete_master_trna_dataset.py"
 
 
 

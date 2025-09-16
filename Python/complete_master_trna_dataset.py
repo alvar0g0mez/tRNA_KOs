@@ -49,7 +49,7 @@ def url_get_contents(url):
 
 # 1. Collect the tables
 ## 1.1. Collect the names of the tRNAs from the master dataset in order to build the URLs from them
-gtrnas = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv")
+gtrnas = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\basic\\master_tRNA_dataset.csv")
 gene_symbols = gtrnas["GtRNAdb_gene_symbol"].to_list()
 
 
@@ -101,11 +101,11 @@ out = out[["GtRNAdb_gene_symbol", "Gene.primaryIdentifier", "RNAcentral_IDs", "G
 
 
 ## 3. Add the columns in this dataset to the original master_dataset (created in R), reorder them, and rewrite this one
-master_dataset = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv")
+master_dataset = pd.read_csv("C:\\MyStuff\\tRNA_KOs\\Data\\basic\\master_tRNA_dataset.csv")
 master_dataset = master_dataset.merge(out, on="GtRNAdb_gene_symbol", how="left")
 first_columns = ["GtRNAdb_gene_symbol", "tRNAscan_SE_ID", "Locus", "Gene.primaryIdentifier", "RNAcentral_IDs", "Gene.secondaryIdentifier", "Gene.symbol"]
 master_dataset = master_dataset[first_columns + [col for col in master_dataset if col not in first_columns]]
-master_dataset.to_csv("C:\\MyStuff\\tRNA_KOs\\Data\\Other\\GtRNAdb\\master_tRNA_dataset.csv", header=True, index=False)
+master_dataset.to_csv("C:\\MyStuff\\tRNA_KOs\\Data\\basic\\master_tRNA_dataset.csv", header=True, index=False)
 
 
 
