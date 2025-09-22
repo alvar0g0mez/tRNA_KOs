@@ -66,7 +66,7 @@ seqs <- readDNAStringSet(paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequ
 tRNAs_to_select <- master_dataset %>%
   dplyr::filter(KOd == "Yes") %>%
   dplyr::pull(GtRNAdb_gene_symbol)
-seqs_filtered <- seqs[(names(seqs) %in% tRNAs_to_select)]
+seqs_filtered <- seqs[names(seqs) %in% tRNAs_to_select]
 temp_names <- data.frame(GtRNAdb_gene_symbol = names(seqs_filtered))
 master_temp <- master_dataset %>%
   dplyr::select(GtRNAdb_gene_symbol, Strain.Name, KOd)
@@ -74,8 +74,8 @@ new_names <- left_join(temp_names, master_temp, by = "GtRNAdb_gene_symbol") %>%
   dplyr::pull(Strain.Name)
 
 ### Save with new names
-names(seqs) <- new_names
-writeXStringSet(seqs, paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/processed/DNA_seqs_only_KO.fa", sep=""))
+names(seqs_filtered) <- new_names
+writeXStringSet(seqs_filtered, paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/processed/DNA_seqs_only_KO.fa", sep=""))
 
 
 
@@ -94,51 +94,8 @@ new_names <- left_join(temp_names, master_temp, by = "GtRNAdb_gene_symbol") %>%
   dplyr::pull(Strain.Name)
 
 ### Save with new names
-names(seqs) <- new_names
-writeXStringSet(seqs, paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/processed/mature_seqs_only_KO.fa", sep=""))
-
-
-
-
-
-
-# All tRNAs - using GtRNAdb symbol, since there is no Strain.Name for the tRNAs that were not KOd
-## DNA sequence
-sequences <- as.list(master_dataset$DNA_sequence)
-seq_names <- as.list(master_dataset$GtRNAdb_gene_symbol)
-write.fasta(sequences = sequences,
-            names = seq_names,
-            file.out = paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/all_DNA_sequences.fasta", sep=""))
-
-## Mature sequence
-sequences <- as.list(master_dataset$mature_sequence)
-seq_names <- as.list(master_dataset$GtRNAdb_gene_symbol)
-write.fasta(sequences = sequences,
-            names = seq_names,
-            file.out = paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/all_mature_sequences.fasta", sep=""))
-
-
-
-
-# Only tRNAs that were KOd in our experiment - using Strain.Name 
-master_dataset <- master_dataset %>%
-  dplyr::filter(Strain.Name != "")
-  
-## DNA sequence
-sequences <- as.list(master_dataset$DNA_sequence)
-seq_names <- as.list(master_dataset$Strain.Name)
-write.fasta(sequences = sequences,
-            names = seq_names,
-            file.out = paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/only_KOd_DNA_sequences.fasta", sep=""))
-
-## Mature sequence
-sequences <- as.list(master_dataset$mature_sequence)
-seq_names <- as.list(master_dataset$Strain.Name)
-write.fasta(sequences = sequences,
-            names = seq_names,
-            file.out = paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/only_KOd_mature_sequences.fasta", sep=""))
-
-
+names(seqs_filtered) <- new_names
+writeXStringSet(seqs_filtered, paste(base_dir, "tRNA_KOs/Data/sequence_alignments/sequence_fastas/processed/mature_seqs_only_KO.fa", sep=""))
 
 
 
