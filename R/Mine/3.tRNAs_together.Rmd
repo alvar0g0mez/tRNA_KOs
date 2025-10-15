@@ -77,7 +77,7 @@ alpha_enrichment_plain <- str_replace(as.character(alpha_enrichment), "\\.", "")
 lfc_threshold <- 0.5
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"

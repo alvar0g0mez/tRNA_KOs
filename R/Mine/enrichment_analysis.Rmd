@@ -49,7 +49,7 @@ lfc_threshold <- 0.5
 threshold_major <- 2
 
 # Set directories to be used
-working_from = "charite"
+working_from = "home"
 
 if (working_from == "home") {
   base_dir = "/home/alvaro/MyStuff/"
@@ -468,7 +468,17 @@ For now, my score/rank is: sign(logFC)*(-log10(adj.P.Val))
 ```{r}
 # Load list of all dataframes (one per strain) with the DE results
 da <- read_json(paste(base_dir, "tRNA_KOs/Data/enrichment_analysis/da_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".json", sep=""), simplifyVector = T)
-da <- da[names(da) != "WT"]
+
+# Now da is a collapsed dataframe with all strains, need to separate it per strain and put the resulting dataframes into a list
+da_list <- list()
+strains <- unique(da$Strain.Name)
+for (i in 1:length(strains)) {
+  strain <- strains[i]
+  temp <- da %>%
+    dplyr::filter(Strain.Name == strain)
+  da_list[[strain]] <- temp
+}
+da <- da_list
 
 # Create empty list to put the named ranked gene lists in
 ranked_genes <- list()
