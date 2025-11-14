@@ -249,6 +249,336 @@ I think that maybe the different rows that correspond to the same tRNA (includin
 --------> I think this section is now pretty useless, the correct one is 4., where I do this only using genomic tRNA sequencing counts
 
 
+
+
+## 1.7. Now I have the lollipop plot for this which is much nicer, before I had these barplots
+If I ever want to run this again, I will need to fix the paths to which the plots/pdfs are saved, they are missing "paste(" at the beginning and ", sep="")" at the end. 
+
+### 1.7.1. Barplots
+Original version, general histogram and histograms per isoacceptors, coloring by anticodon
+```{r}
+# Histogram of avg_nDEP for each KO strain
+ggplot(data = responsiveness, aes(x = nDEP)) +
+  geom_histogram(binwidth = 1, color="black", fill="grey") +
+  theme_light() +
+  xlab("nDEP per tRNA KO") +
+  ylab("Count") +
+  labs(title = "Frequency of nDEP across all tRNA KO strains")
+
+# Given this histogram, I used to define the threshold to make out major and minor tRNA genes - I had it at 2 - now I do this in a bit of a more complex way (below)
+
+# Define a column with "minor"-"major", so that I can check how many major and minor ones there are per family (I could also do this directly based on the avg_nDEP tbh but oh well)
+responsiveness <- responsiveness %>%
+  group_by(anticodon) %>%
+  mutate(family_max = max(nDEP)) %>%
+  ungroup() %>%
+  #mutate(Gene_type = case_when(nDEP <= 20 ~ "Minor",                                 This is how I did it before
+  #                             nDEP > 20 & nDEP < 0.5*family_max ~ "Minor",
+  #                             nDEP > 0.75*family_max ~ "Major")) %>%
+  mutate(Gene_type = case_when(nDEP <= 20 ~ "-",
+                               nDEP > 0.55*family_max ~ "Major",                      # Current version
+                               TRUE ~ "Minor")) %>%
+  group_by(anticodon) %>%
+  summarize(Major_count = sum(Gene_type == "Major"), across()) %>%
+  ungroup() %>%
+  dplyr::select(-family_max)
+
+# Save this new version of responsiveness
+fwrite(responsiveness, "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv")
+
+# Get a dataframe with the size of each family, the number of those genes we have as KOs in the experiment, and how many of them are major, and plot this
+colnames(master_dataset)[colnames(master_dataset) == "family_size"] <- "Family_size"
+family_sizes <- left_join(master_dataset, responsiveness, by = "Strain.Name")
+family_sizes <- family_sizes %>%
+  filter(Strain.Name %in% responsiveness$Strain.Name) %>%                       # Filtered on KOd before, but that kept strains that were removed during filtering
+  dplyr::select(anticodon, Family_size, Family_count, Major_count) %>%
+  distinct(anticodon, .keep_all = T)
+
+
+# Get long version to plot, and re-order the anticodons by family size, in order to keep that order for the x axis of the plot - I think I could have avoided this by using geom_col()? But I didn't know it yet
+family_sizes <- family_sizes[order(-family_sizes$Family_size), ]
+family_sizes_long <- family_sizes %>% pivot_longer(!anticodon, names_to = "Type", values_to = "Count")
+family_sizes_long$anticodon <- factor(family_sizes_long$anticodon, levels = family_sizes$anticodon)
+family_sizes_long$Type <- factor(family_sizes_long$Type, levels = c("Family_size", "Family_count", "Major_count"))
+
+colnames(family_sizes_long)[colnames(family_sizes_long) == "anticodon"] <- "Anticodon"
+
+
+# Plot this
+ggplot(data = family_sizes_long, aes(x = Anticodon, y = Count, fill = Type)) +
+  geom_bar(position="dodge", stat="identity") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        legend.position = "none")
+
+
+# What is the relationship between Family_count and Major_count?
+ggplot(data = family_sizes, aes(x = Family_count, y = Major_count)) +
+  geom_point() +
+  geom_abline() +
+  theme_light() +
+  xlab("Genes in this family in the experiment") +
+  ylab("Major genes detected in the family") +
+  geom_text_repel(data = subset(family_sizes, Major_count/Family_count >= 1 | Major_count/Family_count < 0.3),
+                  aes(x = Family_count, y = Major_count, label = anticodon),
+                  size = 4)
+
+# Add family size information to responsiveness dataset
+temp <- family_sizes %>%
+  dplyr::select(anticodon, Family_size)
+responsiveness <- left_join(responsiveness, temp, by = "anticodon") %>%
+  mutate(perc_family = Family_count/Family_size)
+
+
+# Produce a single histogram like the one at the beginning of this chunk for each set of tRNA isoacceptors - and save them to a PDF
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+aas <- sort(levels(as.factor(responsiveness$Amino_acid_name)))
+for (i in 1:length(aas)) {
+  aa <- aas[i]
+  temp <- responsiveness %>%
+    filter(Amino_acid_name == aa)
+  plot_list[[aa]] <- ggplot(data = temp, aes(x = nDEP, fill = anticodon)) +
+    geom_histogram(binwidth = 1, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{aa}"))
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_isoacceptors_color_by_codon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Remove unnecessary variables
+rm(family_sizes_long, my_grobs, plot_list, temp, aa, aas, output_file, i)
+```
+
+Histograms by anticodon, color by full sequence of the tRNA molecule (both DNA and mature sequences) - also not coloring by anything (TO DO)
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp <- master_dataset %>%
+  dplyr::select(Strain.Name, DNA_sequence, mature_sequence)
+responsiveness <- left_join(responsiveness, temp, by = "Strain.Name")
+
+## Create empty list of plots
+plot_list_DNA_seq <- list()
+plot_list_mature_seq <- list()
+plot_list_not_colored <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(responsiveness$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- responsiveness %>%
+    filter(anticodon == my_anticodon)
+  
+  # Color by DNA seq
+  plot_list_DNA_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = DNA_sequence, fill = DNA_sequence)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+  
+  # Color by mature seq
+  plot_list_mature_seq[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP, col = mature_sequence, fill = mature_sequence)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+  
+  # Not coloring by anything
+  plot_list_not_colored[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs_DNA <- lapply(plot_list_DNA_seq, ggplotGrob)
+my_grobs_mature <- lapply(plot_list_mature_seq, ggplotGrob)
+my_grobs_not_colored <- lapply(plot_list_not_colored, ggplotGrob)
+
+## Print to PDF
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_color_by_DNA_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_DNA, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_color_by_mature_seq_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_mature, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs_not_colored, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv")
+```
+
+Repeat this but only for the strains with a single major tRNA gene, to have an image of the barplots only for those
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count == 1)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_only_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv")
+```
+
+Repeat this but only for the strains with more than one single major tRNA gene
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count > 1)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_more_than_1_major_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv")
+```
+
+Repeat this but only for the strains which have only KOs with less than 20 nDEP
+```{r}
+# Add columns with DNA and mature sequences to responsiveness dataframe
+temp_resp <- responsiveness %>%
+  filter(Major_count == 0)
+  
+## Create empty list of plots
+plot_list <- list()
+
+## Generate the plots and add them to the list
+anticodons <- sort(unique(as.character(temp_resp$anticodon)))
+for (i in 1:length(anticodons)) {
+  my_anticodon <- anticodons[i]
+  temp <- temp_resp %>%
+    filter(anticodon == my_anticodon)
+  
+  # Get plots
+  plot_list[[my_anticodon]] <- ggplot(data = temp, aes(x = nDEP)) +
+    geom_histogram(bins = 100, stat = StatBin2) +
+    theme_light() +
+    xlab("nDEP") +
+    ylab("Count") +
+    labs(title = glue("{my_anticodon}")) + 
+    theme(legend.position = "none")
+}
+
+## List of ggplot objects has to be turned to list of grobs for grid.arrange to work
+my_grobs <- lapply(plot_list, ggplotGrob)
+
+## Print to PDF
+output_file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Output/Plots/nDEP_per_families/histograms/nDEP_hists_per_anticodon_nDEP_below_20_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".pdf"
+ggsave(
+   filename = output_file, 
+   plot = marrangeGrob(my_grobs, nrow=4, ncol=4), 
+   width = 15, height = 9
+)
+
+
+# Save responsiveness dataframe for further use
+fwrite(responsiveness, "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/produced_during_analysis/responsiveness_", alpha_plain, "_logFC_", as.character(lfc_threshold), ".csv")
+
+
+# Remove unnecessary variables
+rm(amino_acids, master_by_amino_acid, master_by_anticodon, my_grobs_DNA, my_grobs_mature, plot_list_DNA_seq, plot_list_mature_seq, temp,
+   anticodon, anticodons, i, my_anticodon, num_of_tRNA_versions_DNA, num_of_tRNA_versions_mature, output_file, temp_resp)
+```
+
+
+
+
+
+
+
+
 ## 3.1. Come up with plots with nDEP vs. expression - using all rows
 
 Split rows that are mapped to multiple tRNAs 

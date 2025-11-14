@@ -57,33 +57,16 @@ lfc_threshold <- 1
 
 # Number of nDEP from which a tRNA is considered "major" (this threshold value should be included) - THIS I AM NOT USING ANYMORE, AM I?
 threshold_major <- 2
-
-# Set directories to be used
-working_from = "charite"
-
-if (working_from == "home") {
-  base_dir = "/home/alvaro/MyStuff/"
-} else
-if (working_from == "charite") {
-  base_dir = "C:/MyStuff/"
-}
-
 ```
 
 Load data
 ```{r}
 # Boris pre-processed data - normalized, batch and drift corrected
-if (working_from == "home") {
-  raw_data <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv", sep="")))
-} else 
-  if (working_from == "charite") {
-    raw_data <- as.data.frame(fread("S:/AG/AG-CF-HTMS/AG-Ralser-Share/30-0092_AndreaLehmann-AlternativeAAUsage-tRNA/05_DataAnalysis/11_Preprocessing_Boris/AlternativeAAUsage-tRNA/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
-  }
-
+raw_data <- as.data.frame(fread("/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/proteomics_data/AlternativeAAUsage-tRNA_peptidecentric_PrecursorQuantity_reprep_driftcorrected_batchcorrected_onWTs.tsv"))
 rownames(raw_data) <- raw_data$Precursor.Id
 
 # Sample layout - from the S drive
-metadata <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/basic/metadata_alvaro.tsv", sep="")))
+metadata <- as.data.frame(fread("/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/basic/metadata_alvaro.tsv"))
 
 # Separate metadata
 metadata_columns <- raw_data %>%
@@ -101,7 +84,7 @@ temp_colnames <- data.frame(Sample.ID.unique = colnames(raw_data)) %>%
 colnames(raw_data) <- temp_colnames$final_proteomics_colnames
 
 # UniProt dataset
-uniprot_db <- as.data.frame(fread(paste(base_dir, "tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv", sep="")))
+uniprot_db <- as.data.frame(fread("/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/databases/uniprotkb_proteome_UP000002311_2025_05_24.tsv"))
 
 # Remove unnecessary variables
 rm(temp_match, temp_colnames)
@@ -166,14 +149,14 @@ y.protein$genes$Protein <- temp_protein_names$Gene.secondaryIdentifier
 Save limpa results
 ```{r}
 # As .rds
-saveRDS(dpcfit, file = paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
-saveRDS(y.protein, file = paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+saveRDS(dpcfit, file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/limpa_analysis/dpcfit.rds")
+saveRDS(y.protein, file = "/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/limpa_analysis/y.protein.rds")
 ```
 
 Load limpa results 
 ```{r}
-dpcfit <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/dpcfit.rds", sep=""))
-y.protein <- readRDS(paste(base_dir, "tRNA_KOs/Data/limpa_analysis/y.protein.rds", sep=""))
+dpcfit <- readRDS("/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/limpa_analysis/dpcfit.rds")
+y.protein <- readRDS("/home/alvaro/MyStuff/Projects/tRNA_KOs/Data/limpa_analysis/y.protein.rds")
 ```
 
 
